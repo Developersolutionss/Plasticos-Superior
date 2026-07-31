@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  produccion
+  despacho
+  admin
+}
+
+enum ProductCategory {
+  bultos
+  rollos_prec_lam
+  rollos_fuelle
+  mangueta
+  tiras
+  control_impresion
+}
+
+enum ProductUnit {
+  kg
+  unidad
+}
+
+enum ProductionStatus {
+  pendiente
+  en_transito
+  recibido
+  rechazado
+}
+
+enum ProductionSource {
+  manual
+  excel_import
+  whatsapp_bot
+}
+
+enum MovementType {
+  entrada_produccion
+  salida_despacho
+  ajuste
+  devolucion
+}
+
+enum ReferenceType {
+  production_entry
+  dispatch_item
+  manual_adjustment
+}
+
+enum DispatchStatus {
+  pendiente
+  en_proceso
+  despachado
+}
+
+enum ImportSource {
+  manual_upload
+  whatsapp_bot
+}
+
+model User {
+  id            Int               @id @default(autoincrement())
+  name          String
+  email         String            @unique
+  passwordHash  String            @map("password_hash")
+  role          UserRole
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  productionEntries ProductionEntry[]
+  inventoryMovements InventoryMovement[]
+  dispatches        Dispatch[]
+  importLogs        ImportLog[]
+
+  @@map("users")
+}
+
+model Product {
+  id        Int             @id @default(autoincrement())
+  sku       String          @unique
+  name      String
+  category  ProductCategory
+  measure   String?
+  unit      ProductUnit
+  minStock  Decimal         @default(0) @map("min_stock") @db.Decimal(12, 2)
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  productionEntries  ProductionEntry[]
+  inventoryMovements InventoryMovement[]
+  dispatchItems      DispatchItem[]
+  stock              InventoryStock?
+
+  @@map("products")
+}
+
+model Client {
+  id          Int      @id @default(autoincrement())
+  name        String
+  contactInfo Json?    @map("contact_info")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  productionEntries ProductionEntry[]
+  dispatches        Dispatch[]
+
+  @@map("clients")
+}
+
+model ProductionEntry {
+  id           Int               @id @default(autoincrement())
+  productId    Int               @map("product_id")
+  product      Product           @relation(fields: [productId], references: [id])
+  labelCode    String?           @map("label_code")
+  operatorName String            @map("operator_name")
+  clientId     Int?              @map("client_id")
+  client       Client?           @relation(fields: [clientId], references: [id])
+  measure      String?
+  kilos        Decimal           @db.Decimal(12, 2)
+  driverName   String?           @map("driver_name")
+  status       ProductionStatus  @default(pendiente)
+  source       ProductionSource  @default(manual)
+  observations String?
+  createdById  Int?              @map("created_by")
+  createdBy    User?             @relation(fields: [createdById], references: [id])
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  movements InventoryMovement[]
+
+  @@map("production_entries")
+}
+
+model InventoryMovement {
+  id            Int            @id @default(autoincrement())
+  productId     Int            @map("product_id")
+  product       Product        @relation(fields: [productId], references: [id])
+  movementType  MovementType   @map("movement_type")
+  quantity      Decimal        @db.Decimal(12, 2)
+  referenceType ReferenceType  @map("reference_type")
+  referenceId   Int?           @map("reference_id")
+  productionEntryId Int?       @map("production_entry_id")
+  productionEntry   ProductionEntry? @relation(fields: [productionEntryId], references: [id])
+  createdById   Int?           @map("created_by")
+  createdBy     User?          @relation(fields: [createdById], references: [id])
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  @@map("inventory_movements")
+}
+
+model InventoryStock {
+  productId       Int      @id @map("product_id")
+  product         Product  @relation(fields: [productId], references: [id])
+  currentQuantity Decimal  @default(0) @map("current_quantity") @db.Decimal(12, 2)
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("inventory_stock")
+}
+
+model Dispatch {
+  id             Int            @id @default(autoincrement())
+  clientId       Int            @map("client_id")
+  client         Client         @relation(fields: [clientId], references: [id])
+  status         DispatchStatus @default(pendiente)
+  requestedDate  DateTime       @default(now()) @map("requested_date")
+  dispatchedDate DateTime?      @map("dispatched_date")
+  createdById    Int?           @map("created_by")
+  createdBy      User?          @relation(fields: [createdById], references: [id])
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  items DispatchItem[]
+
+  @@map("dispatches")
+}
+
+model DispatchItem {
+  id                 Int      @id @default(autoincrement())
+  dispatchId         Int      @map("dispatch_id")
+  dispatch           Dispatch @relation(fields: [dispatchId], references: [id])
+  productId          Int      @map("product_id")
+  product            Product  @relation(fields: [productId], references: [id])
+  quantityRequested  Decimal  @map("quantity_requested") @db.Decimal(12, 2)
+  quantityDispatched Decimal? @map("quantity_dispatched") @db.Decimal(12, 2)
+  labelCode          String?  @map("label_code")
+  notes              String?
+
+  @@map("dispatch_items")
+}
+
+model ImportLog {
+  id            Int          @id @default(autoincrement())
+  filename      String
+  source        ImportSource
+  rowsProcessed Int          @default(0) @map("rows_processed")
+  rowsFailed    Int          @default(0) @map("rows_failed")
+  uploadedById  Int?         @map("uploaded_by")
+  uploadedBy    User?        @relation(fields: [uploadedById], references: [id])
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  @@map("import_logs")
+}
