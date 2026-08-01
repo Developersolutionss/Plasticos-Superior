@@ -19,6 +19,10 @@
     "prisma@7.9.1": true,
     "@prisma/engines@7.9.1": true
   },
+  "overrides": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
   "devDependencies": {
     "vitest": "^4.1.10"
   }

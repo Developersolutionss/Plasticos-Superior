@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import Layout from "./components/Layout";
@@ -6,7 +7,7 @@ import InventoryDashboard from "./pages/InventoryDashboard";
 import Dispatches from "./pages/Dispatches";
 import ProductionUpload from "./pages/ProductionUpload";
 
-function RequireAuth({ children }: { children: JSX.Element }) {
+function RequireAuth({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   return children;
