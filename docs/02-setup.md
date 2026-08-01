@@ -123,8 +123,8 @@ Contactos sembrados para Cliente ACME: María López (principal) y Carlos Pérez
 | `npm run dev:server` | Inicia solo el backend (`tsx watch src/index.ts`) |
 | `npm run dev:client` | Inicia solo el frontend (`vite`) |
 | `npm run build` | Compila server (`tsc`) y client (`vite build`) |
-| `npm run prisma:migrate` | `prisma migrate dev` (en server) |
-| `npm run prisma:seed` | `tsx prisma/seed.ts` (en server) |
+| `npm run prisma:migrate` | `prisma migrate dev` + regenera Prisma Client (en server) |
+| `npm run prisma:seed` | `prisma db seed` (en server) |
 
 ### Server (`server/package.json`)
 
@@ -133,9 +133,9 @@ Contactos sembrados para Cliente ACME: María López (principal) y Carlos Pérez
 | `npm run dev` | `tsx watch src/index.ts` — dev con recarga |
 | `npm run build` | `tsc -p tsconfig.json` → `dist/` |
 | `npm run start` | `node dist/index.js` — producción |
-| `npm run prisma:migrate` | `prisma migrate dev` |
-| `npm run prisma:generate` | Regenera Prisma Client |
-| `npm run prisma:seed` | Ejecuta el seed |
+| `npm run prisma:migrate` | `prisma migrate dev` + `prisma generate` |
+| `npm run prisma:generate` | Regenera Prisma Client (`prisma generate`) |
+| `npm run prisma:seed` | Ejecuta el seed (`prisma db seed`) |
 
 ## Build y producción
 
