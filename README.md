@@ -64,5 +64,10 @@ Ver comentarios en [`server/src/routes/whatsappWebhook.ts`](server/src/routes/wh
 ```
 /server   → API REST (Express + Prisma)
 /client   → SPA/PWA (React + Vite)
+/docs     → documentación técnica del proyecto
 docker-compose.yml → PostgreSQL local
 ```
+
+## Documentación
+
+La documentación completa del proyecto (arquitectura, base de datos, API, backend, frontend, reglas de negocio y guía de contribución) está en [`/docs`](docs/README.md).
