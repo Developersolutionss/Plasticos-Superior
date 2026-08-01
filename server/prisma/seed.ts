@@ -37,6 +37,19 @@ async function main() {
     skipDuplicates: true,
   });
 
+  const acme = await prisma.client.findFirst({ where: { name: "Cliente ACME" } });
+  if (acme) {
+    const existingContacts = await prisma.clientContact.count({ where: { clientId: acme.id } });
+    if (existingContacts === 0) {
+      await prisma.clientContact.createMany({
+        data: [
+          { clientId: acme.id, name: "María López", position: "Jefe de Compras", phone: "3001234567", email: "maria@acme.com", isPrimary: true },
+          { clientId: acme.id, name: "Carlos Pérez", position: "Logística", phone: "3107654321", email: "carlos@acme.com", isPrimary: false },
+        ],
+      });
+    }
+  }
+
   console.log("Seed completado. Usuarios: admin@empresa.com / produccion@empresa.com / despacho@empresa.com (password123)");
 }
 
