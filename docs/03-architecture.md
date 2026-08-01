@@ -124,6 +124,8 @@ Configurado en `vite.config.ts` con `vite-plugin-pwa`:
 | `/api/dispatches` | `dispatchesRouter` | `server/src/routes/dispatches.ts` |
 | `/webhook/whatsapp` | `whatsappWebhookRouter` | `server/src/routes/whatsappWebhook.ts` |
 
+El router de clientes también expone los contactos: `GET/POST /api/clients/:id/contacts` y `DELETE /api/clients/:id/contacts/:contactId`. No requiere un montaje aparte en `index.ts`.
+
 ## Configuración compartida (una sola instancia)
 
 `server/src/prisma.ts` exporta un único `PrismaClient`. Todos los routers y servicios lo importan. El proyecto no crea una conexión por archivo.

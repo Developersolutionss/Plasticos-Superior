@@ -86,15 +86,19 @@ Transición automática en el `PATCH` de items. También fija `dispatched_date` 
 
 ## Consistencia / transacciones
 
-Toda operación que toca **dos o más tablas** relacionadas al stock usa `prisma.$transaction`:
+Toda operación que toca **dos o más tablas** usa `prisma.$transaction`. El sistema no escribe a medias. Si alguna parte falla, **nada se aplica**. Las tablas nunca quedan inconsistentes.
+
+Operaciones transaccionales actuales:
 
 - Crear entrada de producción (entry + movimiento + stock).
 - Marcar item despachado (item + movimiento + stock + estado del despacho).
-
-Si alguna parte falla, **nada se aplica**. Las tablas nunca quedan inconsistentes.
+- Crear un contacto principal (desmarcar el principal anterior + crear el nuevo).
+- Borrar un contacto principal (asignar el siguiente + borrar).
 
 ## Notas de integridad
 
 - Los clientes se crean automáticamente desde el nombre en una entrada de producción si no existen.
 - `users`, `products`, `production_entries`, `dispatches` y `import_logs` guardan `created_by`/`created_at` para trazabilidad.
 - `inventory_stock` es 1:1 con `products` (PK = `product_id`).
+- `client_contacts.client_id` es FK hacia `clients` con `ON DELETE RESTRICT`: no se puede borrar un cliente que tenga contactos.
+- La unicidad del contacto principal la garantiza la API (transacción), no un índice en la BD.

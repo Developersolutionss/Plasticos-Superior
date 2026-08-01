@@ -2,7 +2,7 @@
 
 ## Stack de datos
 
-- **PostgreSQL 16** en Docker (`docker-compose.yml`). Base `inventario_despachos`.
+- **PostgreSQL 16** en Docker (`docker-compose.yml`, o su equivalente con `docker run` si no se dispone del plugin Compose). Base `inventario_despachos`. Ver [02 — Puesta en marcha](02-setup.md).
 - **Prisma** como ORM. El archivo fuente de la verdad es `server/prisma/schema.prisma`.
 - Migraciones versionadas en `server/prisma/migrations/`.
 
@@ -39,6 +39,7 @@ users 1───N production_entries ──N──1 products
 users 1───N inventory_movements ──N──1 products
 users 1───N dispatches           ──N──1 clients
 users 1───N import_logs
+clients 1───N client_contacts
 products 1───1 inventory_stock
 products 1───N production_entries ──N──1 clients
 products 1───N dispatch_items ──N──1 dispatches
@@ -77,8 +78,23 @@ production_entries 1───N inventory_movements
 |---|---|---|
 | id | Int | PK |
 | name | String | |
-| contactInfo | Json? | `@map("contact_info")`. ⚠️ **columna legacy sin uso**: nadie la llena. El futuro módulo de contactos la reemplaza (ver [09 — Guía de contribución](09-contributing.md)) |
+| contactInfo | Json? | `@map("contact_info")`. ⚠️ **columna legacy sin uso**: nadie la llena. El módulo de contactos real usa la tabla `client_contacts` (ver abajo) |
 | active | Boolean | `@default(true)` — el listado filtra `active: true` |
+| createdAt | DateTime | `@map("created_at")` |
+
+### `client_contacts`
+
+Un contacto pertenece a un cliente (`clients 1:N client_contacts`). Cada fila guarda un punto de contacto (nombre, cargo, teléfono, correo). El contacto principal se marca con `is_primary`.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK, autoincrement |
+| clientId | Int | FK → clients. `ON DELETE RESTRICT`: no se borra un cliente con contactos |
+| name | String | obligatorio |
+| position | String? | cargo |
+| phone | String? | |
+| email | String? | validado en la API con zod (`z.string().email()`) |
+| isPrimary | Boolean | `@default(false)`. Solo un principal por cliente; lo garantiza la API con `$transaction` |
 | createdAt | DateTime | `@map("created_at")` |
 
 ### `production_entries`
@@ -181,7 +197,10 @@ Registro de cada importación de producción (Excel manual o WhatsApp).
 
 ## Migraciones
 
-`server/prisma/migrations/` guarda el historial SQL. Actualmente hay una sola: `20260722012128_init` (crea todas las tablas y enums).
+`server/prisma/migrations/` guarda el historial SQL. Historial actual:
+
+- `20260722012128_init` — crea todas las tablas y enums.
+- `20260801005245_add_client_contacts` — crea la tabla `client_contacts` y su FK hacia `clients`.
 
 Para aplicar nuevos cambios al schema:
 
@@ -198,6 +217,7 @@ npm run prisma:migrate    # crea una carpeta nueva con el SQL + regenera el clie
 - 3 usuarios de prueba (contraseña `password123`): admin, produccion, despacho.
 - 6 productos (SKUs `BUL-001`, `ROL-PL-001`, `ROL-F-001`, `MAN-001`, `TIR-001`, `CTL-001`).
 - 2 clientes: "Cliente ACME", "Distribuidora Norte".
+- 2 contactos para Cliente ACME: María López (principal) y Carlos Pérez.
 
 ## Consultas útiles en psql
 

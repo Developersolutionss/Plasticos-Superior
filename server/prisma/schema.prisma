@@ -107,8 +107,23 @@ model Client {
 
   productionEntries ProductionEntry[]
   dispatches        Dispatch[]
+  contacts          ClientContact[]  
 
   @@map("clients")
+}
+
+model ClientContact {
+  id        Int      @id @default(autoincrement())
+  clientId  Int      @map("client_id")
+  client    Client   @relation(fields: [clientId], references: [id])
+  name      String
+  position  String?
+  phone     String?
+  email     String?
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("client_contacts")
 }
 
 model ProductionEntry {

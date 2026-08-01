@@ -45,7 +45,7 @@ El proyecto se construye en 20 módulos, repartidos en 4 fases a lo largo de 6 m
 |---|---|---|
 | 1 | Autenticación | ✅ Implementado |
 | 2 | Auditoría | 🟡 Parcial (solo bitácora de inventario) |
-| 3 | CRM de clientes | 🟡 Mínimo (listar/crear) |
+| 3 | CRM de clientes | 🟡 Parcial (listar/crear + contactos) |
 | 4 | Pedidos | ❌ Pendiente |
 
 ### Fase 2 (semanas 9-16)

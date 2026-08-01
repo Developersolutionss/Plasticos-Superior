@@ -17,7 +17,7 @@ server/
     │   └── auth.ts        → requireAuth (JWT) + requireRole (no usado aún)
     ├── routes/
     │   ├── auth.ts        → POST /login
-    │   ├── clients.ts     → GET/POST /api/clients
+    │   ├── clients.ts     → clientes (GET/POST /api/clients) + contactos (/:id/contacts)
     │   ├── inventory.ts   → GET /api/inventory[/alerts[/products]]
     │   ├── production.ts  → alta manual + import Excel (preview/confirm)
     │   ├── dispatches.ts  → GET/POST despachos + marcar items
@@ -94,6 +94,8 @@ clientsRouter.post("/", async (req, res) => {  // 4. validar + actuar
 3. Esquema zod que define la forma del body.
 4. `safeParse` → si falla, `400` con errores. Si pasa, `prisma.<modelo>.<método>()` → respuesta.
 
+> El mismo archivo (`clients.ts`) define los endpoints de contactos: `GET/POST/DELETE /:id/contacts`. Sigue el patrón, con una diferencia: valida el parámetro `:id` a mano (`Number.isInteger`) porque un GET o DELETE no tiene body que valide zod. El POST y el DELETE usan `$transaction` para mantener la unicidad del contacto principal (ver [Transacciones](#transacciones-prismatransaction)).
+
 ## Middleware de autenticación (`middleware/auth.ts`)
 
 ```ts
@@ -168,6 +170,11 @@ Antes de la transacción, valida el SKU en el catálogo. Si no existe, devuelve 
 1. Actualiza `quantityDispatched` del item.
 2. Aplica el movimiento de **salida** de stock (`quantity` negativo).
 3. Cuenta items pendientes. Si no quedan, el despacho pasa a `despachado` (y fija `dispatchedDate`). Si quedan, pasa a `en_proceso`.
+
+**En `routes/clients.ts` (contactos)** — dentro de `$transaction`:
+
+- **POST** con `isPrimary: true`: desmarca los primarios actuales del cliente (`updateMany`) y crea el contacto nuevo. Así siempre queda un solo principal.
+- **DELETE** de un contacto principal: asigna como principal el contacto restante más reciente (`orderBy: { createdAt: "desc" }`) y borra el contacto.
 
 ## Uso de `req.user`
 

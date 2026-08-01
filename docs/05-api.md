@@ -37,7 +37,7 @@ Respuesta:
 
 | Código | Cuándo | Body |
 |---|---|---|
-| 400 | Body inválido (zod) o regla de negocio fallida | `{ "error": ..., "details": {...} }` o `{ "error": "mensaje" }` |
+| 400 | Body inválido (zod), parámetro de URL inválido o regla de negocio fallida | `{ "error": ..., "details": {...} }` o `{ "error": "mensaje" }` |
 | 401 | Token no provisto, inválido o expirado | `{ "error": "..." }` |
 | 404 | Recurso no encontrado | `{ "error": "..." }` |
 
@@ -62,6 +62,28 @@ curl http://localhost:4000/api/clients -H "Authorization: Bearer <token>"
 curl -X POST http://localhost:4000/api/clients \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
   -d '{"name":"Nuevo Cliente"}'
+```
+
+### Contactos de cliente
+
+| Método | Ruta | Body | Descripción |
+|---|---|---|---|
+| GET | `/api/clients/:id/contacts` | — | Lista los contactos del cliente, ordenados por principal primero y luego por nombre. `404` si el cliente no existe. `[]` si no tiene contactos |
+| POST | `/api/clients/:id/contacts` | `{ name, position?, phone?, email?, isPrimary? }` | Crea un contacto. Si `isPrimary: true`, desmarca los demás del cliente dentro de una transacción. `400` si el body es inválido (email no válido) |
+| DELETE | `/api/clients/:id/contacts/:contactId` | — | Borra un contacto. Si era el principal, asigna el más reciente restante dentro de una transacción. `404` si no existe |
+
+Reglas:
+- Valide el `id` de la URL: si no es un número → `400`.
+- `404` si el cliente no existe (GET/POST) o si el contacto no pertenece al cliente de la URL (DELETE).
+
+```bash
+curl http://localhost:4000/api/clients/1/contacts -H "Authorization: Bearer <token>"
+
+curl -X POST http://localhost:4000/api/clients/1/contacts \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"name":"María","position":"Compras","phone":"3001234","email":"maria@acme.com","isPrimary":true}'
+
+curl -X DELETE http://localhost:4000/api/clients/1/contacts/5 -H "Authorization: Bearer <token>"
 ```
 
 ### Inventario

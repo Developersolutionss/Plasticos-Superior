@@ -40,9 +40,9 @@ El estado real frente al plan completo de 20 módulos está en [00 — Hoja de r
 | Inventario | ✅ Implementado | Stock por producto. Stock mínimo. Alertas. Categorías |
 | Producción | ✅ Implementado | Alta manual + importación Excel/CSV con preview y confirmación |
 | Despachos | ✅ Implementado (parcial) | Crear despacho y marcar items como despachados (descuenta stock). Sin UI de creación aún |
-| Clientes | 🟡 Mínimo | Listar/crear clientes (usado en despachos). Sin módulo de CRM |
+| Clientes | 🟡 Parcial | Listar/crear clientes y contactos (usado en despachos). Sin módulo de CRM completo |
 | WhatsApp | 🔶 Fase 2 | Webhook implementado. Pendiente cuenta Meta aprobada y credenciales |
-| CRM | ❌ Pendiente | Módulo de clientes/contactos futuro |
+| CRM | 🟡 Parcial | Base de datos de clientes y contactos lista. Módulo de CRM completo pendiente |
 
 ## Actores (roles)
 
