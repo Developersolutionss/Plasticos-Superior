@@ -10,7 +10,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "prisma:seed": "tsx prisma/seed.ts",
-    "test": "node --import tsx --test test/api.test.ts"
+    "test": "node --import tsx --test ../testing/server/api.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

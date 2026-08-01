@@ -3,10 +3,10 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import App from "./App";
-import { AuthProvider } from "./auth/AuthContext";
+import App from "../../client/src/App";
+import { AuthProvider } from "../../client/src/auth/AuthContext";
 
-vi.mock("./api/client", () => ({
+vi.mock("../../client/src/api/client", () => ({
   api: {
     login: vi.fn(),
     getInventory: vi.fn().mockResolvedValue([]),
@@ -23,7 +23,7 @@ vi.mock("./api/client", () => ({
   },
 }));
 
-import { api } from "./api/client";
+import { api } from "../../client/src/api/client";
 
 function renderApp(initialPath = "/login") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
