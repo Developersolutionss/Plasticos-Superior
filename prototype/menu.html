@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prototipo · Menú sidebar</title>
+<style>
+  :root {
+    --primary: #0f172a;      /* slate-900 */
+    --nav: #1e293b;          /* slate-800 */
+    --nav-hover: #334155;    /* slate-700 */
+    --active: #0ea5e9;       /* sky-500 */
+    --bg: #f8fafc;           /* slate-50 */
+    --text: #e2e8f0;         /* slate-200 */
+    --text-dim: #94a3b8;     /* slate-400 */
+    --border: #334155;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: #1e293b;
+  }
+
+  /* ── Layout ─────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 100vh;
+    transition: grid-template-columns .25s ease;
+  }
+  .app.collapsed { grid-template-columns: 64px 1fr; }
+
+  /* ── Sidebar ────────────────────────────── */
+  .sidebar {
+    background: linear-gradient(180deg, var(--primary), var(--nav));
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--border);
+  }
+
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo {
+    width: 32px; height: 32px; flex-shrink: 0;
+    background: var(--active); border-radius: 8px;
+    display: grid; place-items: center;
+    font-weight: 800; color: #fff;
+  }
+  .brand {
+    font-weight: 700; white-space: nowrap; font-size: 15px;
+  }
+  .collapse-btn {
+    margin-left: auto;
+    background: none; border: none; color: var(--text-dim);
+    font-size: 18px; cursor: pointer; padding: 4px 8px; border-radius: 6px;
+  }
+  .collapse-btn:hover { color: #fff; background: var(--nav-hover); }
+
+  .sidebar-scroll { flex: 1; overflow-y: auto; padding: 8px 0 16px; }
+
+  /* Sección compacta superior (acciones rápidas / favoritos) */
+  .quick-group { padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  .quick-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text-dim); padding: 8px 10px 4px; white-space: nowrap;
+  }
+  .quick-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 10px; border-radius: 8px; cursor: pointer;
+    white-space: nowrap; color: var(--text); font-size: 14px;
+  }
+  .quick-item:hover { background: var(--nav-hover); }
+  .quick-item .ic { width: 22px; text-align: center; flex-shrink: 0; }
+
+  .divider { height: 1px; background: var(--border); margin: 8px 10px; }
+  .hidden-when-collapsed { display: inline; }
+  .collapsed .hidden-when-collapsed { display: none; }
+  .collapsed .quick-item { justify-content: center; padding: 8px 0; }
+  .collapsed .quick-label { display: none; }
+
+  /* ── Navegación principal ───────────────── */
+  .nav-section { display: flex; flex-direction: column; }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 10px; border-radius: 8px; cursor: pointer;
+    white-space: nowrap; font-size: 14px; border: none; background: none;
+    color: var(--text); width: 100%; text-align: left;
+    transition: background .15s, color .15s;
+  }
+  .nav-item:hover { background: var(--nav-hover); }
+  .nav-item.active {
+    background: rgba(14, 165, 233, .15);
+    color: #7dd3fc; font-weight: 600;
+  }
+  .nav-item .ic { width: 22px; text-align: center; flex-shrink: 0; }
+  .nav-item .caret {
+    margin-left: auto; font-size: 10px; color: var(--text-dim);
+    transition: transform .2s;
+  }
+  .nav-item.open .caret { transform: rotate(90deg); }
+
+  .submenu { overflow: hidden; max-height: 0; transition: max-height .25s ease; }
+  .submenu.open { max-height: 400px; }
+  .submenu-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 7px 10px 7px 44px; border-radius: 6px; cursor: pointer;
+    white-space: nowrap; font-size: 13px; color: var(--text-dim);
+  }
+  .submenu-item:hover { color: var(--text); background: var(--nav-hover); }
+  .submenu-item.active { color: #7dd3fc; font-weight: 600; }
+  .submenu-item::before { content: "·"; color: var(--active); font-weight: 700; }
+
+  .collapsed .nav-item { justify-content: center; padding: 11px 0; }
+  .collapsed .nav-item .caret { display: none; }
+  .collapsed .submenu, .collapsed .submenu.open { max-height: 0; }
+
+  .sidebar-footer {
+    padding: 12px 16px; border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; white-space: nowrap;
+    font-size: 13px; color: var(--text-dim);
+  }
+  .avatar {
+    width: 30px; height: 30px; background: #475569; border-radius: 50%;
+    display: grid; place-items: center; font-size: 13px; color: #fff; flex-shrink: 0;
+  }
+  .collapsed .sidebar-footer { justify-content: center; padding: 12px 0; }
+
+  /* ── Contenido placeholder ──────────────── */
+  .content { padding: 24px; }
+  .content h1 { font-size: 24px; margin-bottom: 8px; }
+  .content p { color: #475569; }
+  .card {
+    margin-top: 20px; background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 12px; padding: 24px; color: #64748b; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ════════ SIDEBAR ════════ -->
+  <aside class="sidebar">
+
+    <div class="sidebar-header">
+      <div class="logo">P</div>
+      <span class="brand hidden-when-collapsed">Plásticos Superior</span>
+      <button class="collapse-btn" id="toggleBtn" title="Colapsar menú">☰</button>
+    </div>
+
+    <div class="sidebar-scroll">
+
+      <!-- Acciones rápidas + Favoritos -->
+      <div class="quick-group">
+        <div class="quick-label">Acciones rápidas</div>
+        <div class="quick-item"><span class="ic">⚡</span><span class="hidden-when-collapsed">Nueva orden</span></div>
+        <div class="quick-item"><span class="ic">⚡</span><span class="hidden-when-collapsed">Cargar producción</span></div>
+        <div class="quick-label">Favoritos</div>
+        <div class="quick-item"><span class="ic">⭐</span><span class="hidden-when-collapsed">Inventario</span></div>
+        <div class="quick-item"><span class="ic">⭐</span><span class="hidden-when-collapsed">Producción</span></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Navegación principal -->
+      <nav class="nav-section" id="navSection">
+        <button class="nav-item open has-sub" type="button"><span class="ic">🏠</span><span class="hidden-when-collapsed">Dashboard</span><span class="caret">▶</span></button>
+        <div class="submenu open">
+          <div class="submenu-item active">Resumen general</div>
+          <div class="submenu-item">Indicadores</div>
+        </div>
+
+        <button class="nav-item has-sub" type="button"><span class="ic">👥</span><span class="hidden-when-collapsed">Clientes</span><span class="caret">▶</span></button>
+        <div class="submenu">
+          <div class="submenu-item">Listado de clientes</div>
+          <div class="submenu-item">Crear cliente</div>
+          <div class="submenu-item">Contactos</div>
+        </div>
+
+        <button class="nav-item" type="button"><span class="ic">📦</span><span class="hidden-when-collapsed">Pedidos</span></button>
+
+        <button class="nav-item" type="button"><span class="ic">📅</span><span class="hidden-when-collapsed">Planeación</span></button>
+
+        <button class="nav-item has-sub" type="button"><span class="ic">🏭</span><span class="hidden-when-collapsed">Producción</span><span class="caret">▶</span></button>
+        <div class="submenu">
+          <div class="submenu-item">Órdenes de producción</div>
+          <div class="submenu-item">Extrusión</div>
+          <div class="submenu-item">Impresión</div>
+          <div class="submenu-item">Sellado</div>
+          <div class="submenu-item">Precorte</div>
+        </div>
+
+        <button class="nav-item" type="button"><span class="ic">🔍</span><span class="hidden-when-collapsed">Calidad</span></button>
+
+        <button class="nav-item" type="button"><span class="ic">📍</span><span class="hidden-when-collapsed">Trazabilidad</span></button>
+
+        <button class="nav-item has-sub" type="button"><span class="ic">📦</span><span class="hidden-when-collapsed">Inventario</span><span class="caret">▶</span></button>
+        <div class="submenu">
+          <div class="submenu-item">Productos</div>
+          <div class="submenu-item">Movimientos</div>
+          <div class="submenu-item">Existencias</div>
+        </div>
+
+        <button class="nav-item" type="button"><span class="ic">🏢</span><span class="hidden-when-collapsed">Almacén / WMS</span></button>
+
+        <button class="nav-item" type="button"><span class="ic">🏷️</span><span class="hidden-when-collapsed">Etiquetas térmicas</span></button>
+
+        <button class="nav-item" type="button"><span class="ic">📷</span><span class="hidden-when-collapsed">Escaneo QR / Cód. barras</span></button>
+
+        <button class="nav-item" type="button"><span class="ic">📊</span><span class="hidden-when-collapsed">Exportaciones</span></button>
+
+        <button class="nav-item" type="button"><span class="ic">🔔</span><span class="hidden-when-collapsed">Notificaciones</span></button>
+
+        <button class="nav-item has-sub" type="button"><span class="ic">📜</span><span class="hidden-when-collapsed">Auditoría</span><span class="caret">▶</span></button>
+        <div class="submenu">
+          <div class="submenu-item">Bitácora de inventario</div>
+        </div>
+
+        <button class="nav-item has-sub" type="button"><span class="ic">⚙️</span><span class="hidden-when-collapsed">Configuración</span><span class="caret">▶</span></button>
+        <div class="submenu">
+          <div class="submenu-item">Autenticación</div>
+          <div class="submenu-item">Usuarios y permisos</div>
+        </div>
+      </nav>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="avatar">A</div>
+      <span class="hidden-when-collapsed">Usuario</span>
+    </div>
+  </aside>
+
+  <!-- ════════════ CONTENIDO ════════════ -->
+  <main class="content">
+    <h1>Menú principal</h1>
+    <p>Prototipo del sidebar · usa ☰ para colapsar y haz clic en los ítems con ▶ para desplegar submenús.</p>
+    <div class="card">Aquí irá el contenido de cada página (Dashboard, Clientes, Producción, etc.).</div>
+  </main>
+</div>
+
+<script>
+  const app = document.getElementById("app");
+  const toggleBtn = document.getElementById("toggleBtn");
+  const navItems = document.querySelectorAll(".nav-item.has-sub");
+  const simpleItems = document.querySelectorAll(".nav-item:not(.has-sub)");
+
+  toggleBtn.addEventListener("click", () => app.classList.toggle("collapsed"));
+
+  simpleItems.forEach((item) => {
+    item.addEventListener("click", () => {
+      document.querySelectorAll(".nav-item.active").forEach((n) => n.classList.remove("active"));
+      item.classList.add("active");
+    });
+  });
+
+  navItems.forEach((item) => {
+    const submenu = item.nextElementSibling;
+    const caret = item.querySelector(".caret");
+
+    item.addEventListener("click", () => {
+      const isOpen = submenu.classList.toggle("open");
+      item.classList.toggle("open", isOpen);
+      caret.textContent = isOpen ? "▼" : "▶";
+    });
+  });
+</script>
+</body>
+</html>
