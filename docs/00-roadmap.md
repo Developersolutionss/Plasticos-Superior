@@ -37,7 +37,7 @@ El plan original asigna la autenticación a la Fase 1. La autenticación **ya es
 
 ## Los 20 módulos en 4 fases
 
-El proyecto se construye en 20 módulos, repartidos en 4 fases a lo largo de 6 meses.
+El proyecto se construye en 21 módulos, repartidos en 4 fases a lo largo de 6 meses.
 
 ### Fase 1 (semanas 1-8)
 
@@ -66,25 +66,26 @@ El proyecto se construye en 20 módulos, repartidos en 4 fases a lo largo de 6 m
 |---|---|---|
 | 12 | Calidad | ❌ Pendiente |
 | 13 | Inventario | ✅ Implementado |
-| 14 | Almacén / WMS | ❌ Pendiente |
-| 15 | Dashboard | 🟡 Parcial (solo dashboard de stock) |
-| 16 | Exportaciones | ❌ Pendiente |
+| 14 | Despachos | 🟡 Parcial (crear despacho y marcar items → descuenta stock; falta UI de creación) |
+| 15 | Almacén / WMS | ❌ Pendiente |
+| 16 | Dashboard | 🟡 Parcial (solo dashboard de stock) |
+| 17 | Exportaciones | ❌ Pendiente |
 
 ### Fase 4 (semanas 21-24)
 
 | # | Módulo | Estado |
 |---|---|---|
-| 17 | Etiquetas térmicas | ❌ Pendiente |
-| 18 | Escaneo QR / código de barras | ❌ Pendiente |
-| 19 | Notificaciones | ❌ Pendiente |
-| 20 | Pruebas finales y despliegue | ❌ Pendiente |
+| 18 | Etiquetas térmicas | ❌ Pendiente |
+| 19 | Escaneo QR / código de barras | ❌ Pendiente |
+| 20 | Notificaciones | ❌ Pendiente |
+| 21 | Pruebas finales y despliegue | ❌ Pendiente |
 
 ## Resumen de avance
 
 | Estado | Cantidad |
 |---|---|
 | ✅ Implementado | 2 |
-| 🟡 Parcial | 3 |
+| 🟡 Parcial | 4 |
 | ❌ Pendiente | 15 |
 
 ## Stack
@@ -98,5 +99,5 @@ La documentación técnica actual cubre parte de este plan:
 | Documento | Cubre |
 |---|---|
 | [01 — Visión general](01-overview.md) | Estado actual de los módulos |
-| [08 — Reglas de negocio](08-workflow.md) | Ciclo del stock de inventario |
+| [08 — Reglas de negocio](08-workflow.md) | Ciclo del stock de inventario y despachos (salida de stock) |
 | [09 — Guía de contribución](09-contributing.md) | Cómo agregar módulos nuevos (modelo + migración + endpoint + página) |

@@ -6,3 +6,6 @@ build/
 .DS_Store
 server/src/generated/
 *.tsbuildinfo
+
+docs/branch-flow.md
+docs/maindashboard.md
