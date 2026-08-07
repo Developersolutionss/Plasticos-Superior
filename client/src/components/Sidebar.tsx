@@ -1,20 +1,24 @@
 import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import "./Sidebar.css";
-import { favorites, navSections, quickActions, type NavEntry, type NavLeaf } from "./navConfig";
+import { navSections, type NavChoice, type NavEntry, type NavLeaf } from "./navConfig";
+import { useShortcuts } from "./useShortcuts";
+import ShortcutsConfig from "./ShortcutsConfig";
 
-function QuickItem({ item }: { item: NavLeaf }) {
-  if (item.disabled || !item.to) {
+function AtajoItem({ item }: { item: NavChoice }) {
+  const to = item.to;
+  if (item.disabled || !to) {
     return (
       <button className="sidebar-quick-item nav-item disabled" type="button" disabled title="Próximamente">
-        <span className="ic">•</span>
+        <span className="ic">{item.icon}</span>
         <span className="hidden-when-collapsed">{item.label}</span>
+        <span className="soon-tag hidden-when-collapsed">Próximamente</span>
       </button>
     );
   }
   return (
-    <NavLink to={item.to} end={item.to === "/"} className="sidebar-quick-item">
-      <span className="ic">•</span>
+    <NavLink to={to} end={to === "/"} className="sidebar-quick-item">
+      <span className="ic">{item.icon}</span>
       <span className="hidden-when-collapsed">{item.label}</span>
     </NavLink>
   );
@@ -72,8 +76,8 @@ function NavSection({ entry }: { entry: NavEntry }) {
         <span className="caret">▶</span>
       </button>
       <div className={`submenu ${open ? "open" : ""}`}>
-        {entry.children!.map((child) => (
-          <SubmenuLeaf key={child.label} item={child} />
+        {entry.children?.map((child) => (
+          <SubmenuLeaf key={child.id} item={child} />
         ))}
       </div>
     </>
@@ -81,6 +85,9 @@ function NavSection({ entry }: { entry: NavEntry }) {
 }
 
 export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const { atajos } = useShortcuts();
+  const [showConfig, setShowConfig] = useState(false);
+
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -93,13 +100,12 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
 
       <div className="sidebar-scroll">
         <div className="sidebar-quick-group">
-          <div className="sidebar-quick-label">Acciones rápidas</div>
-          {quickActions.map((item) => (
-            <QuickItem key={item.label} item={item} />
-          ))}
-          <div className="sidebar-quick-label">Favoritos</div>
-          {favorites.map((item) => (
-            <QuickItem key={item.label} item={item} />
+          <div className="sidebar-quick-label">⚡ Atajos</div>
+          {atajos.length === 0 && (
+            <div className="sidebar-empty hidden-when-collapsed">Ajusta tus atajos con 🛠️</div>
+          )}
+          {atajos.map((item) => (
+            <AtajoItem key={item.id} item={item} />
           ))}
         </div>
 
@@ -107,10 +113,24 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
 
         <nav className="sidebar-nav">
           {navSections.map((entry) => (
-            <NavSection key={entry.label} entry={entry} />
+            <NavSection key={entry.id} entry={entry} />
           ))}
         </nav>
+
+        <div className="sidebar-divider" />
+
+        <button
+          className="sidebar-adjust-btn"
+          type="button"
+          onClick={() => setShowConfig((v) => !v)}
+          title="Ajustar atajos"
+        >
+          <span className="ic">🛠️</span>
+          <span className="hidden-when-collapsed">Ajustar los Atajos</span>
+        </button>
       </div>
+
+      {showConfig && <ShortcutsConfig onClose={() => setShowConfig(false)} />}
     </aside>
   );
 }

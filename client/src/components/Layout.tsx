@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import Sidebar from "./Sidebar";
-import "./Sidebar.css";
 
 export default function Layout() {
   const { user, logout } = useAuth();
