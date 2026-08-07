@@ -80,7 +80,17 @@
     white-space: nowrap; color: var(--text); font-size: 14px;
   }
   .quick-item:hover { background: var(--nav-hover); }
+  .quick-item.disabled { cursor: not-allowed; opacity: .6; }
+  .quick-item.disabled:hover { background: none; }
   .quick-item .ic { width: 22px; text-align: center; flex-shrink: 0; }
+
+  .soon-tag {
+    margin-left: auto;
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--active);
+    border: 1px solid rgba(14, 165, 233, .4);
+    padding: 1px 6px; border-radius: 999px; white-space: nowrap;
+  }
 
   .divider { height: 1px; background: var(--border); margin: 8px 10px; }
   .hidden-when-collapsed { display: inline; }
@@ -163,11 +173,11 @@
       <!-- Acciones rápidas + Favoritos -->
       <div class="quick-group">
         <div class="quick-label">Acciones rápidas</div>
-        <div class="quick-item"><span class="ic">⚡</span><span class="hidden-when-collapsed">Nueva orden</span></div>
         <div class="quick-item"><span class="ic">⚡</span><span class="hidden-when-collapsed">Cargar producción</span></div>
+        <div class="quick-item disabled"><span class="ic">⚡</span><span class="hidden-when-collapsed">Nueva orden</span><span class="soon-tag hidden-when-collapsed">Próximamente</span></div>
         <div class="quick-label">Favoritos</div>
         <div class="quick-item"><span class="ic">⭐</span><span class="hidden-when-collapsed">Inventario</span></div>
-        <div class="quick-item"><span class="ic">⭐</span><span class="hidden-when-collapsed">Producción</span></div>
+        <div class="quick-item"><span class="ic">⭐</span><span class="hidden-when-collapsed">Despachos</span></div>
       </div>
 
       <div class="divider"></div>
