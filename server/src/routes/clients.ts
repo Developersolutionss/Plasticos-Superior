@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 
 export const clientsRouter = Router();
 clientsRouter.use(requireAuth);
+
+/** CRM (clientes, contactos, direcciones, cotizaciones) es dominio de Ventas/Pedidos. */
+const requireVentas = requireRole(...ROLES.VENTAS);
 
 clientsRouter.get("/", async (_req, res) => {
   const clients = await prisma.client.findMany({ where: { active: true }, orderBy: { name: "asc" } });
@@ -17,7 +20,7 @@ const createClientSchema = z.object({
   creditLimit: z.number().min(0).optional(),
 });
 
-clientsRouter.post("/", async (req, res) => {
+clientsRouter.post("/", requireVentas, async (req, res) => {
   const parsed = createClientSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -30,7 +33,7 @@ const updateCreditLimitSchema = z.object({
 });
 
 /** Edita el límite de crédito manual del cliente (módulo "Cartera"). */
-clientsRouter.patch("/:id/credit-limit", async (req, res) => {
+clientsRouter.patch("/:id/credit-limit", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
   const parsed = updateCreditLimitSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -102,7 +105,7 @@ const createContactSchema = z.object({
 });
 
 /** Crea un contacto. Si isPrimary:true, desmarca los demás del cliente. */
-clientsRouter.post("/:id/contacts", async (req, res) => {
+clientsRouter.post("/:id/contacts", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
   if (!Number.isInteger(clientId) || clientId <= 0) {
     return res.status(400).json({ error: "ID de cliente inválido" });
@@ -138,7 +141,7 @@ clientsRouter.post("/:id/contacts", async (req, res) => {
 });
 
 /** Borra un contacto. Si era el principal, asigna el siguiente más reciente. */
-clientsRouter.delete("/:id/contacts/:contactId", async (req, res) => {
+clientsRouter.delete("/:id/contacts/:contactId", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
   const contactId = Number(req.params.contactId);
   if (!Number.isInteger(clientId) || clientId <= 0 || !Number.isInteger(contactId) || contactId <= 0) {
@@ -189,7 +192,7 @@ const createAddressSchema = z.object({
   notes: z.string().optional(),
 });
 
-clientsRouter.post("/:id/addresses", async (req, res) => {
+clientsRouter.post("/:id/addresses", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
   const parsed = createAddressSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -207,7 +210,7 @@ clientsRouter.post("/:id/addresses", async (req, res) => {
   res.status(201).json(address);
 });
 
-clientsRouter.delete("/:id/addresses/:addressId", async (req, res) => {
+clientsRouter.delete("/:id/addresses/:addressId", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
   const addressId = Number(req.params.addressId);
 
@@ -234,7 +237,7 @@ const createInteractionSchema = z.object({
   description: z.string().min(1),
 });
 
-clientsRouter.post("/:id/interactions", async (req, res) => {
+clientsRouter.post("/:id/interactions", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
   const parsed = createInteractionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });

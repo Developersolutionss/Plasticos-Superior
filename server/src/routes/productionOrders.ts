@@ -2,11 +2,14 @@ import { Router } from "express";
 import { z } from "zod";
 import type { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
 import { applyMovement } from "../services/stockService";
 
 export const productionOrdersRouter = Router();
 productionOrdersRouter.use(requireAuth);
+
+const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
+const requireOperarios = requireRole(...ROLES.OPERARIOS);
 
 productionOrdersRouter.get("/", async (req, res) => {
   const status = req.query.status as string | undefined;
@@ -26,7 +29,7 @@ const createOrderSchema = z.object({
 });
 
 /** Crea una OP con numeración consecutiva (OP-00001, OP-00002, ...). */
-productionOrdersRouter.post("/", async (req, res) => {
+productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
   const parsed = createOrderSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -56,7 +59,7 @@ const updateStatusSchema = z.object({
   status: z.enum(["pendiente", "en_proceso", "detenida", "finalizada", "cancelada"]),
 });
 
-productionOrdersRouter.patch("/:id/status", async (req, res) => {
+productionOrdersRouter.patch("/:id/status", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
   const parsed = updateStatusSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -96,10 +99,18 @@ productionOrdersRouter.get("/:id/stages", async (req, res) => {
  * "precorte" (último paso del proceso), además genera automáticamente la
  * entrada de inventario del producto terminado y marca la OP finalizada.
  */
-productionOrdersRouter.post("/:id/stages", async (req, res) => {
+productionOrdersRouter.post("/:id/stages", requireOperarios, async (req, res) => {
   const productionOrderId = Number(req.params.id);
   const parsed = createStageSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  // Un operario solo puede registrar pasos de SU estación (gerente_produccion
+  // y planeacion, en cambio, pueden cargar cualquiera, por eso solo se
+  // restringe cuando el rol tiene una lista de estaciones asociada).
+  const allowedStations = OPERARIO_STATIONS[req.user!.role];
+  if (allowedStations && !allowedStations.includes(parsed.data.station)) {
+    return res.status(403).json({ error: `Tu rol solo puede registrar pasos de: ${allowedStations.join(", ")}` });
+  }
 
   const order = await prisma.productionOrder.findUnique({ where: { id: productionOrderId } });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });

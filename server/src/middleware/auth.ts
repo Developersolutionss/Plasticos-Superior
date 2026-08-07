@@ -1,9 +1,10 @@
 import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import type { UserRole } from "../generated/prisma/client";
 
 export interface AuthPayload {
   userId: number;
-  role: "produccion" | "despacho" | "admin";
+  role: UserRole;
   name: string;
 }
 
@@ -30,7 +31,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
 }
 
-export function requireRole(...roles: AuthPayload["role"][]) {
+export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user || !roles.includes(req.user.role)) {
       return res.status(403).json({ error: "No tienes permiso para esta acción" });
@@ -38,3 +39,36 @@ export function requireRole(...roles: AuthPayload["role"][]) {
     next();
   };
 }
+
+/**
+ * Grupos de roles reutilizables por los distintos módulos, para no repetir
+ * la misma lista larga en cada ruta. super_admin/admin quedan afuera de
+ * estos grupos porque routes.ts los agrega aparte (siempre tienen acceso).
+ */
+export const ROLES = {
+  ADMIN: ["super_admin", "admin"] as UserRole[],
+  VENTAS: ["super_admin", "admin", "ventas_pedidos"] as UserRole[],
+  ALMACEN: ["super_admin", "admin", "almacen_despachos"] as UserRole[],
+  PRODUCCION_GESTION: ["super_admin", "admin", "gerente_produccion", "planeacion"] as UserRole[],
+  OPERARIOS: [
+    "super_admin",
+    "admin",
+    "gerente_produccion",
+    "planeacion",
+    "operario_extrusion",
+    "operario_impresion",
+    "operario_sellado_precorte",
+  ] as UserRole[],
+};
+
+/**
+ * Estaciones de planta que le corresponden a cada rol de operario (para
+ * /production-orders/:id/stages) — "operario_sellado_precorte" es un solo
+ * rol que cubre las dos últimas estaciones, tal como lo nombra la propuesta
+ * original ("Operario Sellado-Precorte").
+ */
+export const OPERARIO_STATIONS: Partial<Record<UserRole, string[]>> = {
+  operario_extrusion: ["extrusion"],
+  operario_impresion: ["impresion"],
+  operario_sellado_precorte: ["sellado", "precorte"],
+};

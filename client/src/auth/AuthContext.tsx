@@ -1,10 +1,24 @@
 import { createContext, ReactNode, useContext, useState } from "react";
 
+export type UserRole =
+  | "super_admin"
+  | "admin"
+  | "gerente_produccion"
+  | "planeacion"
+  | "ventas_pedidos"
+  | "operario_extrusion"
+  | "operario_impresion"
+  | "operario_sellado_precorte"
+  | "calidad"
+  | "almacen_despachos"
+  | "auditor";
+
 interface AuthUser {
   id: number;
   name: string;
-  role: "produccion" | "despacho" | "admin";
+  role: UserRole;
   email: string;
+  twoFactorEnabled?: boolean;
 }
 
 interface AuthContextValue {

@@ -9,11 +9,22 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   const passwordHash = await bcrypt.hash("password123", 10);
 
+  // Un usuario de ejemplo por rol de la matriz completa (Módulo 1), para
+  // poder probar permisos de cada uno. Los 3 primeros son los históricos
+  // (ya migrados de admin/produccion/despacho por la migración de roles).
   await prisma.user.createMany({
     data: [
-      { name: "Admin", email: "admin@empresa.com", passwordHash, role: "admin" },
-      { name: "Operario Producción", email: "produccion@empresa.com", passwordHash, role: "produccion" },
-      { name: "Encargado Despacho", email: "despacho@empresa.com", passwordHash, role: "despacho" },
+      { name: "Admin", email: "admin@empresa.com", passwordHash, role: "super_admin" },
+      { name: "Gerente de Producción", email: "produccion@empresa.com", passwordHash, role: "gerente_produccion" },
+      { name: "Encargado Despacho", email: "despacho@empresa.com", passwordHash, role: "almacen_despachos" },
+      { name: "Administrador", email: "administrador@empresa.com", passwordHash, role: "admin" },
+      { name: "Planeación", email: "planeacion@empresa.com", passwordHash, role: "planeacion" },
+      { name: "Ventas", email: "ventas@empresa.com", passwordHash, role: "ventas_pedidos" },
+      { name: "Operario Extrusión", email: "operario.extrusion@empresa.com", passwordHash, role: "operario_extrusion" },
+      { name: "Operario Impresión", email: "operario.impresion@empresa.com", passwordHash, role: "operario_impresion" },
+      { name: "Operario Sellado/Precorte", email: "operario.sellado@empresa.com", passwordHash, role: "operario_sellado_precorte" },
+      { name: "Calidad", email: "calidad@empresa.com", passwordHash, role: "calidad" },
+      { name: "Auditor", email: "auditor@empresa.com", passwordHash, role: "auditor" },
     ],
     skipDuplicates: true,
   });
@@ -73,7 +84,13 @@ async function main() {
     }
   }
 
-  console.log("Seed completado. Usuarios: admin@empresa.com / produccion@empresa.com / despacho@empresa.com (password123)");
+  console.log(
+    "Seed completado. Usuarios (password123 para todos): admin@empresa.com (super_admin), " +
+      "administrador@empresa.com (admin), produccion@empresa.com (gerente_produccion), " +
+      "planeacion@empresa.com, ventas@empresa.com (ventas_pedidos), despacho@empresa.com (almacen_despachos), " +
+      "operario.extrusion@empresa.com, operario.impresion@empresa.com, operario.sellado@empresa.com, " +
+      "calidad@empresa.com, auditor@empresa.com"
+  );
 }
 
 main()

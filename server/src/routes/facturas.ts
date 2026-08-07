@@ -2,10 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import type { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 
 export const facturasRouter = Router();
 facturasRouter.use(requireAuth);
+
+const requireVentas = requireRole(...ROLES.VENTAS);
 
 type TxClient = Prisma.TransactionClient;
 
@@ -53,7 +55,7 @@ const createFacturaSchema = z.object({
 });
 
 /** Crea una factura suelta (sin pedido de por medio). */
-facturasRouter.post("/", async (req, res) => {
+facturasRouter.post("/", requireVentas, async (req, res) => {
   const parsed = createFacturaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -95,7 +97,7 @@ facturasRouter.post("/", async (req, res) => {
 });
 
 /** Genera una factura a partir de la ÚLTIMA versión de un Pedido, copiando sus ítems. */
-facturasRouter.post("/desde-pedido/:pedidoId", async (req, res) => {
+facturasRouter.post("/desde-pedido/:pedidoId", requireVentas, async (req, res) => {
   const pedidoId = Number(req.params.pedidoId);
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
@@ -134,7 +136,7 @@ facturasRouter.post("/desde-pedido/:pedidoId", async (req, res) => {
   res.status(201).json(factura);
 });
 
-facturasRouter.patch("/:id/anular", async (req, res) => {
+facturasRouter.patch("/:id/anular", requireVentas, async (req, res) => {
   const id = Number(req.params.id);
   const factura = await prisma.factura.findUnique({ where: { id } });
   if (!factura) return res.status(404).json({ error: "Factura no encontrada" });
@@ -159,7 +161,7 @@ const createPaymentSchema = z.object({
 });
 
 /** Registra un abono. La factura recalcula sola su estado (emitida/parcial/pagada). */
-facturasRouter.post("/:id/payments", async (req, res) => {
+facturasRouter.post("/:id/payments", requireVentas, async (req, res) => {
   const facturaId = Number(req.params.id);
   const parsed = createPaymentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });

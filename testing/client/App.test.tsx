@@ -46,7 +46,7 @@ describe("App", () => {
     localStorage.clear();
     vi.mocked(api.login).mockResolvedValue({
       token: "test-token",
-      user: { id: 1, name: "Admin", role: "admin", email: "admin@empresa.com" },
+      user: { id: 1, name: "Admin", role: "super_admin", email: "admin@empresa.com", twoFactorEnabled: false },
     });
   });
 
@@ -57,7 +57,7 @@ describe("App", () => {
 
   it("renderiza la página de login con valores por defecto", () => {
     renderApp("/login");
-    expect(screen.getByText("Inventario y Despachos")).toBeInTheDocument();
+    expect(screen.getByText("Plásticos Superior")).toBeInTheDocument();
     expect(screen.getByDisplayValue("despacho@empresa.com")).toBeInTheDocument();
     expect(screen.getByDisplayValue("password123")).toBeInTheDocument();
   });
@@ -68,6 +68,6 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Ingresar" }));
     expect(await screen.findByRole("button", { name: "Salir" })).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
-    expect(api.login).toHaveBeenCalledWith("despacho@empresa.com", "password123");
+    expect(api.login).toHaveBeenCalledWith("despacho@empresa.com", "password123", undefined);
   });
 });

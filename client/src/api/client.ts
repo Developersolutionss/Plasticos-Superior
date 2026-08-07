@@ -25,14 +25,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, totpToken?: string) =>
     request<{
-      token: string;
-      user: { id: number; name: string; role: "produccion" | "despacho" | "admin"; email: string };
+      token?: string;
+      requires2fa?: boolean;
+      user?: { id: number; name: string; role: string; email: string; twoFactorEnabled: boolean };
     }>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, totpToken }),
     }),
+  getMe: () => request<{ id: number; name: string; email: string; role: string; twoFactorEnabled: boolean }>("/auth/me"),
+
+  forgotPassword: (email: string) =>
+    request<{ message: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
+  resetPassword: (token: string, newPassword: string) =>
+    request<{ message: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, newPassword }) }),
+
+  setup2fa: () => request<{ qrCodeDataUrl: string; secret: string }>("/auth/2fa/setup", { method: "POST" }),
+  verify2fa: (token: string) => request<{ ok: boolean }>("/auth/2fa/verify", { method: "POST", body: JSON.stringify({ token }) }),
+  disable2fa: (token: string) => request<{ ok: boolean }>("/auth/2fa/disable", { method: "POST", body: JSON.stringify({ token }) }),
 
   getInventory: (category?: string) => request<any[]>(`/inventory${category ? `?category=${category}` : ""}`),
   getAlerts: () => request<any[]>("/inventory/alerts"),

@@ -4,10 +4,12 @@ import path from "path";
 import fs from "fs";
 import { z } from "zod";
 import { prisma } from "../prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 
 export const pedidosRouter = Router();
 pedidosRouter.use(requireAuth);
+
+const requireVentas = requireRole(...ROLES.VENTAS);
 
 const UPLOADS_DIR = path.join(__dirname, "..", "..", "uploads", "pedidos");
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -56,7 +58,7 @@ const createPedidoSchema = z.object({
 });
 
 /** Crea un Pedido nuevo con su versión 1 (numeración PED-00001, ...). */
-pedidosRouter.post("/", async (req, res) => {
+pedidosRouter.post("/", requireVentas, async (req, res) => {
   const parsed = createPedidoSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -126,7 +128,7 @@ const updatePedidoSchema = z.object({
  * Edita un Pedido creando una VERSIÓN NUEVA completa (v1, v2, v3...) en vez
  * de sobrescribir la anterior — así queda el historial completo navegable.
  */
-pedidosRouter.patch("/:id", async (req, res) => {
+pedidosRouter.patch("/:id", requireVentas, async (req, res) => {
   const pedidoId = Number(req.params.id);
   const parsed = updatePedidoSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -176,7 +178,7 @@ pedidosRouter.patch("/:id", async (req, res) => {
 });
 
 /** Duplica un pedido: crea uno NUEVO (con su propio número) copiando los ítems de la última versión. */
-pedidosRouter.post("/:id/duplicar", async (req, res) => {
+pedidosRouter.post("/:id/duplicar", requireVentas, async (req, res) => {
   const pedidoId = Number(req.params.id);
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
@@ -234,7 +236,7 @@ pedidosRouter.get("/:id/attachments", async (req, res) => {
   res.json(attachments);
 });
 
-pedidosRouter.post("/:id/attachments", upload.single("file"), async (req, res) => {
+pedidosRouter.post("/:id/attachments", requireVentas, upload.single("file"), async (req, res) => {
   const pedidoId = Number(req.params.id);
   if (!req.file) return res.status(400).json({ error: "Archivo no provisto" });
 

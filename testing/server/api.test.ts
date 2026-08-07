@@ -64,7 +64,7 @@ describe("health", () => {
 });
 
 describe("auth", () => {
-  it("login válido devuelve token y rol admin", async () => {
+  it("login válido devuelve token y rol super_admin", async () => {
     const res = await fetch(`${baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -73,7 +73,7 @@ describe("auth", () => {
     assert.equal(res.status, 200);
     const body = (await res.json()) as { token: string; user: { role: string } };
     assert.ok(body.token);
-    assert.equal(body.user.role, "admin");
+    assert.equal(body.user.role, "super_admin");
   });
 
   it("password incorrecto devuelve 401", async () => {

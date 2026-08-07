@@ -12,6 +12,9 @@ import EstacionProduccion from "./pages/EstacionProduccion";
 import Cotizaciones from "./pages/Cotizaciones";
 import Pedidos from "./pages/Pedidos";
 import Facturas from "./pages/Facturas";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import SecuritySettings from "./pages/SecuritySettings";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -23,6 +26,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         path="/"
         element={
@@ -42,6 +47,7 @@ export default function App() {
         <Route path="clientes/cotizaciones" element={<Cotizaciones />} />
         <Route path="pedidos" element={<Pedidos />} />
         <Route path="facturas" element={<Facturas />} />
+        <Route path="configuracion/autenticacion" element={<SecuritySettings />} />
       </Route>
     </Routes>
   );

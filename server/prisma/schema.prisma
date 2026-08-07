@@ -8,10 +8,21 @@ datasource db {
   provider = "postgresql"
 }
 
+/// Matriz de roles completa (Módulo 1). Reemplaza los 3 roles iniciales
+/// (produccion/despacho/admin) — la migración de datos existente vive en
+/// server/prisma/migrations/*_expand_role_matrix/migration.sql.
 enum UserRole {
-  produccion
-  despacho
+  super_admin
   admin
+  gerente_produccion
+  planeacion
+  ventas_pedidos
+  operario_extrusion
+  operario_impresion
+  operario_sellado_precorte
+  calidad
+  almacen_despachos
+  auditor
 }
 
 enum ProductCategory {
@@ -126,6 +137,22 @@ model User {
   passwordHash  String            @map("password_hash")
   role          UserRole
   createdAt     DateTime          @default(now()) @map("created_at")
+
+  /// Bloqueo por intentos fallidos: se incrementa en cada password
+  /// incorrecto, se resetea en un login exitoso. Al llegar al umbral
+  /// (ver auth.ts) se completa lockedUntil y el login se rechaza hasta
+  /// esa fecha aunque la contraseña sea correcta.
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime? @map("locked_until")
+
+  /// 2FA opcional (TOTP). El secret se genera en /2fa/setup pero
+  /// twoFactorEnabled queda en false hasta que el usuario confirma un
+  /// código válido en /2fa/verify — evita que alguien quede bloqueado
+  /// de su propia cuenta por una vinculación a medias.
+  twoFactorSecret  String?  @map("two_factor_secret")
+  twoFactorEnabled Boolean  @default(false) @map("two_factor_enabled")
+
+  passwordResetTokens PasswordResetToken[]
 
   productionEntries ProductionEntry[]
   inventoryMovements InventoryMovement[]
@@ -540,4 +567,19 @@ model Payment {
   createdAt   DateTime      @default(now()) @map("created_at")
 
   @@map("payments")
+}
+
+/// Token de un solo uso para "olvidé mi contraseña". Se guarda hasheado
+/// (igual que la contraseña) para que un dump de la base no alcance para
+/// resetear cuentas ajenas — el valor plano solo existe en el link del email.
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("password_reset_tokens")
 }

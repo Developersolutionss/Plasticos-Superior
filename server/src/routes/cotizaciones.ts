@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 
 export const cotizacionesRouter = Router();
 cotizacionesRouter.use(requireAuth);
+
+const requireVentas = requireRole(...ROLES.VENTAS);
 
 cotizacionesRouter.get("/", async (req, res) => {
   const clientId = req.query.clientId ? Number(req.query.clientId) : undefined;
@@ -34,7 +36,7 @@ const createCotizacionSchema = z.object({
  * Crea una cotización con numeración consecutiva (COT-00001, ...).
  * Si un ítem no trae `unitPrice`, se toma el precio actual del catálogo.
  */
-cotizacionesRouter.post("/", async (req, res) => {
+cotizacionesRouter.post("/", requireVentas, async (req, res) => {
   const parsed = createCotizacionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -80,7 +82,7 @@ const updateStatusSchema = z.object({
   status: z.enum(["borrador", "enviada", "aceptada", "rechazada", "expirada"]),
 });
 
-cotizacionesRouter.patch("/:id/status", async (req, res) => {
+cotizacionesRouter.patch("/:id/status", requireVentas, async (req, res) => {
   const id = Number(req.params.id);
   const parsed = updateStatusSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -96,7 +98,7 @@ cotizacionesRouter.patch("/:id/status", async (req, res) => {
  * Convierte la cotización en un Pedido nuevo (v1), copiando sus ítems tal
  * cual. La cotización no se borra ni se modifica, solo queda enlazada.
  */
-cotizacionesRouter.post("/:id/convertir-a-pedido", async (req, res) => {
+cotizacionesRouter.post("/:id/convertir-a-pedido", requireVentas, async (req, res) => {
   const id = Number(req.params.id);
   const cotizacion = await prisma.cotizacion.findUnique({
     where: { id },

@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { applyMovement } from "../services/stockService";
 
 export const dispatchesRouter = Router();
 dispatchesRouter.use(requireAuth);
+
+const requireAlmacen = requireRole(...ROLES.ALMACEN);
 
 dispatchesRouter.get("/", async (req, res) => {
   const { clientId, status } = req.query as { clientId?: string; status?: string };
@@ -35,7 +37,7 @@ const createDispatchSchema = z.object({
     .min(1),
 });
 
-dispatchesRouter.post("/", async (req, res) => {
+dispatchesRouter.post("/", requireAlmacen, async (req, res) => {
   const parsed = createDispatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -52,7 +54,7 @@ dispatchesRouter.post("/", async (req, res) => {
 });
 
 /** Marca un item del despacho como despachado: descuenta stock automáticamente. */
-dispatchesRouter.patch("/:dispatchId/items/:itemId", async (req, res) => {
+dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req, res) => {
   const dispatchId = Number(req.params.dispatchId);
   const itemId = Number(req.params.itemId);
   const quantitySchema = z.object({ quantityDispatched: z.number().positive() });

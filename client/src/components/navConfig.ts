@@ -102,7 +102,7 @@ export const navSections: NavEntry[] = [
     icon: "⚙️",
     label: "Configuración",
     children: [
-      { id: "configuracion-auth", label: "Autenticación", disabled: true },
+      { id: "configuracion-auth", label: "Autenticación", to: "/configuracion/autenticacion" },
       { id: "configuracion-usuarios", label: "Usuarios y permisos", disabled: true },
     ],
   },

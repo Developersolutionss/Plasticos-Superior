@@ -34,11 +34,27 @@ npm run prisma:seed
 npm run dev
 ```
 
-Usuarios de prueba (creados por el seed), contraseña `password123` para todos:
+Usuarios de prueba (creados por el seed), contraseña `password123` para todos — uno por cada rol de la matriz completa (Módulo 1):
 
-- `admin@empresa.com`
-- `produccion@empresa.com`
-- `despacho@empresa.com`
+| Email | Rol |
+|---|---|
+| `admin@empresa.com` | `super_admin` |
+| `administrador@empresa.com` | `admin` |
+| `produccion@empresa.com` | `gerente_produccion` |
+| `planeacion@empresa.com` | `planeacion` |
+| `ventas@empresa.com` | `ventas_pedidos` |
+| `despacho@empresa.com` | `almacen_despachos` |
+| `operario.extrusion@empresa.com` | `operario_extrusion` |
+| `operario.impresion@empresa.com` | `operario_impresion` |
+| `operario.sellado@empresa.com` | `operario_sellado_precorte` |
+| `calidad@empresa.com` | `calidad` |
+| `auditor@empresa.com` | `auditor` |
+
+### Seguridad de acceso (Módulo 1)
+
+- **Bloqueo por intentos fallidos:** 5 intentos con contraseña incorrecta bloquean la cuenta 15 minutos.
+- **Recuperación de contraseña:** `/forgot-password` en el frontend. Sin `RESEND_API_KEY` configurada en `server/.env`, el link de reseteo se imprime en la consola del backend en vez de enviarse por email — útil para probar el flujo en local sin depender de un proveedor real.
+- **2FA opcional (TOTP):** cada usuario lo activa desde "Configuración → Autenticación" (`/configuracion/autenticacion`), escaneando un QR con Google Authenticator/Authy.
 
 ## Flujo de prueba end-to-end
 
