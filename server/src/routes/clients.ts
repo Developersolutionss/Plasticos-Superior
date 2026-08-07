@@ -13,7 +13,7 @@ clientsRouter.get("/", async (_req, res) => {
 
 const createClientSchema = z.object({
   name: z.string().min(1),
-  contactInfo: z.record(z.any()).optional(),
+  contactInfo: z.record(z.string(), z.any()).optional(),
 });
 
 clientsRouter.post("/", async (req, res) => {
@@ -46,7 +46,7 @@ const createContactSchema = z.object({
   name: z.string().min(1),
   position: z.string().optional(),
   phone: z.string().optional(),
-  email: z.string().email().optional(),
+  email: z.email().optional(),
   isPrimary: z.boolean().optional().default(false),
 });
 

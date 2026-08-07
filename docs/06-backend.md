@@ -191,6 +191,6 @@ Los handlers que registran quién hizo la acción usan `req.user!.userId`. Por e
 npm run dev --workspace=server            # dev con recarga (tsx watch)
 npm run build --workspace=server          # tsc → dist/
 npm run start --workspace=server          # node dist/index.js
-npm run prisma:migrate --workspace=server # prisma migrate dev
-npm run prisma:seed --workspace=server    # siembra datos
+npm run prisma:migrate --workspace=server # prisma migrate dev + prisma generate
+npm run prisma:seed --workspace=server    # prisma db seed
 ```

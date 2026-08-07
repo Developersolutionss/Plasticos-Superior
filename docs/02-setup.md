@@ -123,8 +123,8 @@ Contactos sembrados para Cliente ACME: María López (principal) y Carlos Pérez
 | `npm run dev:server` | Inicia solo el backend (`tsx watch src/index.ts`) |
 | `npm run dev:client` | Inicia solo el frontend (`vite`) |
 | `npm run build` | Compila server (`tsc`) y client (`vite build`) |
-| `npm run prisma:migrate` | `prisma migrate dev` (en server) |
-| `npm run prisma:seed` | `tsx prisma/seed.ts` (en server) |
+| `npm run prisma:migrate` | `prisma migrate dev` + regenera Prisma Client (en server) |
+| `npm run prisma:seed` | `prisma db seed` (en server) |
 
 ### Server (`server/package.json`)
 
@@ -133,9 +133,9 @@ Contactos sembrados para Cliente ACME: María López (principal) y Carlos Pérez
 | `npm run dev` | `tsx watch src/index.ts` — dev con recarga |
 | `npm run build` | `tsc -p tsconfig.json` → `dist/` |
 | `npm run start` | `node dist/index.js` — producción |
-| `npm run prisma:migrate` | `prisma migrate dev` |
-| `npm run prisma:generate` | Regenera Prisma Client |
-| `npm run prisma:seed` | Ejecuta el seed |
+| `npm run prisma:migrate` | `prisma migrate dev` + `prisma generate` |
+| `npm run prisma:generate` | Regenera Prisma Client (`prisma generate`) |
+| `npm run prisma:seed` | Ejecuta el seed (`prisma db seed`) |
 
 ## Build y producción
 
@@ -143,6 +143,12 @@ Contactos sembrados para Cliente ACME: María López (principal) y Carlos Pérez
 npm run build          # compila server y client
 cd server && npm run start   # inicia la API desde dist/
 ```
+
+> ⚠️ El comando `npm run build` regenera Prisma Client y requiere el archivo `server/.env`. Si el archivo no existe, el build falla con `Cannot resolve environment variable: DATABASE_URL`. En un clon nuevo, cree el archivo antes de compilar:
+
+> ```bash
+> cp server/.env.example server/.env
+> ```
 
 > Nota: el servidor (`server/src/index.ts`) **solo expone la API** (no sirve el build del frontend). En producción, sirva el cliente compilado (`client/dist`) con un servidor estático (nginx, CDN, etc.). Ese servidor debe **reenviar `/api/*` a la API**. Esto replica el papel del proxy de desarrollo. Ver [03 — Arquitectura](03-architecture.md).
 
@@ -187,4 +193,5 @@ docker volume rm db_data         # borrar también los datos (opcional)
 | `prisma migrate dev` no conecta | PostgreSQL no está iniciado o `DATABASE_URL` es incorrecto | Inicie la base de datos (`docker compose up -d` o el fallback de `docker run`) y revise `server/.env` |
 | Vite no arranca con error de `esbuild` (binario no encontrado) tras `npm install` | El script de instalación de `esbuild` fue bloqueado por `allowScripts` en `package.json` | Habilite los scripts con `npm install-scripts approve esbuild` (o agregue `"esbuild": true` a `allowScripts` en `package.json` y vuelva a instalar) |
 | Errores 401 en la API | Token no enviado o `JWT_SECRET` distinto | Haga login primero. Use `Authorization: Bearer <token>` |
+| `npm run build` falla con `Cannot resolve environment variable: DATABASE_URL` | `server/.env` no existe. Prisma 7 resuelve `DATABASE_URL` al generar el cliente | Copie el archivo de ejemplo y repita el build: `cp server/.env.example server/.env && npm run build` |
 | Prisma Client desactualizado | Cambió el schema y no regeneró | `npm run prisma:generate` (o `migrate dev`, que regenera) |
