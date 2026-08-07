@@ -56,10 +56,12 @@
   background: none;
   border: none;
   color: var(--sb-text-dim);
-  font-size: 18px;
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .sidebar-collapse-btn:hover {
   color: #fff;
@@ -78,12 +80,18 @@
   margin-bottom: 8px;
 }
 .sidebar-quick-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--sb-text-dim);
   padding: 8px 10px 4px;
   white-space: nowrap;
+}
+.sidebar-quick-label-icon {
+  flex-shrink: 0;
 }
 .sidebar-quick-item {
   display: flex;
@@ -105,7 +113,9 @@
 }
 .sidebar-quick-item .ic {
   width: 22px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -174,7 +184,9 @@
 }
 .nav-item .ic {
   width: 22px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 .nav-item .caret {
@@ -353,7 +365,9 @@
 }
 .sidebar-adjust-btn .ic {
   width: 22px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 .collapsed .sidebar-adjust-btn {
@@ -395,14 +409,19 @@
   margin: 0;
   font-size: 16px;
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .sc-close {
   background: none;
   border: none;
-  font-size: 16px;
   cursor: pointer;
   color: #64748b;
   padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 6px;
 }
 .sc-close:hover {

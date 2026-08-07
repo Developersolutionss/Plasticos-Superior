@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
+import { CircleCheck, Circle } from "lucide-react";
 import { api } from "../api/client";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -24,6 +25,21 @@ const STATIONS = [
   { value: "sellado", label: "Sellado" },
   { value: "precorte", label: "Precorte" },
 ];
+
+function StationsCompleted({ order }: { order: any }) {
+  const done = new Set((order.stages ?? []).map((s: any) => s.station));
+  return (
+    <span className="inline-flex gap-1 align-middle">
+      {STATIONS.map((s) =>
+        done.has(s.value) ? (
+          <CircleCheck key={s.value} size={16} strokeWidth={2} className="text-emerald-600" />
+        ) : (
+          <Circle key={s.value} size={16} strokeWidth={2} className="text-slate-300" />
+        )
+      )}
+    </span>
+  );
+}
 
 export default function OrdenesProduccion() {
   const [productId, setProductId] = useState("");
@@ -60,11 +76,6 @@ export default function OrdenesProduccion() {
   async function handleStatusChange(id: number, status: string) {
     await api.updateProductionOrderStatus(id, status);
     queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
-  }
-
-  function stationsCompleted(order: any): string {
-    const done = new Set((order.stages ?? []).map((s: any) => s.station));
-    return STATIONS.map((s) => (done.has(s.value) ? "✅" : "⬜")).join(" ");
   }
 
   return (
@@ -134,7 +145,7 @@ export default function OrdenesProduccion() {
                   {o.quantityPlanned} {o.product.unit}
                 </td>
                 <td className="p-3" title="Extrusión · Impresión · Sellado · Precorte">
-                  {stationsCompleted(o)}
+                  <StationsCompleted order={o} />
                 </td>
                 <td className="p-3">
                   <select

@@ -39,7 +39,7 @@ export interface NavChoice {
 export const navSections: NavEntry[] = [
   {
     id: "dashboard",
-    icon: "🏠",
+    icon: "layout-dashboard",
     label: "Dashboard",
     children: [
       { id: "dashboard-resumen", label: "Resumen general", disabled: true },
@@ -48,7 +48,7 @@ export const navSections: NavEntry[] = [
   },
   {
     id: "clientes",
-    icon: "👥",
+    icon: "users",
     label: "Clientes",
     children: [
       { id: "clientes-listado", label: "Listado de clientes", to: "/clientes" },
@@ -57,13 +57,13 @@ export const navSections: NavEntry[] = [
       { id: "clientes-cotizaciones", label: "Cotizaciones", to: "/clientes/cotizaciones" },
     ],
   },
-  { id: "despachos", icon: "🚚", label: "Despachos", to: "/despachos" },
-  { id: "pedidos", icon: "📦", label: "Pedidos", to: "/pedidos" },
-  { id: "facturas", icon: "🧾", label: "Facturas", to: "/facturas" },
-  { id: "planeacion", icon: "📅", label: "Planeación", disabled: true },
+  { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos" },
+  { id: "pedidos", icon: "package", label: "Pedidos", to: "/pedidos" },
+  { id: "facturas", icon: "receipt", label: "Facturas", to: "/facturas" },
+  { id: "planeacion", icon: "calendar-days", label: "Planeación", disabled: true },
   {
     id: "produccion",
-    icon: "🏭",
+    icon: "factory",
     label: "Producción",
     children: [
       { id: "produccion-carga", label: "Carga de producción (Excel)", to: "/produccion" },
@@ -74,11 +74,11 @@ export const navSections: NavEntry[] = [
       { id: "produccion-precorte", label: "Precorte", to: "/produccion/estacion/precorte" },
     ],
   },
-  { id: "calidad", icon: "✅", label: "Calidad", disabled: true },
-  { id: "trazabilidad", icon: "🔗", label: "Trazabilidad", disabled: true },
+  { id: "calidad", icon: "badge-check", label: "Calidad", disabled: true },
+  { id: "trazabilidad", icon: "link", label: "Trazabilidad", disabled: true },
   {
     id: "inventario",
-    icon: "📊",
+    icon: "bar-chart",
     label: "Inventario",
     children: [
       { id: "inventario-existencias", label: "Existencias", to: "/" },
@@ -86,20 +86,20 @@ export const navSections: NavEntry[] = [
       { id: "inventario-movimientos", label: "Movimientos", disabled: true },
     ],
   },
-  { id: "almacen", icon: "🏢", label: "Almacén / WMS", disabled: true },
-  { id: "etiquetas", icon: "🏷️", label: "Etiquetas térmicas", disabled: true },
-  { id: "escaneo", icon: "🔲", label: "Escaneo QR / Cód. barras", disabled: true },
-  { id: "exportaciones", icon: "📤", label: "Exportaciones", disabled: true },
-  { id: "notificaciones", icon: "🔔", label: "Notificaciones", disabled: true },
+  { id: "almacen", icon: "warehouse", label: "Almacén / WMS", disabled: true },
+  { id: "etiquetas", icon: "tag", label: "Etiquetas térmicas", disabled: true },
+  { id: "escaneo", icon: "scan-line", label: "Escaneo QR / Cód. barras", disabled: true },
+  { id: "exportaciones", icon: "download", label: "Exportaciones", disabled: true },
+  { id: "notificaciones", icon: "bell", label: "Notificaciones", disabled: true },
   {
     id: "auditoria",
-    icon: "📜",
+    icon: "scroll-text",
     label: "Auditoría",
     children: [{ id: "auditoria-bitacora", label: "Bitácora de inventario", disabled: true }],
   },
   {
     id: "configuracion",
-    icon: "⚙️",
+    icon: "settings",
     label: "Configuración",
     children: [
       { id: "configuracion-auth", label: "Autenticación", to: "/configuracion/autenticacion" },

@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
+import { CircleCheck } from "lucide-react";
 import { api } from "../api/client";
 
 export default function SecuritySettings() {
@@ -61,7 +62,9 @@ export default function SecuritySettings() {
 
         {me?.twoFactorEnabled ? (
           <div className="space-y-2">
-            <p className="text-sm text-emerald-700">✅ Tenés 2FA activado en tu cuenta.</p>
+            <p className="text-sm text-emerald-700 flex items-center gap-1.5">
+              <CircleCheck size={16} strokeWidth={2} /> Tenés 2FA activado en tu cuenta.
+            </p>
             <form onSubmit={handleDisable} className="flex gap-2">
               <input
                 className="border rounded px-3 py-2 text-sm flex-1"
