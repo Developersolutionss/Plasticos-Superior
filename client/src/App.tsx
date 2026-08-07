@@ -6,6 +6,9 @@ import Login from "./pages/Login";
 import InventoryDashboard from "./pages/InventoryDashboard";
 import Dispatches from "./pages/Dispatches";
 import ProductionUpload from "./pages/ProductionUpload";
+import Clients from "./pages/Clients";
+import OrdenesProduccion from "./pages/OrdenesProduccion";
+import EstacionProduccion from "./pages/EstacionProduccion";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -28,6 +31,11 @@ export default function App() {
         <Route index element={<InventoryDashboard />} />
         <Route path="despachos" element={<Dispatches />} />
         <Route path="produccion" element={<ProductionUpload />} />
+        <Route path="clientes" element={<Clients />} />
+        <Route path="clientes/nuevo" element={<Clients />} />
+        <Route path="clientes/contactos" element={<Clients />} />
+        <Route path="produccion/ordenes" element={<OrdenesProduccion />} />
+        <Route path="produccion/estacion/:station" element={<EstacionProduccion />} />
       </Route>
     </Routes>
   );

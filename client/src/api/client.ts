@@ -41,6 +41,14 @@ export const api = {
   getClients: () => request<any[]>("/clients"),
   createClient: (name: string) => request<any>("/clients", { method: "POST", body: JSON.stringify({ name }) }),
 
+  getClientContacts: (clientId: number) => request<any[]>(`/clients/${clientId}/contacts`),
+  createClientContact: (
+    clientId: number,
+    data: { name: string; position?: string; phone?: string; email?: string; isPrimary?: boolean }
+  ) => request<any>(`/clients/${clientId}/contacts`, { method: "POST", body: JSON.stringify(data) }),
+  deleteClientContact: (clientId: number, contactId: number) =>
+    request<{ ok: boolean }>(`/clients/${clientId}/contacts/${contactId}`, { method: "DELETE" }),
+
   createProductionEntry: (data: Record<string, unknown>) =>
     request<any>("/production/entries", { method: "POST", body: JSON.stringify(data) }),
 
@@ -72,4 +80,28 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ quantityDispatched }),
     }),
+
+  getProductionOrders: (status?: string) =>
+    request<any[]>(`/production-orders${status ? `?status=${status}` : ""}`),
+  createProductionOrder: (data: { productId: number; quantityPlanned: number; measure?: string; notes?: string }) =>
+    request<any>("/production-orders", { method: "POST", body: JSON.stringify(data) }),
+  updateProductionOrderStatus: (id: number, status: string) =>
+    request<any>(`/production-orders/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  getProductionOrderStages: (id: number) => request<any[]>(`/production-orders/${id}/stages`),
+  createProductionStageLog: (
+    productionOrderId: number,
+    data: {
+      station: "extrusion" | "impresion" | "sellado" | "precorte";
+      machine: string;
+      operatorName: string;
+      startTime: string;
+      endTime?: string;
+      kilosProduced: number;
+      mermaKg?: number;
+      downtimeMinutes?: number;
+      downtimeReason?: string;
+      details?: Record<string, unknown>;
+      notes?: string;
+    }
+  ) => request<any>(`/production-orders/${productionOrderId}/stages`, { method: "POST", body: JSON.stringify(data) }),
 };

@@ -5,6 +5,7 @@ import { authRouter } from "./routes/auth";
 import { clientsRouter } from "./routes/clients";
 import { inventoryRouter } from "./routes/inventory";
 import { productionRouter } from "./routes/production";
+import { productionOrdersRouter } from "./routes/productionOrders";
 import { dispatchesRouter } from "./routes/dispatches";
 import { whatsappWebhookRouter } from "./routes/whatsappWebhook";
 
@@ -19,6 +20,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/clients", clientsRouter);
 app.use("/api/inventory", inventoryRouter);
 app.use("/api/production", productionRouter);
+app.use("/api/production-orders", productionOrdersRouter);
 app.use("/api/dispatches", dispatchesRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
 

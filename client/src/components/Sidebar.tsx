@@ -13,7 +13,7 @@ function QuickItem({ item }: { item: NavLeaf }) {
     );
   }
   return (
-    <NavLink to={item.to} end={item.to === "/"} className="sidebar-quick-item">
+    <NavLink to={item.to} end className="sidebar-quick-item">
       <span className="ic">•</span>
       <span className="hidden-when-collapsed">{item.label}</span>
     </NavLink>
@@ -30,7 +30,7 @@ function SubmenuLeaf({ item }: { item: NavLeaf }) {
     );
   }
   return (
-    <NavLink to={item.to} end={item.to === "/"} className={({ isActive }) => `submenu-item ${isActive ? "active" : ""}`}>
+    <NavLink to={item.to} end className={({ isActive }) => `submenu-item ${isActive ? "active" : ""}`}>
       {item.label}
     </NavLink>
   );
@@ -53,7 +53,7 @@ function NavSection({ entry }: { entry: NavEntry }) {
       );
     }
     return (
-      <NavLink to={entry.to} end={entry.to === "/"} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+      <NavLink to={entry.to} end className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
         <span className="ic">{entry.icon}</span>
         <span className="hidden-when-collapsed">{entry.label}</span>
       </NavLink>
