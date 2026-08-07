@@ -9,6 +9,9 @@ import ProductionUpload from "./pages/ProductionUpload";
 import Clients from "./pages/Clients";
 import OrdenesProduccion from "./pages/OrdenesProduccion";
 import EstacionProduccion from "./pages/EstacionProduccion";
+import Cotizaciones from "./pages/Cotizaciones";
+import Pedidos from "./pages/Pedidos";
+import Facturas from "./pages/Facturas";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -36,6 +39,9 @@ export default function App() {
         <Route path="clientes/contactos" element={<Clients />} />
         <Route path="produccion/ordenes" element={<OrdenesProduccion />} />
         <Route path="produccion/estacion/:station" element={<EstacionProduccion />} />
+        <Route path="clientes/cotizaciones" element={<Cotizaciones />} />
+        <Route path="pedidos" element={<Pedidos />} />
+        <Route path="facturas" element={<Facturas />} />
       </Route>
     </Routes>
   );

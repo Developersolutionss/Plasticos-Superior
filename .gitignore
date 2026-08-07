@@ -11,3 +11,4 @@ docs/maindashboard.md
 .claude/settings.json
 .claude/settings.local.json
 .claude/worktrees/
+server/uploads/

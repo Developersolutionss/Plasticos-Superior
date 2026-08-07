@@ -47,10 +47,12 @@ export const navSections: NavEntry[] = [
       { label: "Listado de clientes", to: "/clientes" },
       { label: "Crear cliente", to: "/clientes/nuevo" },
       { label: "Contactos", to: "/clientes/contactos" },
+      { label: "Cotizaciones", to: "/clientes/cotizaciones" },
     ],
   },
   { icon: "🚚", label: "Despachos", to: "/despachos" },
-  { icon: "📦", label: "Pedidos", disabled: true },
+  { icon: "📦", label: "Pedidos", to: "/pedidos" },
+  { icon: "🧾", label: "Facturas", to: "/facturas" },
   { icon: "📅", label: "Planeación", disabled: true },
   {
     icon: "🏭",

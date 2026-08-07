@@ -1,0 +1,241 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { FormEvent, useState } from "react";
+import { api } from "../api/client";
+
+const STATUS_LABELS: Record<string, string> = {
+  borrador: "Borrador",
+  enviada: "Enviada",
+  aceptada: "Aceptada",
+  rechazada: "Rechazada",
+  expirada: "Expirada",
+};
+
+interface ItemDraft {
+  productId: string;
+  quantity: string;
+  unitPrice: string;
+}
+
+const emptyItem: ItemDraft = { productId: "", quantity: "", unitPrice: "" };
+
+export default function Cotizaciones() {
+  const [clientId, setClientId] = useState("");
+  const [validUntil, setValidUntil] = useState("");
+  const [notes, setNotes] = useState("");
+  const [items, setItems] = useState<ItemDraft[]>([{ ...emptyItem }]);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: api.getClients });
+  const { data: products } = useQuery({ queryKey: ["products"], queryFn: api.getProducts });
+  const { data: cotizaciones, isLoading } = useQuery({ queryKey: ["cotizaciones"], queryFn: () => api.getCotizaciones() });
+
+  function productPrice(productId: string) {
+    return products?.find((p: any) => p.id === Number(productId))?.unitPrice ?? "";
+  }
+
+  function updateItem(index: number, patch: Partial<ItemDraft>) {
+    setItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)));
+  }
+
+  function addItemRow() {
+    setItems((prev) => [...prev, { ...emptyItem }]);
+  }
+
+  function removeItemRow(index: number) {
+    setItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function handleCreate(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setMessage(null);
+    const validItems = items.filter((it) => it.productId && it.quantity);
+    if (!clientId || validItems.length === 0) {
+      setError("Elegí un cliente y al menos un ítem");
+      return;
+    }
+    try {
+      await api.createCotizacion({
+        clientId: Number(clientId),
+        validUntil: validUntil || undefined,
+        notes: notes || undefined,
+        items: validItems.map((it) => ({
+          productId: Number(it.productId),
+          quantity: Number(it.quantity),
+          unitPrice: it.unitPrice ? Number(it.unitPrice) : undefined,
+        })),
+      });
+      setClientId("");
+      setValidUntil("");
+      setNotes("");
+      setItems([{ ...emptyItem }]);
+      queryClient.invalidateQueries({ queryKey: ["cotizaciones"] });
+    } catch {
+      setError("No se pudo crear la cotización");
+    }
+  }
+
+  async function handleStatusChange(id: number, status: string) {
+    await api.updateCotizacionStatus(id, status);
+    queryClient.invalidateQueries({ queryKey: ["cotizaciones"] });
+  }
+
+  async function handleConvert(id: number) {
+    setMessage(null);
+    try {
+      const pedido = await api.convertCotizacionToPedido(id);
+      setMessage(`Convertida en el pedido ${pedido.orderNumber}.`);
+      queryClient.invalidateQueries({ queryKey: ["pedidos"] });
+    } catch {
+      setError("No se pudo convertir la cotización en pedido");
+    }
+  }
+
+  function total(cotizacion: any) {
+    return cotizacion.items.reduce((sum: number, it: any) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
+  }
+
+  return (
+    <div className="space-y-4">
+      <form onSubmit={handleCreate} className="bg-white rounded-lg shadow p-4 space-y-3">
+        <p className="text-sm font-medium text-slate-700">Nueva cotización</p>
+        {error && <p className="text-red-600 text-sm">{error}</p>}
+        {message && <p className="text-emerald-700 text-sm">{message}</p>}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <select className="border rounded px-3 py-2 text-sm" value={clientId} onChange={(e) => setClientId(e.target.value)}>
+            <option value="">Cliente...</option>
+            {clients?.map((c: any) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <input
+            className="border rounded px-3 py-2 text-sm"
+            type="date"
+            placeholder="Válida hasta"
+            value={validUntil}
+            onChange={(e) => setValidUntil(e.target.value)}
+          />
+          <input
+            className="border rounded px-3 py-2 text-sm"
+            placeholder="Notas"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Ítems</p>
+          {items.map((item, i) => (
+            <div key={i} className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_auto] gap-2">
+              <select
+                className="border rounded px-3 py-2 text-sm"
+                value={item.productId}
+                onChange={(e) => updateItem(i, { productId: e.target.value, unitPrice: String(productPrice(e.target.value)) })}
+              >
+                <option value="">Producto...</option>
+                {products?.map((p: any) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="border rounded px-3 py-2 text-sm"
+                placeholder="Cantidad"
+                type="number"
+                step="0.01"
+                value={item.quantity}
+                onChange={(e) => updateItem(i, { quantity: e.target.value })}
+              />
+              <input
+                className="border rounded px-3 py-2 text-sm"
+                placeholder="Precio unitario"
+                type="number"
+                step="0.01"
+                value={item.unitPrice}
+                onChange={(e) => updateItem(i, { unitPrice: e.target.value })}
+              />
+              <button
+                type="button"
+                onClick={() => removeItemRow(i)}
+                className="text-red-600 text-xs px-2"
+                disabled={items.length === 1}
+              >
+                Quitar
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={addItemRow} className="text-sm text-sky-700 hover:underline">
+            + Agregar ítem
+          </button>
+        </div>
+
+        <button className="bg-slate-800 text-white text-sm px-4 py-2 rounded" type="submit">
+          Crear cotización
+        </button>
+      </form>
+
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-100 text-left">
+            <tr>
+              <th className="p-3">Cotización</th>
+              <th className="p-3">Cliente</th>
+              <th className="p-3">Total</th>
+              <th className="p-3">Válida hasta</th>
+              <th className="p-3">Estado</th>
+              <th className="p-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading && (
+              <tr>
+                <td colSpan={6} className="p-4 text-center text-slate-500">
+                  Cargando...
+                </td>
+              </tr>
+            )}
+            {cotizaciones?.map((c: any) => (
+              <tr key={c.id} className="border-t">
+                <td className="p-3 font-medium">{c.quoteNumber}</td>
+                <td className="p-3">{c.client.name}</td>
+                <td className="p-3">${total(c).toLocaleString("es-CO")}</td>
+                <td className="p-3">{c.validUntil ? new Date(c.validUntil).toLocaleDateString() : "-"}</td>
+                <td className="p-3">
+                  <select
+                    className="text-xs rounded-full px-2 py-1 border bg-slate-50"
+                    value={c.status}
+                    onChange={(e) => handleStatusChange(c.id, e.target.value)}
+                  >
+                    {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="p-3">
+                  <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-xs hover:underline">
+                    Convertir en pedido
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {cotizaciones?.length === 0 && (
+              <tr>
+                <td colSpan={6} className="p-4 text-center text-slate-500">
+                  Todavía no hay cotizaciones.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
