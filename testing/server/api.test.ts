@@ -15,7 +15,7 @@ import { productionRouter } from "../../server/src/routes/production";
 import { dispatchesRouter } from "../../server/src/routes/dispatches";
 import { whatsappWebhookRouter } from "../../server/src/routes/whatsappWebhook";
 import { prisma } from "../../server/src/prisma";
-import { redistributeScores, boostValue, isHot, nextCycle, HOT_THRESHOLD } from "../../server/src/services/frequency";
+import { redistributeScores, boostValue, isHot, nextCycle, nextVisitState, HOT_THRESHOLD } from "../../server/src/services/frequency";
 
 let server: Server;
 let baseUrl = "";
@@ -365,13 +365,69 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
     await prisma.client.delete({ where: { id: body.id } });
   });
 
+  it("POST /contacts/:id/visit incrementa la frecuencia DEL CONTACTO (independiente del cliente)", async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/contacts`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "TEST-CONTACT-FREQ" }),
+    });
+    assert.equal(res.status, 201);
+    const contact = (await res.json()) as { id: number; viewCount: number; cycleInteractions: number; clientId: number };
+
+    const clientAntes = (await prisma.client.findUnique({ where: { id: clientId } }))?.viewCount ?? 0;
+
+    const visit = await fetch(`${baseUrl}/api/clients/contacts/${contact.id}/visit`, { method: "POST", headers: authHeaders() });
+    assert.equal(visit.status, 200);
+    const body = (await visit.json()) as { viewCount: number; cycleInteractions: number };
+    assert.equal(body.viewCount, (contact.viewCount ?? 0) + 1, "la visita cruza el umbral del contacto: sube +1 sobre su conteo");
+
+    const clientDespues = (await prisma.client.findUnique({ where: { id: clientId } }))?.viewCount ?? 0;
+    assert.equal(clientDespues, clientAntes, "la visita del contacto NO toca la frecuencia del cliente");
+
+    await prisma.clientContact.delete({ where: { id: contact.id } });
+  });
+
+  it("POST /contacts/:id/visit: umbral → boost a máximo+1 y consume (necesita 5 frescas)", async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/contacts`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "TEST-CONTAC-FRESH" }),
+    });
+    const contact = (await res.json()) as { id: number };
+
+    await prisma.clientContact.update({
+      where: { id: contact.id },
+      data: { cycleInteractions: HOT_THRESHOLD - 1, viewCount: 0 },
+    });
+    const antesMax = await prisma.clientContact.aggregate({ _max: { viewCount: true } });
+
+    const primera = await fetch(`${baseUrl}/api/clients/contacts/${contact.id}/visit`, { method: "POST", headers: authHeaders() });
+    const b1 = (await primera.json()) as { viewCount: number; cycleInteractions: number };
+    assert.equal(b1.viewCount, (antesMax._max.viewCount ?? 0) + 1, "cruza el umbral: boost a máximo+1");
+    assert.equal(b1.cycleInteractions, 0, "boost consumido");
+
+    const segunda = await fetch(`${baseUrl}/api/clients/contacts/${contact.id}/visit`, { method: "POST", headers: authHeaders() });
+    const b2 = (await segunda.json()) as { viewCount: number; cycleInteractions: number };
+    assert.equal(b2.viewCount, b1.viewCount + 1, "sin umbral: solo +1");
+    assert.equal(b2.cycleInteractions, 1);
+
+    await prisma.clientContact.delete({ where: { id: contact.id } });
+  });
+
   it("GET /contacts devuelve contactos con empresa relacionada", async () => {
     const res = await fetch(`${baseUrl}/api/clients/contacts`, { headers: authHeaders() });
     assert.equal(res.status, 200);
-    const contacts = (await res.json()) as { name: string; client: { id: number; name: string } | null }[];
+    const contacts = (await res.json()) as {
+      name: string;
+      viewCount?: number;
+      cycleInteractions?: number;
+      client: { id: number; name: string } | null;
+    }[];
     assert.ok(Array.isArray(contacts));
     assert.ok(contacts.length > 0, "El seed incluye contactos");
     assert.ok(contacts.every((c) => c.client && typeof c.client.name === "string"));
+    // La frecuencia es propia del contacto: el listado expone sus contadores.
+    assert.ok(contacts.every((c) => typeof c.viewCount === "number" && typeof c.cycleInteractions === "number"));
   });
 
   it("POST /:id/avatar rechaza un archivo que no es imagen", async () => {
@@ -470,5 +526,10 @@ describe("frecuentes · ranking, boost por interacciones y purga semanal", () =>
     assert.equal(isHot(5, HOT_THRESHOLD), true);
     assert.equal(nextCycle(null), 1);
     assert.equal(nextCycle(4), 5);
+  });
+
+  it("nextVisitState: +1 normal o boost consumido al cruzar el umbral (motor común)", () => {
+    assert.deepEqual(nextVisitState({ viewCount: 3, cycleInteractions: 4 }, 10), { viewCount: 11, cycleInteractions: 0 });
+    assert.deepEqual(nextVisitState({ viewCount: 3, cycleInteractions: 2 }, 10), { viewCount: 4, cycleInteractions: 3 });
   });
 });

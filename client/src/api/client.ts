@@ -74,6 +74,12 @@ export const api = {
     request<{ ok: boolean }>(`/clients/${clientId}/contacts/${contactId}`, { method: "DELETE" }),
   /** Lista global de contactos con la empresa relacionada (pantalla CRM "Contactos"). */
   getAllContacts: () => request<any[]>("/clients/contacts"),
+  /** Registra una visita a la ficha de un contacto (frecuencia propia del contacto). */
+  recordContactVisit: (contactId: number) =>
+    request<{ viewCount: number; lastViewedAt: string; cycleInteractions: number }>(
+      `/clients/contacts/${contactId}/visit`,
+      { method: "POST" }
+    ),
 
   getClientAddresses: (clientId: number) => request<any[]>(`/clients/${clientId}/addresses`),
   createClientAddress: (

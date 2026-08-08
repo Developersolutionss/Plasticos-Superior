@@ -5,7 +5,7 @@ import fs from "fs";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
-import { boostValue, isHot, nextCycle, HOT_THRESHOLD } from "../services/frequency";
+import { boostValue, isHot, nextCycle, nextVisitState, HOT_THRESHOLD } from "../services/frequency";
 
 export const clientsRouter = Router();
 clientsRouter.use(requireAuth);
@@ -136,24 +136,22 @@ clientsRouter.post("/:id/visit", requireVentas, async (req, res) => {
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
 
-  const interactions = nextCycle(client.cycleInteractions);
-  const hot = isHot(interactions, HOT_THRESHOLD);
-
   // Contador vivo: +1 por visita; al cruzar el umbral de interacciones el
   // cliente sube arriba del ranking al instante (máximo actual + 1) pero
   // consume el boost: las interacciones vuelven a 0 y necesita 5 nuevas.
-  const newCount = hot
-    ? await prisma.client
-        .aggregate({ _max: { viewCount: true } })
-        .then((r) => boostValue(r._max.viewCount))
-    : undefined;
+  const hot = isHot(nextCycle(client.cycleInteractions), HOT_THRESHOLD);
+  let maxScore = client.viewCount ?? 0;
+  if (hot) {
+    maxScore = (await prisma.client.aggregate({ _max: { viewCount: true } }))._max.viewCount ?? maxScore;
+  }
+  const state = nextVisitState(client, maxScore);
 
   const updated = await prisma.client.update({
     where: { id: clientId },
     data: {
-      ...(newCount === undefined ? { viewCount: { increment: 1 } } : { viewCount: newCount }),
+      viewCount: state.viewCount,
       lastViewedAt: new Date(),
-      cycleInteractions: hot ? 0 : interactions,
+      cycleInteractions: state.cycleInteractions,
     },
   });
   res.json({
@@ -242,6 +240,39 @@ clientsRouter.get("/contacts", async (_req, res) => {
   res.json(contacts);
 });
 
+/** Registra una "visita" al abrir la ficha de un contacto (frecuencia PROPIA
+ * del contacto, el mismo motor que clientes: umbral → boost + consumir). */
+clientsRouter.post("/contacts/:contactId/visit", requireVentas, async (req, res) => {
+  const contactId = Number(req.params.contactId);
+  if (!Number.isInteger(contactId) || contactId <= 0) {
+    return res.status(400).json({ error: "ID de contacto inválido" });
+  }
+
+  const contact = await prisma.clientContact.findUnique({ where: { id: contactId } });
+  if (!contact) return res.status(404).json({ error: "Contacto no encontrado" });
+
+  const hot = isHot(nextCycle(contact.cycleInteractions), HOT_THRESHOLD);
+  let maxScore = contact.viewCount ?? 0;
+  if (hot) {
+    maxScore = (await prisma.clientContact.aggregate({ _max: { viewCount: true } }))._max.viewCount ?? maxScore;
+  }
+  const state = nextVisitState(contact, maxScore);
+
+  const updated = await prisma.clientContact.update({
+    where: { id: contactId },
+    data: {
+      viewCount: state.viewCount,
+      lastViewedAt: new Date(),
+      cycleInteractions: state.cycleInteractions,
+    },
+  });
+  res.json({
+    viewCount: updated.viewCount,
+    lastViewedAt: updated.lastViewedAt,
+    cycleInteractions: updated.cycleInteractions,
+  });
+});
+
 /** Lista los contactos de un cliente. */
 clientsRouter.get("/:id/contacts", async (req, res) => {
   const clientId = Number(req.params.id);
@@ -289,6 +320,11 @@ clientsRouter.post("/:id/contacts", requireVentas, async (req, res) => {
       });
     }
 
+    // Un contacto nuevo nace arriba de su ranking "Frecuentes" (frecuencia
+    // propia, independiente del cliente): arranca en el máximo actual + 1 y ya
+    // cuenta como "hot" para esta semana.
+    const { _max } = await tx.clientContact.aggregate({ _max: { viewCount: true } });
+
     return tx.clientContact.create({
       data: {
         clientId,
@@ -297,6 +333,8 @@ clientsRouter.post("/:id/contacts", requireVentas, async (req, res) => {
         phone: parsed.data.phone,
         email: parsed.data.email,
         isPrimary: parsed.data.isPrimary,
+        viewCount: boostValue(_max.viewCount),
+        cycleInteractions: HOT_THRESHOLD,
       },
     });
   });

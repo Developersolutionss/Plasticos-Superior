@@ -215,7 +215,9 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - Formulario único para **crear** (página `/clientes/nuevo` → `NuevoCliente.tsx`) y **editar** (modal). Campos: nombre, email/teléfono/notas (en `contactInfo`), límite de crédito y **foto de perfil** (preview + upload). `NuevoCliente` redirige al listado dejando el cliente creado seleccionado.
 
 ### `Contactos.tsx`
-- Pantalla global de contactos de todos los clientes (`api.getAllContacts`): buscador, filtros ABC/Antigüedad/Frecuentes y **por empresa** (select), vista lista/cajas con el avatar de la empresa relacionada.
+- Pantalla global de contactos de todos los clientes (`api.getAllContacts`): buscador, filtros ABC/Antigüedad/Frecuentes y **por cliente** (select), vista lista/cajas con el avatar del cliente relacionado.
+- La **frecuencia del contacto es propia e independiente** de la del cliente (mismo motor: `HOT_THRESHOLD=5`, boost consumible): el clic en una fila/caja abre un **modal con sus datos** (cliente, cargo, teléfono `tel:`, email `mailto:`, principal, alta) y registra la visita del contacto (`api.recordContactVisit`, optimista con `nextInteraction`). `Esc` o el ✕ cierran el modal.
+- Cada contacto tiene un **menú ⋮** con "Abrir cliente" (navega a `/clientes` con el cliente seleccionado) y "Eliminar" (confirmación en dos pasos); se cierra con clic afuera o `Esc`.
 
 ### `Cotizaciones.tsx` / `Pedidos.tsx` / `Facturas.tsx`
 - Crear y listar cotizaciones con estado; pedidos versionados con adjuntos; facturas con abonos y anulación.

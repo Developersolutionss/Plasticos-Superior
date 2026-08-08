@@ -42,6 +42,24 @@ export function nextCycle(previous?: number | null): number {
   return (previous ?? 0) + 1;
 }
 
+/**
+ * Estado siguiente tras una visita: +1 al conteo; al cruzar el umbral de
+ * interacciones el elemento sube a `maxScore + 1` (arriba del ranking) y
+ * consume el boost (interacciones vuelven a 0). Compartido por la visita de
+ * clientes y de contactos reutilizando el mismo motor.
+ */
+export function nextVisitState(
+  prev: { viewCount?: number | null; cycleInteractions?: number | null },
+  maxScore: number
+): { viewCount: number; cycleInteractions: number } {
+  const cycleInteractions = nextCycle(prev.cycleInteractions);
+  const hot = isHot(cycleInteractions);
+  return {
+    cycleInteractions: hot ? 0 : cycleInteractions,
+    viewCount: hot ? maxScore + 1 : (prev.viewCount ?? 0) + 1,
+  };
+}
+
 /** Comparador por frecuencia: más score primero, desempata por actividad reciente. */
 export function sortByFrequency<T extends FrequencyEntry>(entries: T[]): T[] {
   return [...entries].sort((a, b) => {

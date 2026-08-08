@@ -270,7 +270,15 @@ model ClientContact {
   phone     String?
   email     String?
   isPrimary Boolean  @default(false) @map("is_primary")
-  createdAt DateTime @default(now()) @map("created_at")
+  /// Conteo de veces que se abrió la ficha del contacto. Frecuencia PROPIA del
+  /// contacto, independiente de la del cliente (mismo motor que Client).
+  viewCount          Int       @default(0) @map("view_count")
+  lastViewedAt       DateTime? @map("last_viewed_at")
+  /// Interacciones acumuladas desde la última purga semanal. Al llegar al
+  /// umbral (5) el contacto se vuelve "hot" y su `viewCount` salta arriba del
+  /// ranking en vivo; el boost se consume y el contador vuelve a 0.
+  cycleInteractions    Int       @default(0) @map("cycle_interactions")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   @@map("client_contacts")
 }
