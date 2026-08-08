@@ -98,20 +98,30 @@ Resultado esperado:
 | `WHATSAPP_VERIFY_TOKEN` | Token de verificación del webhook de WhatsApp | `change-me` |
 | `WHATSAPP_ACCESS_TOKEN` | Token de acceso a Meta Graph API (fase 2) | vacío |
 | `WHATSAPP_PHONE_NUMBER_ID` | ID del número de WhatsApp (fase 2) | vacío |
+| `RESEND_API_KEY` | Llave de Resend para el email de recuperación de contraseña. Si está vacía, el link se imprime en la consola del servidor | vacío |
+| `RESEND_FROM_EMAIL` | Remitente del correo de recuperación | `onboarding@resend.dev` |
+| `FRONTEND_URL` | URL del frontend, usada para armar el link del email | `http://localhost:5173` |
 
 ## Usuarios de prueba (seed)
 
-Todos con contraseña `password123`:
+Todos con contraseña `password123`, uno por rol de la matriz completa:
 
 | Email | Rol |
 |---|---|
-| `admin@empresa.com` | admin |
-| `produccion@empresa.com` | produccion |
-| `despacho@empresa.com` | despacho |
+| `admin@empresa.com` | super_admin |
+| `administrador@empresa.com` | admin |
+| `produccion@empresa.com` | gerente_produccion |
+| `planeacion@empresa.com` | planeacion |
+| `ventas@empresa.com` | ventas_pedidos |
+| `despacho@empresa.com` | almacen_despachos |
+| `operario.extrusion@empresa.com` | operario_extrusion |
+| `operario.impresion@empresa.com` | operario_impresion |
+| `operario.sellado@empresa.com` | operario_sellado_precorte |
+| `calidad@empresa.com` | calidad |
+| `auditor@empresa.com` | auditor |
 
 Productos sembrados (catálogo): `BUL-001`, `ROL-PL-001`, `ROL-F-001`, `MAN-001`, `TIR-001`, `CTL-001`.
-Clientes sembrados: "Cliente ACME", "Distribuidora Norte".
-Contactos sembrados para Cliente ACME: María López (principal) y Carlos Pérez.
+Clientes sembrados: "Cliente ACME" y "Distribuidora Norte". Cliente ACME tiene límite de crédito `5.000.000`, una bodega principal, y los contactos María López (principal) y Carlos Pérez.
 
 ## Scripts
 

@@ -127,6 +127,7 @@ clientsRouter.post("/:id/contacts", async (req, res) => {
 Reglas:
 
 - Use `requireAuth` con `router.use(requireAuth)` para proteger todo el archivo. El login y el webhook de WhatsApp son las únicas excepciones.
+- Para rutas restringidas, aplique un middleware de rol: `const requireVentas = requireRole(...ROLES.VENTAS)` y póngalo entre el path y el handler. Use los grupos de `ROLES` (VENTAS, ALMACEN, PRODUCCION_GESTION, OPERARIOS). Devuelve `403` si el rol no corresponde. Ver [06 — Backend](06-backend.md).
 - Valide el body con un schema zod y `safeParse`. Si falla → `400`.
 - Valide los parámetros de la URL con `Number.isInteger`. Si no son números → `400`.
 - Verifique que el recurso padre exista. Si no → `404`. En el DELETE, filtre el contacto por `{ id, clientId }` para no borrar contactos de otros clientes.
@@ -157,7 +158,7 @@ createContact: (clientId: number, data: Record<string, unknown>) =>
   request<any>(`/clients/${clientId}/contacts`, { method: "POST", body: JSON.stringify(data) }),
 ```
 
-> Nota: el módulo de contactos es **backend-only** por ahora. Los helpers de frontend no se agregaron. No hay UI de contactos. Si se agrega, complete este paso y el siguiente.
+> Los helpers de contactos, direcciones e interacciones ya existen en `api`: `getClientContacts`, `createClientContact`, `deleteClientContact`, `getClientAddresses`, `getClientInteractions`, `createClientInteraction`. `Clients.tsx` los usa en sus pestañas.
 
 ## Paso 6: Cree la página y la ruta
 
@@ -189,6 +190,7 @@ Si la lectura debe funcionar offline (PWA), amplíe el `runtimeCaching` de `vite
 
 ```bash
 npm run build                 # compila server (tsc) y client (vite)
+npm run test                  # suites de API (node:test) y frontend (vitest)
 npm run dev                   # prueba manual en http://localhost:4000 y http://localhost:5173
 ```
 
