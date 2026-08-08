@@ -5,6 +5,7 @@ import fs from "fs";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
+import { nextStreak } from "../services/frecuentesReset";
 
 export const clientsRouter = Router();
 clientsRouter.use(requireAuth);
@@ -128,9 +129,13 @@ clientsRouter.post("/:id/visit", requireVentas, async (req, res) => {
 
   const updated = await prisma.client.update({
     where: { id: clientId },
-    data: { viewCount: { increment: 1 }, lastViewedAt: new Date() },
+    data: {
+      viewCount: { increment: 1 },
+      lastViewedAt: new Date(),
+      visitStreak: nextStreak(client.visitStreak, client.lastViewedAt),
+    },
   });
-  res.json({ viewCount: updated.viewCount, lastViewedAt: updated.lastViewedAt });
+  res.json({ viewCount: updated.viewCount, lastViewedAt: updated.lastViewedAt, visitStreak: updated.visitStreak });
 });
 
 /** Elimina (desactiva) un cliente. Soft delete: el registro se conserva porque

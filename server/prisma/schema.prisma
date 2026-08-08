@@ -207,6 +207,9 @@ model Client {
   /// Conteo de veces que se abrió la ficha del cliente (filtro "Frecuentes").
   viewCount     Int       @default(0) @map("view_count")
   lastViewedAt  DateTime? @map("last_viewed_at")
+  /// Días seguidos con al menos una visita. Sirve para dar "boost" en el ranking
+  /// semanal de "Frecuentes" a los clientes activos (ver frecuentesReset.ts).
+  visitStreak   Int       @default(0) @map("visit_streak")
   active      Boolean  @default(true)
   createdAt   DateTime @default(now()) @map("created_at")
 

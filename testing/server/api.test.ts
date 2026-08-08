@@ -15,7 +15,7 @@ import { productionRouter } from "../../server/src/routes/production";
 import { dispatchesRouter } from "../../server/src/routes/dispatches";
 import { whatsappWebhookRouter } from "../../server/src/routes/whatsappWebhook";
 import { prisma } from "../../server/src/prisma";
-import { computeRedistribution } from "../../server/src/services/frecuentesReset";
+import { computeRedistribution, nextStreak } from "../../server/src/services/frecuentesReset";
 
 let server: Server;
 let baseUrl = "";
@@ -421,5 +421,41 @@ describe("frecuentes · redistribución semanal por ranking", () => {
   it("con un solo cliente queda en 0", () => {
     const next = computeRedistribution([{ id: 1, viewCount: 999 }]);
     assert.deepEqual(next, [{ id: 1, viewCount: 0 }]);
+  });
+
+  it("un cliente con racha supera al mas visitado aunque tenga poco conteo", () => {
+    const next = computeRedistribution([
+      { id: 1, viewCount: 50, streak: 0 },
+      { id: 2, viewCount: 2, streak: 3 },
+    ]);
+    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
+    assert.equal(byId[2], 1, "el de racha sube arriba del ranking");
+    assert.equal(byId[1], 0);
+  });
+
+  it("varios de racha se ordenan por la racha mas larga primero", () => {
+    const next = computeRedistribution([
+      { id: 1, viewCount: 50, streak: 0 },
+      { id: 2, viewCount: 9, streak: 3 },
+      { id: 3, viewCount: 5, streak: 5 },
+      { id: 4, viewCount: 0, streak: 4 },
+    ]);
+    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
+    assert.equal(byId[3], 3, "racha 5 -> el primero");
+    assert.equal(byId[4], 2, "racha 4 -> segundo");
+    assert.equal(byId[2], 1, "racha 3 -> tercero");
+    assert.equal(byId[1], 0, "sin racha, aunque tenga 50 visitas -> ultimo");
+  });
+
+  it("nextStreak: crece al dia siguiente, se mantiene el mismo dia y reinicia tras un hueco", () => {
+    const hoy = new Date(2026, 7, 8, 10, 0, 0); // 8-ago-2026
+    const ayer = new Date(2026, 7, 7, 9, 0, 0);
+    const hoyTemprano = new Date(2026, 7, 8, 8, 0, 0);
+    const hace3Dias = new Date(2026, 7, 5, 15, 0, 0);
+
+    assert.equal(nextStreak(2, ayer, hoy), 3, "visita de ayer incrementa la racha");
+    assert.equal(nextStreak(3, hoyTemprano, hoy), 3, "segunda visita del mismo dia mantiene la racha");
+    assert.equal(nextStreak(5, hace3Dias, hoy), 1, "hueco de dias reinicia la racha");
+    assert.equal(nextStreak(0, null, hoy), 1, "primera visita arranca en 1");
   });
 });
