@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
+import { withSequentialNumberRetry } from "../services/sequentialNumber";
 
 export const facturasRouter = Router();
 facturasRouter.use(requireAuth);
@@ -70,28 +71,30 @@ facturasRouter.post("/", requireVentas, async (req, res) => {
     return res.status(400).json({ error: "Uno o más productos no existen" });
   }
 
-  const factura = await prisma.$transaction(async (tx) => {
-    const count = await tx.factura.count();
-    const invoiceNumber = `FAC-${String(count + 1).padStart(5, "0")}`;
+  const factura = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const count = await tx.factura.count();
+      const invoiceNumber = `FAC-${String(count + 1).padStart(5, "0")}`;
 
-    return tx.factura.create({
-      data: {
-        invoiceNumber,
-        clientId: parsed.data.clientId,
-        notes: parsed.data.notes,
-        createdById: req.user!.userId,
-        items: {
-          create: parsed.data.items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice ?? Number(productById.get(item.productId)!.unitPrice),
-            measure: item.measure,
-          })),
+      return tx.factura.create({
+        data: {
+          invoiceNumber,
+          clientId: parsed.data.clientId,
+          notes: parsed.data.notes,
+          createdById: req.user!.userId,
+          items: {
+            create: parsed.data.items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice ?? Number(productById.get(item.productId)!.unitPrice),
+              measure: item.measure,
+            })),
+          },
         },
-      },
-      include: { items: { include: { product: true } }, client: true },
-    });
-  });
+        include: { items: { include: { product: true } }, client: true },
+      });
+    })
+  );
 
   res.status(201).json(factura);
 });
@@ -110,28 +113,30 @@ facturasRouter.post("/desde-pedido/:pedidoId", requireVentas, async (req, res) =
     return res.status(400).json({ error: "El pedido no tiene ítems para facturar" });
   }
 
-  const factura = await prisma.$transaction(async (tx) => {
-    const count = await tx.factura.count();
-    const invoiceNumber = `FAC-${String(count + 1).padStart(5, "0")}`;
+  const factura = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const count = await tx.factura.count();
+      const invoiceNumber = `FAC-${String(count + 1).padStart(5, "0")}`;
 
-    return tx.factura.create({
-      data: {
-        invoiceNumber,
-        clientId: pedido.clientId,
-        pedidoId: pedido.id,
-        createdById: req.user!.userId,
-        items: {
-          create: latestVersion.items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            measure: item.measure,
-          })),
+      return tx.factura.create({
+        data: {
+          invoiceNumber,
+          clientId: pedido.clientId,
+          pedidoId: pedido.id,
+          createdById: req.user!.userId,
+          items: {
+            create: latestVersion.items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              measure: item.measure,
+            })),
+          },
         },
-      },
-      include: { items: { include: { product: true } }, client: true },
-    });
-  });
+        include: { items: { include: { product: true } }, client: true },
+      });
+    })
+  );
 
   res.status(201).json(factura);
 });

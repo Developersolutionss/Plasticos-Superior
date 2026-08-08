@@ -5,6 +5,7 @@ import fs from "fs";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
+import { withSequentialNumberRetry } from "../services/sequentialNumber";
 
 export const pedidosRouter = Router();
 pedidosRouter.use(requireAuth);
@@ -73,37 +74,39 @@ pedidosRouter.post("/", requireVentas, async (req, res) => {
     return res.status(400).json({ error: "Uno o más productos no existen" });
   }
 
-  const pedido = await prisma.$transaction(async (tx) => {
-    const count = await tx.pedido.count();
-    const orderNumber = `PED-${String(count + 1).padStart(5, "0")}`;
+  const pedido = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const count = await tx.pedido.count();
+      const orderNumber = `PED-${String(count + 1).padStart(5, "0")}`;
 
-    return tx.pedido.create({
-      data: {
-        orderNumber,
-        clientId: parsed.data.clientId,
-        status: "borrador",
-        currentVersion: 1,
-        createdById: req.user!.userId,
-        versions: {
-          create: {
-            versionNumber: 1,
-            status: "borrador",
-            notes: parsed.data.notes,
-            createdById: req.user!.userId,
-            items: {
-              create: parsed.data.items.map((item) => ({
-                productId: item.productId,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice ?? Number(productById.get(item.productId)!.unitPrice),
-                measure: item.measure,
-              })),
+      return tx.pedido.create({
+        data: {
+          orderNumber,
+          clientId: parsed.data.clientId,
+          status: "borrador",
+          currentVersion: 1,
+          createdById: req.user!.userId,
+          versions: {
+            create: {
+              versionNumber: 1,
+              status: "borrador",
+              notes: parsed.data.notes,
+              createdById: req.user!.userId,
+              items: {
+                create: parsed.data.items.map((item) => ({
+                  productId: item.productId,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice ?? Number(productById.get(item.productId)!.unitPrice),
+                  measure: item.measure,
+                })),
+              },
             },
           },
         },
-      },
-      include: { versions: { include: { items: { include: { product: true } } } } },
-    });
-  });
+        include: { versions: { include: { items: { include: { product: true } } } } },
+      });
+    })
+  );
 
   res.status(201).json(pedido);
 });
@@ -144,35 +147,41 @@ pedidosRouter.patch("/:id", requireVentas, async (req, res) => {
     return res.status(400).json({ error: "Uno o más productos no existen" });
   }
 
-  const newVersionNumber = pedido.currentVersion + 1;
+  const version = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
+      // Se relee currentVersion en cada intento (no afuera de la transacción):
+      // si un reintento ocurre porque otra edición concurrente ya tomó este
+      // número de versión, acá adentro ya vemos el currentVersion actualizado.
+      const current = await tx.pedido.findUniqueOrThrow({ where: { id: pedidoId } });
+      const newVersionNumber = current.currentVersion + 1;
 
-  const version = await prisma.$transaction(async (tx) => {
-    const created = await tx.pedidoVersion.create({
-      data: {
-        pedidoId,
-        versionNumber: newVersionNumber,
-        status: parsed.data.status,
-        notes: parsed.data.notes,
-        createdById: req.user!.userId,
-        items: {
-          create: parsed.data.items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice ?? Number(productById.get(item.productId)!.unitPrice),
-            measure: item.measure,
-          })),
+      const created = await tx.pedidoVersion.create({
+        data: {
+          pedidoId,
+          versionNumber: newVersionNumber,
+          status: parsed.data.status,
+          notes: parsed.data.notes,
+          createdById: req.user!.userId,
+          items: {
+            create: parsed.data.items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice ?? Number(productById.get(item.productId)!.unitPrice),
+              measure: item.measure,
+            })),
+          },
         },
-      },
-      include: { items: { include: { product: true } } },
-    });
+        include: { items: { include: { product: true } } },
+      });
 
-    await tx.pedido.update({
-      where: { id: pedidoId },
-      data: { currentVersion: newVersionNumber, status: parsed.data.status },
-    });
+      await tx.pedido.update({
+        where: { id: pedidoId },
+        data: { currentVersion: newVersionNumber, status: parsed.data.status },
+      });
 
-    return created;
-  });
+      return created;
+    })
+  );
 
   res.status(201).json(version);
 });
@@ -191,36 +200,38 @@ pedidosRouter.post("/:id/duplicar", requireVentas, async (req, res) => {
     return res.status(400).json({ error: "El pedido no tiene ítems para duplicar" });
   }
 
-  const duplicated = await prisma.$transaction(async (tx) => {
-    const count = await tx.pedido.count();
-    const orderNumber = `PED-${String(count + 1).padStart(5, "0")}`;
+  const duplicated = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const count = await tx.pedido.count();
+      const orderNumber = `PED-${String(count + 1).padStart(5, "0")}`;
 
-    return tx.pedido.create({
-      data: {
-        orderNumber,
-        clientId: pedido.clientId,
-        status: "borrador",
-        currentVersion: 1,
-        createdById: req.user!.userId,
-        versions: {
-          create: {
-            versionNumber: 1,
-            status: "borrador",
-            createdById: req.user!.userId,
-            items: {
-              create: latestVersion.items.map((item) => ({
-                productId: item.productId,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                measure: item.measure,
-              })),
+      return tx.pedido.create({
+        data: {
+          orderNumber,
+          clientId: pedido.clientId,
+          status: "borrador",
+          currentVersion: 1,
+          createdById: req.user!.userId,
+          versions: {
+            create: {
+              versionNumber: 1,
+              status: "borrador",
+              createdById: req.user!.userId,
+              items: {
+                create: latestVersion.items.map((item) => ({
+                  productId: item.productId,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  measure: item.measure,
+                })),
+              },
             },
           },
         },
-      },
-      include: { versions: { include: { items: { include: { product: true } } } } },
-    });
-  });
+        include: { versions: { include: { items: { include: { product: true } } } } },
+      });
+    })
+  );
 
   res.status(201).json(duplicated);
 });

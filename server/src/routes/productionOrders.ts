@@ -4,6 +4,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
 import { applyMovement } from "../services/stockService";
+import { withSequentialNumberRetry } from "../services/sequentialNumber";
 
 export const productionOrdersRouter = Router();
 productionOrdersRouter.use(requireAuth);
@@ -36,21 +37,23 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
   const product = await prisma.product.findUnique({ where: { id: parsed.data.productId } });
   if (!product) return res.status(404).json({ error: "Producto no encontrado" });
 
-  const order = await prisma.$transaction(async (tx) => {
-    const count = await tx.productionOrder.count();
-    const orderNumber = `OP-${String(count + 1).padStart(5, "0")}`;
+  const order = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const count = await tx.productionOrder.count();
+      const orderNumber = `OP-${String(count + 1).padStart(5, "0")}`;
 
-    return tx.productionOrder.create({
-      data: {
-        orderNumber,
-        productId: parsed.data.productId,
-        quantityPlanned: parsed.data.quantityPlanned,
-        measure: parsed.data.measure ?? product.measure,
-        notes: parsed.data.notes,
-        createdById: req.user!.userId,
-      },
-    });
-  });
+      return tx.productionOrder.create({
+        data: {
+          orderNumber,
+          productId: parsed.data.productId,
+          quantityPlanned: parsed.data.quantityPlanned,
+          measure: parsed.data.measure ?? product.measure,
+          notes: parsed.data.notes,
+          createdById: req.user!.userId,
+        },
+      });
+    })
+  );
 
   res.status(201).json(order);
 });

@@ -150,6 +150,15 @@ authRouter.post("/reset-password", async (req, res) => {
 
 authRouter.post("/2fa/setup", requireAuth, async (req, res) => {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.userId } });
+
+  // Si ya está activado, hay que pasar por /2fa/disable (que exige el
+  // código actual) antes de poder pedir un secret nuevo — si no, alguien
+  // con un JWT robado podría desactivar el 2FA sin conocer el código,
+  // simplemente pisando el secret con uno nuevo vía este endpoint.
+  if (user.twoFactorEnabled) {
+    return res.status(400).json({ error: "El 2FA ya está activado. Desactivalo primero para volver a vincularlo." });
+  }
+
   const secret = generateSecret();
   await prisma.user.update({ where: { id: user.id }, data: { twoFactorSecret: secret, twoFactorEnabled: false } });
 

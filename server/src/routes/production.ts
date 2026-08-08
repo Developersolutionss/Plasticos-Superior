@@ -39,7 +39,7 @@ productionRouter.post("/entries", requireProduccionOAlmacen, async (req, res) =>
 });
 
 /** Paso 1: sube el archivo y devuelve un preview de filas parseadas (sin persistir). */
-productionRouter.post("/import/preview", upload.single("file"), async (req, res) => {
+productionRouter.post("/import/preview", requireProduccionOAlmacen, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Archivo no provisto" });
 
   const rows = await parseProductionFile(req.file.buffer, req.file.originalname);

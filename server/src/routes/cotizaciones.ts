@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
+import { withSequentialNumberRetry } from "../services/sequentialNumber";
 
 export const cotizacionesRouter = Router();
 cotizacionesRouter.use(requireAuth);
@@ -51,7 +52,8 @@ cotizacionesRouter.post("/", requireVentas, async (req, res) => {
     return res.status(400).json({ error: "Uno o más productos no existen" });
   }
 
-  const cotizacion = await prisma.$transaction(async (tx) => {
+  const cotizacion = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
     const count = await tx.cotizacion.count();
     const quoteNumber = `COT-${String(count + 1).padStart(5, "0")}`;
 
@@ -73,7 +75,8 @@ cotizacionesRouter.post("/", requireVentas, async (req, res) => {
       },
       include: { items: { include: { product: true } }, client: true },
     });
-  });
+    })
+  );
 
   res.status(201).json(cotizacion);
 });
@@ -107,7 +110,8 @@ cotizacionesRouter.post("/:id/convertir-a-pedido", requireVentas, async (req, re
   if (!cotizacion) return res.status(404).json({ error: "Cotización no encontrada" });
   if (cotizacion.items.length === 0) return res.status(400).json({ error: "La cotización no tiene ítems" });
 
-  const pedido = await prisma.$transaction(async (tx) => {
+  const pedido = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
     const count = await tx.pedido.count();
     const orderNumber = `PED-${String(count + 1).padStart(5, "0")}`;
 
@@ -137,7 +141,8 @@ cotizacionesRouter.post("/:id/convertir-a-pedido", requireVentas, async (req, re
       },
       include: { versions: { include: { items: true } } },
     });
-  });
+    })
+  );
 
   res.status(201).json(pedido);
 });
