@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import path from "path";
 import { authRouter } from "./routes/auth";
 import { clientsRouter } from "./routes/clients";
 import { inventoryRouter } from "./routes/inventory";
@@ -18,6 +19,12 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Archivos subidos (avatars de clientes, adjuntos de pedidos, etc.). Sin
+// autenticación: son recursos públicos que el navegador pide directo en
+// <img src="/api/uploads/...">. En dev lo proxea Vite, en prod el servidor
+// estático debe reenviar /api/* a la API.
+app.use("/api/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 app.use("/api/auth", authRouter);
 app.use("/api/clients", clientsRouter);

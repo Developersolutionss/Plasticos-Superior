@@ -85,10 +85,14 @@ curl -X POST http://localhost:4000/api/auth/forgot-password \
 
 | Método | Ruta | Cuerpo | Descripción |
 |---|---|---|---|
-| GET | `/api/clients` | — | Lista clientes activos, ordenados por nombre |
+| GET | `/api/clients` | — | Lista clientes activos, ordenados por nombre (incluye `avatarUrl`, `viewCount`, `lastViewedAt`) |
 | POST | `/api/clients` | `{ name, contactInfo?, creditLimit? }` | Crea un cliente (rol de ventas) |
+| PATCH | `/api/clients/:id` | `{ name?, contactInfo?, creditLimit? }` | Edita datos del cliente |
+| POST | `/api/clients/:id/avatar` | multipart `avatar` (JPG/PNG/WEBP, ≤2 MB) | Sube o reemplaza la foto de perfil; setea `avatarUrl` |
+| POST | `/api/clients/:id/visit` | — | Registra una visita a la ficha (`viewCount++`, `lastViewedAt`) |
 | PATCH | `/api/clients/:id/credit-limit` | `{ creditLimit }` | Edita el límite de crédito manual |
 | GET | `/api/clients/:id/cartera` | — | Saldo pendiente calculado (total facturado no anulado − pagos) + detalle de facturas pendientes |
+| GET | `/api/clients/contacts` | — | **Lista global** de contactos con la empresa relacionada (nombre y `avatarUrl`) — pantalla CRM "Contactos" |
 | GET | `/api/clients/:id/contacts` | — | Contactos del cliente (principal primero) |
 | POST | `/api/clients/:id/contacts` | `{ name, position?, phone?, email?, isPrimary? }` | Crea un contacto. Si `isPrimary: true`, desmarca los demás en una transacción |
 | DELETE | `/api/clients/:id/contacts/:contactId` | — | Borra un contacto; si era principal, asigna el más reciente restante |

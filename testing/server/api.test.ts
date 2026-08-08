@@ -2,6 +2,9 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -280,5 +283,100 @@ describe("contactos", () => {
     const after = (await listAfter.json()) as { id: number; name: string; isPrimary: boolean }[];
     const aAfter = after.find((c) => c.id === a!.id);
     assert.equal(aAfter!.isPrimary, true, "El contacto más reciente restante debió quedar como principal");
+  });
+});
+
+describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () => {
+  let clientId = 0;
+
+  before(async () => {
+    const res = await fetch(`${baseUrl}/api/clients`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "TEST-CRM" }),
+    });
+    assert.equal(res.status, 201);
+    const client = (await res.json()) as { id: number };
+    clientId = client.id;
+  });
+
+  after(async () => {
+    await prisma.client.delete({ where: { id: clientId } }).catch(() => {});
+  });
+
+  it("PATCH /:id edita nombre, contactInfo y creditLimit", async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "TEST-CRM Editado", contactInfo: { email: "x@y.com", notes: "n" }, creditLimit: 5000 }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { name: string; contactInfo: { email: string; phone?: string }; creditLimit: string };
+    assert.equal(body.name, "TEST-CRM Editado");
+    assert.equal(body.contactInfo.email, "x@y.com");
+    assert.equal(Number(body.creditLimit), 5000);
+  });
+
+  it("POST /:id/visit incrementa viewCount y setea lastViewedAt", async () => {
+    const antes = await prisma.client.findUnique({ where: { id: clientId } });
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/visit`, { method: "POST", headers: authHeaders() });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { viewCount: number; lastViewedAt: string };
+    const despues = await prisma.client.findUnique({ where: { id: clientId } });
+    assert.equal(body.viewCount, (antes!.viewCount ?? 0) + 1);
+    assert.equal(despues!.viewCount, (antes!.viewCount ?? 0) + 1);
+    assert.ok(body.lastViewedAt);
+  });
+
+  it("GET /contacts devuelve contactos con empresa relacionada", async () => {
+    const res = await fetch(`${baseUrl}/api/clients/contacts`, { headers: authHeaders() });
+    assert.equal(res.status, 200);
+    const contacts = (await res.json()) as { name: string; client: { id: number; name: string } | null }[];
+    assert.ok(Array.isArray(contacts));
+    assert.ok(contacts.length > 0, "El seed incluye contactos");
+    assert.ok(contacts.every((c) => c.client && typeof c.client.name === "string"));
+  });
+
+  it("POST /:id/avatar rechaza un archivo que no es imagen", async () => {
+    const form = new FormData();
+    form.append("avatar", new Blob(["texto"], { type: "text/plain" }));
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/avatar`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("POST /:id/avatar sube un PNG válido y setea avatarUrl", async () => {
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64"
+    );
+    const form = new FormData();
+    form.append("avatar", new File([png as any], "avatar.png", { type: "image/png" }));
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/avatar`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const bodyText = await res.text();
+    assert.equal(res.status, 200, `avatar PNG reply: ${bodyText}`);
+    const body = JSON.parse(bodyText) as { avatarUrl: string };
+    assert.ok(body.avatarUrl.startsWith("/api/uploads/clients/"));
+
+    const stored = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "server",
+      "uploads",
+      "clients",
+      path.basename(body.avatarUrl)
+    );
+    assert.ok(fs.existsSync(stored), "El archivo debe existir en disco");
+    fs.rmSync(stored, { force: true });
+
+    await prisma.client.update({ where: { id: clientId }, data: { avatarUrl: null } });
   });
 });
