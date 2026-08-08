@@ -15,7 +15,7 @@ import { productionRouter } from "../../server/src/routes/production";
 import { dispatchesRouter } from "../../server/src/routes/dispatches";
 import { whatsappWebhookRouter } from "../../server/src/routes/whatsappWebhook";
 import { prisma } from "../../server/src/prisma";
-import { computeRedistribution, nextStreak, liveBoostValue } from "../../server/src/services/frecuentesReset";
+import { redistributeScores, boostValue, isHot, nextCycle, HOT_THRESHOLD } from "../../server/src/services/frequency";
 
 let server: Server;
 let baseUrl = "";
@@ -330,18 +330,33 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
   });
 
   it("POST /:id/visit con racha en el umbral hace boost en vivo a máximo+1", async () => {
-    // Forzar una racha que está a un día del umbral (4 < 5) con la última
-    // visita ayer: la siguiente visita debe cruzar el umbral y subir el
-    // viewCount al máximo actual + 1 (no solo +1).
-    const ayer = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    await prisma.client.update({ where: { id: clientId }, data: { visitStreak: 4, lastViewedAt: ayer, viewCount: 0 } });
+    // Un cliente con 4 interacciones en la semana: la siguiente visita cruza el
+    // umbral (5) y sube el viewCount al máximo actual + 1, no solo +1.
+    await prisma.client.update({
+      where: { id: clientId },
+      data: { cycleInteractions: HOT_THRESHOLD - 1, viewCount: 0 },
+    });
     const antes = await prisma.client.aggregate({ _max: { viewCount: true } });
 
     const res = await fetch(`${baseUrl}/api/clients/${clientId}/visit`, { method: "POST", headers: authHeaders() });
     assert.equal(res.status, 200);
-    const body = (await res.json()) as { viewCount: number; visitStreak: number };
-    assert.equal(body.visitStreak, 5, "la visita de hoy cierra la racha en el umbral");
+    const body = (await res.json()) as { viewCount: number; cycleInteractions: number };
+    assert.equal(body.cycleInteractions, HOT_THRESHOLD, "la visita cruza el umbral");
     assert.equal(body.viewCount, (antes._max.viewCount ?? 0) + 1, "el boost sube al máximo + 1");
+  });
+
+  it("POST /clients crea el cliente arriba del ranking (máximo+1 y hot)", async () => {
+    const antes = await prisma.client.aggregate({ _max: { viewCount: true } });
+    const res = await fetch(`${baseUrl}/api/clients`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "TEST-BOOST-CREATE" }),
+    });
+    assert.equal(res.status, 201);
+    const body = (await res.json()) as { id: number; viewCount: number; cycleInteractions: number };
+    assert.equal(body.viewCount, (antes._max.viewCount ?? 0) + 1);
+    assert.equal(body.cycleInteractions, HOT_THRESHOLD, "nace 'hot'");
+    await prisma.client.delete({ where: { id: body.id } });
   });
 
   it("GET /contacts devuelve contactos con empresa relacionada", async () => {
@@ -409,81 +424,45 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
   });
 });
 
-describe("frecuentes · redistribución semanal por ranking", () => {
-  it("asigna el valor más alto al más visitado y 0 al menos visitado", () => {
-    const next = computeRedistribution([
-      { id: 1, viewCount: 50 },
-      { id: 2, viewCount: 37 },
-      { id: 3, viewCount: 12 },
-      { id: 4, viewCount: 2 },
+describe("frecuentes · ranking, boost por interacciones y purga semanal", () => {
+  it("redistribuye en ranking: el mas visitado conserva el valor mas alto", () => {
+    const next = redistributeScores([
+      { id: 1, score: 50 },
+      { id: 2, score: 37 },
+      { id: 3, score: 12 },
+      { id: 4, score: 2 },
     ]);
     assert.deepEqual(
-      next.sort((a, b) => a.id - b.id).map((c) => c.viewCount),
+      next.sort((a, b) => a.id - b.id).map((c) => c.score),
       [3, 2, 1, 0]
     );
   });
 
   it("desempata por visitas más recientes", () => {
-    const next = computeRedistribution([
-      { id: 1, viewCount: 10, lastViewedAt: "2026-08-01T00:00:00Z" },
-      { id: 2, viewCount: 10, lastViewedAt: "2026-08-07T00:00:00Z" },
+    const next = redistributeScores([
+      { id: 1, score: 10, lastActiveAt: "2026-08-01T00:00:00Z" },
+      { id: 2, score: 10, lastActiveAt: "2026-08-07T00:00:00Z" },
     ]);
-    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
+    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.score]));
     assert.equal(byId[2], 1, "el visto más recientemente gana el tie");
     assert.equal(byId[1], 0);
   });
 
   it("con un solo cliente queda en 0", () => {
-    const next = computeRedistribution([{ id: 1, viewCount: 999 }]);
-    assert.deepEqual(next, [{ id: 1, viewCount: 0 }]);
+    const next = redistributeScores([{ id: 1, score: 999 }]);
+    assert.deepEqual(next, [{ id: 1, score: 0 }]);
   });
 
-  it("un cliente con racha supera al mas visitado aunque tenga poco conteo", () => {
-    const next = computeRedistribution([
-      { id: 1, viewCount: 50, streak: 0 },
-      { id: 2, viewCount: 2, streak: 5 },
-    ]);
-    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
-    assert.equal(byId[2], 1, "el de racha sube arriba del ranking");
-    assert.equal(byId[1], 0);
+  it("boostValue iguala el maximo y suma uno", () => {
+    assert.equal(boostValue(10), 11);
+    assert.equal(boostValue(null), 1);
+    assert.equal(boostValue(0), 1);
   });
 
-  it("varios de racha se ordenan por la racha mas larga primero", () => {
-    const next = computeRedistribution([
-      { id: 1, viewCount: 50, streak: 0 },
-      { id: 2, viewCount: 9, streak: 5 },
-      { id: 3, viewCount: 5, streak: 7 },
-      { id: 4, viewCount: 0, streak: 6 },
-    ]);
-    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
-    assert.equal(byId[3], 3, "racha 7 -> el primero");
-    assert.equal(byId[4], 2, "racha 6 -> segundo");
-    assert.equal(byId[2], 1, "racha 5 -> tercero");
-    assert.equal(byId[1], 0, "sin racha, aunque tenga 50 visitas -> ultimo");
-  });
-
-  it("por debajo del umbral NO hay boost", () => {
-    const next = computeRedistribution([{ id: 1, viewCount: 50, streak: 4 }, { id: 2, viewCount: 30, streak: 0 }]);
-    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
-    assert.equal(byId[1], 1, "racha 4 < umbral 5 -> orden normal por conteo");
-    assert.equal(byId[2], 0);
-  });
-
-  it("liveBoostValue iguala el maximo y suma uno", () => {
-    assert.equal(liveBoostValue(10), 11);
-    assert.equal(liveBoostValue(null), 1);
-    assert.equal(liveBoostValue(0), 1);
-  });
-
-  it("nextStreak: crece al dia siguiente, se mantiene el mismo dia y reinicia tras un hueco", () => {
-    const hoy = new Date(2026, 7, 8, 10, 0, 0); // 8-ago-2026
-    const ayer = new Date(2026, 7, 7, 9, 0, 0);
-    const hoyTemprano = new Date(2026, 7, 8, 8, 0, 0);
-    const hace3Dias = new Date(2026, 7, 5, 15, 0, 0);
-
-    assert.equal(nextStreak(2, ayer, hoy), 3, "visita de ayer incrementa la racha");
-    assert.equal(nextStreak(3, hoyTemprano, hoy), 3, "segunda visita del mismo dia mantiene la racha");
-    assert.equal(nextStreak(5, hace3Dias, hoy), 1, "hueco de dias reinicia la racha");
-    assert.equal(nextStreak(0, null, hoy), 1, "primera visita arranca en 1");
+  it("isHot/nextCycle se basan en interacciones del ciclo", () => {
+    assert.equal(isHot(4, HOT_THRESHOLD), false);
+    assert.equal(isHot(5, HOT_THRESHOLD), true);
+    assert.equal(nextCycle(null), 1);
+    assert.equal(nextCycle(4), 5);
   });
 });

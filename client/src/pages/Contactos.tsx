@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { LayoutGrid, List, Search } from "lucide-react";
 import { api } from "../api/client";
 import ClienteAvatar from "../components/ClienteAvatar";
+import { byFrequency } from "../lib/frequency";
 
 type Filter = "abc" | "antiguedad" | "frecuentes";
 type View = "list" | "cajas";
@@ -18,7 +19,7 @@ const FILTERS: { key: Filter; label: string; title: string }[] = [
  * empresa relacionada" se hace con un select de clientes. */
 export default function Contactos() {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("abc");
+  const [filter, setFilter] = useState<Filter>("frecuentes");
   const [view, setView] = useState<View>("list");
   const [companyId, setCompanyId] = useState("");
 
@@ -33,14 +34,12 @@ export default function Contactos() {
       const companyName = c.client?.name?.toLowerCase() ?? "";
       return c.name.toLowerCase().includes(q) || companyName.includes(q);
     });
-    return [...list].sort((a: any, b: any) => {
-      if (filter === "abc") return a.name.localeCompare(b.name);
-      if (filter === "antiguedad") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      return (
-        (b.client?.viewCount ?? 0) - (a.client?.viewCount ?? 0) ||
-        new Date(b.client?.lastViewedAt ?? 0).getTime() - new Date(a.client?.lastViewedAt ?? 0).getTime()
-      );
-    });
+    const sorters: Record<Filter, (a: any, b: any) => number> = {
+      abc: (a, b) => a.name.localeCompare(b.name),
+      antiguedad: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      frecuentes: byFrequency((c) => c.client?.viewCount, (c) => c.client?.lastViewedAt),
+    };
+    return [...list].sort(sorters[filter]);
   }, [contacts, query, filter, companyId]);
 
   return (

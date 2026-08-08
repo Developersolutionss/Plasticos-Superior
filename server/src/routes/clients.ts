@@ -5,7 +5,7 @@ import fs from "fs";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
-import { nextStreak, liveBoostValue, CONSECUTIVE_DAYS_BOOST } from "../services/frecuentesReset";
+import { boostValue, isHot, nextCycle, HOT_THRESHOLD } from "../services/frequency";
 
 export const clientsRouter = Router();
 clientsRouter.use(requireAuth);
@@ -49,7 +49,16 @@ clientsRouter.post("/", requireVentas, async (req, res) => {
   const parsed = createClientSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const client = await prisma.client.create({ data: parsed.data });
+  // Un cliente nuevo nace arriba del ranking "Frecuentes": arranca en el
+  // máximo actual + 1 y ya cuenta como "hot" para esta semana.
+  const { _max } = await prisma.client.aggregate({ _max: { viewCount: true } });
+  const client = await prisma.client.create({
+    data: {
+      ...parsed.data,
+      viewCount: boostValue(_max.viewCount),
+      cycleInteractions: HOT_THRESHOLD,
+    },
+  });
   res.status(201).json(client);
 });
 
@@ -127,26 +136,30 @@ clientsRouter.post("/:id/visit", requireVentas, async (req, res) => {
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
 
-  const streak = nextStreak(client.visitStreak, client.lastViewedAt);
+  const interactions = nextCycle(client.cycleInteractions);
+  const hot = isHot(interactions, HOT_THRESHOLD);
 
-  // Contador vivo: +1 normal, pero al cruzar la racha umbral el cliente sube
-  // al tope del ranking al instante (max actual + 1), sin esperar el reset.
-  const newCount =
-    streak >= CONSECUTIVE_DAYS_BOOST
-      ? await prisma.client
-          .aggregate({ _max: { viewCount: true } })
-          .then((r) => liveBoostValue(r._max.viewCount))
-      : undefined;
+  // Contador vivo: +1 por visita; al cruzar el umbral de interacciones el
+  // cliente sube arriba del ranking al instante (máximo actual + 1).
+  const newCount = hot
+    ? await prisma.client
+        .aggregate({ _max: { viewCount: true } })
+        .then((r) => boostValue(r._max.viewCount))
+    : undefined;
 
   const updated = await prisma.client.update({
     where: { id: clientId },
     data: {
       ...(newCount === undefined ? { viewCount: { increment: 1 } } : { viewCount: newCount }),
       lastViewedAt: new Date(),
-      visitStreak: streak,
+      cycleInteractions: interactions,
     },
   });
-  res.json({ viewCount: updated.viewCount, lastViewedAt: updated.lastViewedAt, visitStreak: updated.visitStreak });
+  res.json({
+    viewCount: updated.viewCount,
+    lastViewedAt: updated.lastViewedAt,
+    cycleInteractions: updated.cycleInteractions,
+  });
 });
 
 /** Elimina (desactiva) un cliente. Soft delete: el registro se conserva porque
