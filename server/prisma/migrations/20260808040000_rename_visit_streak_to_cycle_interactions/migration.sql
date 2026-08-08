@@ -1,0 +1,1 @@
+ALTER TABLE "clients" RENAME COLUMN "visit_streak" TO "cycle_interactions";

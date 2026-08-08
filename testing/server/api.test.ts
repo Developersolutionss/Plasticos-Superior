@@ -15,6 +15,7 @@ import { productionRouter } from "../../server/src/routes/production";
 import { dispatchesRouter } from "../../server/src/routes/dispatches";
 import { whatsappWebhookRouter } from "../../server/src/routes/whatsappWebhook";
 import { prisma } from "../../server/src/prisma";
+import { redistributeScores, boostValue, isHot, nextCycle, HOT_THRESHOLD } from "../../server/src/services/frequency";
 
 let server: Server;
 let baseUrl = "";
@@ -328,6 +329,36 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
     assert.ok(body.lastViewedAt);
   });
 
+  it("POST /:id/visit con racha en el umbral hace boost en vivo a máximo+1", async () => {
+    // Un cliente con 4 interacciones en la semana: la siguiente visita cruza el
+    // umbral (5) y sube el viewCount al máximo actual + 1, no solo +1.
+    await prisma.client.update({
+      where: { id: clientId },
+      data: { cycleInteractions: HOT_THRESHOLD - 1, viewCount: 0 },
+    });
+    const antes = await prisma.client.aggregate({ _max: { viewCount: true } });
+
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/visit`, { method: "POST", headers: authHeaders() });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { viewCount: number; cycleInteractions: number };
+    assert.equal(body.cycleInteractions, HOT_THRESHOLD, "la visita cruza el umbral");
+    assert.equal(body.viewCount, (antes._max.viewCount ?? 0) + 1, "el boost sube al máximo + 1");
+  });
+
+  it("POST /clients crea el cliente arriba del ranking (máximo+1 y hot)", async () => {
+    const antes = await prisma.client.aggregate({ _max: { viewCount: true } });
+    const res = await fetch(`${baseUrl}/api/clients`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "TEST-BOOST-CREATE" }),
+    });
+    assert.equal(res.status, 201);
+    const body = (await res.json()) as { id: number; viewCount: number; cycleInteractions: number };
+    assert.equal(body.viewCount, (antes._max.viewCount ?? 0) + 1);
+    assert.equal(body.cycleInteractions, HOT_THRESHOLD, "nace 'hot'");
+    await prisma.client.delete({ where: { id: body.id } });
+  });
+
   it("GET /contacts devuelve contactos con empresa relacionada", async () => {
     const res = await fetch(`${baseUrl}/api/clients/contacts`, { headers: authHeaders() });
     assert.equal(res.status, 200);
@@ -390,5 +421,48 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
     // Ya no aparece en el listado (solo clientes activos).
     const list = (await (await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() })).json()) as { id: number }[];
     assert.ok(!list.some((c) => c.id === clientId));
+  });
+});
+
+describe("frecuentes · ranking, boost por interacciones y purga semanal", () => {
+  it("redistribuye en ranking: el mas visitado conserva el valor mas alto", () => {
+    const next = redistributeScores([
+      { id: 1, score: 50 },
+      { id: 2, score: 37 },
+      { id: 3, score: 12 },
+      { id: 4, score: 2 },
+    ]);
+    assert.deepEqual(
+      next.sort((a, b) => a.id - b.id).map((c) => c.score),
+      [3, 2, 1, 0]
+    );
+  });
+
+  it("desempata por visitas más recientes", () => {
+    const next = redistributeScores([
+      { id: 1, score: 10, lastActiveAt: "2026-08-01T00:00:00Z" },
+      { id: 2, score: 10, lastActiveAt: "2026-08-07T00:00:00Z" },
+    ]);
+    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.score]));
+    assert.equal(byId[2], 1, "el visto más recientemente gana el tie");
+    assert.equal(byId[1], 0);
+  });
+
+  it("con un solo cliente queda en 0", () => {
+    const next = redistributeScores([{ id: 1, score: 999 }]);
+    assert.deepEqual(next, [{ id: 1, score: 0 }]);
+  });
+
+  it("boostValue iguala el maximo y suma uno", () => {
+    assert.equal(boostValue(10), 11);
+    assert.equal(boostValue(null), 1);
+    assert.equal(boostValue(0), 1);
+  });
+
+  it("isHot/nextCycle se basan en interacciones del ciclo", () => {
+    assert.equal(isHot(4, HOT_THRESHOLD), false);
+    assert.equal(isHot(5, HOT_THRESHOLD), true);
+    assert.equal(nextCycle(null), 1);
+    assert.equal(nextCycle(4), 5);
   });
 });

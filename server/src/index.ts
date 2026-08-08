@@ -12,6 +12,7 @@ import { cotizacionesRouter } from "./routes/cotizaciones";
 import { pedidosRouter } from "./routes/pedidos";
 import { facturasRouter } from "./routes/facturas";
 import { whatsappWebhookRouter } from "./routes/whatsappWebhook";
+import { scheduleFrecuentesReset } from "./services/frecuentesReset";
 
 const app = express();
 
@@ -41,3 +42,6 @@ const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 app.listen(port, () => {
   console.log(`API escuchando en http://localhost:${port}`);
 });
+
+// Reset semanal del contador de visitas de clientes ("Frecuentes").
+scheduleFrecuentesReset();

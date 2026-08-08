@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ClienteAvatar from "../components/ClienteAvatar";
 import ClienteForm from "../components/ClienteForm";
+import { byFrequency, nextInteraction } from "../lib/frequency";
 
 type Tab = "contactos" | "direcciones" | "historial" | "cartera" | "editar";
 type Filter = "abc" | "antiguedad" | "frecuentes";
@@ -29,7 +30,7 @@ export default function Clients() {
   const navigate = useNavigate();
 
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("abc");
+  const [filter, setFilter] = useState<Filter>("frecuentes");
   const [view, setView] = useState<View>("list");
   const [selectedClientId, setSelectedClientId] = useState<number | null>(
     (location.state as { selectedClientId?: number })?.selectedClientId ?? null
@@ -85,25 +86,28 @@ export default function Clients() {
   const visibleClients = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = (clients ?? []).filter((c: any) => !q || c.name.toLowerCase().includes(q));
-    return [...list].sort((a: any, b: any) => {
-      if (filter === "abc") return a.name.localeCompare(b.name);
-      if (filter === "antiguedad") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      return (
-        (b.viewCount ?? 0) - (a.viewCount ?? 0) ||
-        new Date(b.lastViewedAt ?? 0).getTime() - new Date(a.lastViewedAt ?? 0).getTime()
-      );
-    });
+    const sorters: Record<Filter, (a: any, b: any) => number> = {
+      abc: (a, b) => a.name.localeCompare(b.name),
+      antiguedad: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      frecuentes: byFrequency((c) => c.viewCount, (c) => c.lastViewedAt),
+    };
+    return [...list].sort(sorters[filter]);
   }, [clients, query, filter]);
 
   function selectClient(c: any) {
     if (selectedClientId === c.id) return;
     setSelectedClientId(c.id);
     // Actualización optimista + registro en backend (alimenta "Frecuentes").
-    queryClient.setQueryData(["clients"], (old: any[]) =>
-      old?.map((x) =>
-        x.id === c.id ? { ...x, viewCount: (x.viewCount ?? 0) + 1, lastViewedAt: new Date().toISOString() } : x
-      )
-    );
+    // Replica el boost en vivo: al cruzar el umbral de interacciones el cliente
+    // sube arriba del ranking al instante, sin esperar al refresh.
+    queryClient.setQueryData(["clients"], (old: any[]) => {
+      const maxScore = Math.max(...(old ?? []).map((x) => x.viewCount ?? 0), 0);
+      return old?.map((x) =>
+        x.id === c.id
+          ? { ...x, ...nextInteraction(x, maxScore), lastViewedAt: new Date().toISOString() }
+          : x
+      );
+    });
     api.recordClientVisit(c.id).catch(() => {});
   }
 

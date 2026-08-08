@@ -39,7 +39,7 @@ El avance real frente al plan se detalla a continuación.
 |---|---|---|
 | 1 | Autenticación | ✅ Implementado (matriz de 11 roles, bloqueo por intentos, 2FA/TOTP, recuperación de contraseña) |
 | 2 | Auditoría | 🟡 Parcial (bitácora de movimientos de inventario + registro de importaciones) |
-| 3 | CRM de clientes | ✅ Implementado (clientes, contactos, direcciones, interacciones, cartera y límite de crédito; listado con búsqueda y filtros, pantalla de contactos, avatar por cliente, tracking de visitas "Frecuentes") |
+| 3 | CRM de clientes | ✅ Implementado (clientes, contactos, direcciones, interacciones, cartera y límite de crédito; listado con búsqueda y filtros, pantalla de contactos, avatar por cliente, tracking de visitas "Frecuentes" con reset semanal por ranking) |
 | 4 | Pedidos | ✅ Implementado (pedidos versionados v1..vn, adjuntos, duplicar) |
 | — | Cotizaciones | ✅ Implementado (cotizaciones con estado y conversión a pedido) |
 | — | Facturación y pagos | ✅ Implementado (facturas desde pedido o sueltas, anulación, abonos, cartera) |
