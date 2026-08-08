@@ -7,6 +7,8 @@ import InventoryDashboard from "./pages/InventoryDashboard";
 import Dispatches from "./pages/Dispatches";
 import ProductionUpload from "./pages/ProductionUpload";
 import Clients from "./pages/Clients";
+import Contactos from "./pages/Contactos";
+import NuevoCliente from "./pages/NuevoCliente";
 import OrdenesProduccion from "./pages/OrdenesProduccion";
 import Planeacion from "./pages/Planeacion";
 import EstacionProduccion from "./pages/EstacionProduccion";
@@ -98,7 +100,7 @@ export default function App() {
           path="clientes/nuevo"
           element={
             <RequireRole roles={VENTAS}>
-              <Clients />
+              <NuevoCliente />
             </RequireRole>
           }
         />
@@ -106,7 +108,7 @@ export default function App() {
           path="clientes/contactos"
           element={
             <RequireRole roles={VENTAS}>
-              <Clients />
+              <Contactos />
             </RequireRole>
           }
         />

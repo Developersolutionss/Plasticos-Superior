@@ -202,6 +202,11 @@ model Client {
   /// todavía, así que por ahora es un tope de referencia editable a mano,
   /// no un saldo calculado automáticamente.
   creditLimit Decimal? @default(0) @map("credit_limit") @db.Decimal(12, 2)
+  /// Foto de perfil del cliente: ruta pública (/api/uploads/clients/<archivo>).
+  avatarUrl String? @map("avatar_url")
+  /// Conteo de veces que se abrió la ficha del cliente (filtro "Frecuentes").
+  viewCount     Int       @default(0) @map("view_count")
+  lastViewedAt  DateTime? @map("last_viewed_at")
   active      Boolean  @default(true)
   createdAt   DateTime @default(now()) @map("created_at")
 
