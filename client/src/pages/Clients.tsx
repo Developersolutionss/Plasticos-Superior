@@ -185,6 +185,7 @@ export default function Clients() {
     try {
       await api.updateCreditLimit(selectedClientId, Number(creditLimitInput));
       queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["clientCartera", selectedClientId] });
     } catch {
       setError("No se pudo actualizar el límite de crédito");
     }
