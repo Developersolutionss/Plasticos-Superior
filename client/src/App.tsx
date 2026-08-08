@@ -8,6 +8,7 @@ import Dispatches from "./pages/Dispatches";
 import ProductionUpload from "./pages/ProductionUpload";
 import Clients from "./pages/Clients";
 import OrdenesProduccion from "./pages/OrdenesProduccion";
+import Planeacion from "./pages/Planeacion";
 import EstacionProduccion from "./pages/EstacionProduccion";
 import Cotizaciones from "./pages/Cotizaciones";
 import Pedidos from "./pages/Pedidos";
@@ -106,6 +107,14 @@ export default function App() {
           element={
             <RequireRole roles={VENTAS}>
               <Clients />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="planeacion"
+          element={
+            <RequireRole roles={PRODUCCION_GESTION}>
+              <Planeacion />
             </RequireRole>
           }
         />

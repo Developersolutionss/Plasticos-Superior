@@ -84,6 +84,41 @@ async function main() {
     }
   }
 
+  // Pedido demo ya aprobado y sin OP generada, para poder probar el módulo
+  // de Planeación apenas se entra al sistema (aparece en la cola de
+  // pendientes). orderNumber fijo (no sigue el patrón PED-00001 que genera
+  // la app) para poder chequear existencia de forma idempotente sin pisar
+  // la numeración real de pedidos creados por Ventas.
+  const norte = await prisma.client.findFirst({ where: { name: "Distribuidora Norte" } });
+  const bulto = await prisma.product.findFirst({ where: { sku: "BUL-001" } });
+  const rollo = await prisma.product.findFirst({ where: { sku: "ROL-PL-001" } });
+  if (norte && bulto && rollo) {
+    const existingSeedPedido = await prisma.pedido.findUnique({ where: { orderNumber: "PED-SEED-PLANEACION" } });
+    if (!existingSeedPedido) {
+      await prisma.pedido.create({
+        data: {
+          orderNumber: "PED-SEED-PLANEACION",
+          clientId: norte.id,
+          status: "aprobado",
+          currentVersion: 1,
+          versions: {
+            create: {
+              versionNumber: 1,
+              status: "aprobado",
+              notes: "Pedido demo para probar el módulo de Planeación",
+              items: {
+                create: [
+                  { productId: bulto.id, quantity: 40, unitPrice: bulto.unitPrice, measure: bulto.measure },
+                  { productId: rollo.id, quantity: 25, unitPrice: rollo.unitPrice, measure: rollo.measure },
+                ],
+              },
+            },
+          },
+        },
+      });
+    }
+  }
+
   console.log(
     "Seed completado. Usuarios (password123 para todos): admin@empresa.com (super_admin), " +
       "administrador@empresa.com (admin), produccion@empresa.com (gerente_produccion), " +

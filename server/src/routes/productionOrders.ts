@@ -23,6 +23,45 @@ productionOrdersRouter.get("/", async (req, res) => {
   res.json(orders);
 });
 
+/**
+ * Cola de Planeación: items de pedidos aprobados/en producción que todavía
+ * no tienen una OP generada. No es una tabla propia — se deriva comparando
+ * los items de la versión vigente de cada Pedido contra `ProductionOrder.
+ * pedidoVersionItemId` (ver PedidoVersionItem.productionOrder).
+ */
+productionOrdersRouter.get("/pending-planning", requireProduccionGestion, async (_req, res) => {
+  const pedidos = await prisma.pedido.findMany({
+    where: { status: { in: ["aprobado", "en_produccion"] } },
+    include: {
+      client: true,
+      versions: {
+        include: { items: { include: { product: true, productionOrder: true } } },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const pending = pedidos.flatMap((pedido) => {
+    const currentVersion = pedido.versions.find((v) => v.versionNumber === pedido.currentVersion);
+    if (!currentVersion) return [];
+    return currentVersion.items
+      .filter((item) => !item.productionOrder)
+      .map((item) => ({
+        pedidoVersionItemId: item.id,
+        pedidoId: pedido.id,
+        pedidoOrderNumber: pedido.orderNumber,
+        clientName: pedido.client.name,
+        productId: item.productId,
+        productName: item.product.name,
+        productSku: item.product.sku,
+        quantity: item.quantity,
+        measure: item.measure ?? item.product.measure,
+      }));
+  });
+
+  res.json(pending);
+});
+
 const createOrderSchema = z.object({
   productId: z.number().int(),
   quantityPlanned: z.number().positive(),
@@ -50,6 +89,39 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
           quantityPlanned: parsed.data.quantityPlanned,
           measure: parsed.data.measure ?? product.measure,
           notes: parsed.data.notes,
+          createdById: req.user!.userId,
+        },
+      });
+    })
+  );
+
+  res.status(201).json(order);
+});
+
+/** Genera la OP correspondiente a un item de pedido pendiente de planeación. */
+productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requireProduccionGestion, async (req, res) => {
+  const pedidoVersionItemId = Number(req.params.pedidoVersionItemId);
+  if (!Number.isInteger(pedidoVersionItemId)) return res.status(400).json({ error: "Id inválido" });
+
+  const item = await prisma.pedidoVersionItem.findUnique({
+    where: { id: pedidoVersionItemId },
+    include: { product: true, productionOrder: true },
+  });
+  if (!item) return res.status(404).json({ error: "Item de pedido no encontrado" });
+  if (item.productionOrder) return res.status(400).json({ error: "Este item ya tiene una OP generada" });
+
+  const order = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const count = await tx.productionOrder.count();
+      const orderNumber = `OP-${String(count + 1).padStart(5, "0")}`;
+
+      return tx.productionOrder.create({
+        data: {
+          orderNumber,
+          productId: item.productId,
+          quantityPlanned: item.quantity,
+          measure: item.measure ?? item.product.measure,
+          pedidoVersionItemId: item.id,
           createdById: req.user!.userId,
         },
       });

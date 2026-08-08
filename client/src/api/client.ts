@@ -122,6 +122,9 @@ export const api = {
     request<any[]>(`/production-orders${status ? `?status=${status}` : ""}`),
   createProductionOrder: (data: { productId: number; quantityPlanned: number; measure?: string; notes?: string }) =>
     request<any>("/production-orders", { method: "POST", body: JSON.stringify(data) }),
+  getPendingPlanning: () => request<any[]>("/production-orders/pending-planning"),
+  createProductionOrderFromPedidoItem: (pedidoVersionItemId: number) =>
+    request<any>(`/production-orders/from-pedido-item/${pedidoVersionItemId}`, { method: "POST" }),
   updateProductionOrderStatus: (id: number, status: string) =>
     request<any>(`/production-orders/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
   getProductionOrderStages: (id: number) => request<any[]>(`/production-orders/${id}/stages`),

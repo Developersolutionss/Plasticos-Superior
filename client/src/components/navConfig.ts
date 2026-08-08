@@ -97,7 +97,7 @@ export const navSections: NavEntry[] = [
   { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: ALMACEN },
   { id: "pedidos", icon: "package", label: "Pedidos", to: "/pedidos", roles: VENTAS },
   { id: "facturas", icon: "receipt", label: "Facturas", to: "/facturas", roles: VENTAS },
-  { id: "planeacion", icon: "calendar-days", label: "Planeación", disabled: true, roles: PRODUCCION_GESTION },
+  { id: "planeacion", icon: "calendar-days", label: "Planeación", to: "/planeacion", roles: PRODUCCION_GESTION },
   {
     id: "produccion",
     icon: "factory",
