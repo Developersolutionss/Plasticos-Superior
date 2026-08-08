@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { LayoutGrid, List, Pencil, Plus, Search } from "lucide-react";
+import { LayoutGrid, List, Pencil, Plus, Receipt, Search } from "lucide-react";
 import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ClienteAvatar from "../components/ClienteAvatar";
@@ -346,6 +346,13 @@ export default function Clients() {
                     </button>
                   </div>
                 </div>
+                <button
+                  onClick={() => navigate("/clientes/cotizaciones", { state: { clientId: selectedClient.id } })}
+                  className="bg-slate-800 text-white text-sm px-3 py-1.5 rounded inline-flex items-center gap-1.5 hover:bg-slate-700 shrink-0"
+                  title={`Cotizar para ${selectedClient.name}`}
+                >
+                  <Receipt size={15} strokeWidth={2} aria-hidden="true" /> Cotizar
+                </button>
               </div>
 
               {error && <p className="text-red-600 text-sm">{error}</p>}

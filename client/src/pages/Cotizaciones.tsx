@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import ClientePicker from "../components/ClientePicker";
 
@@ -20,6 +21,7 @@ interface ItemDraft {
 const emptyItem: ItemDraft = { productId: "", quantity: "", unitPrice: "" };
 
 export default function Cotizaciones() {
+  const location = useLocation();
   const [clientId, setClientId] = useState("");
   const [validUntil, setValidUntil] = useState("");
   const [notes, setNotes] = useState("");
@@ -27,6 +29,12 @@ export default function Cotizaciones() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
+
+  // Preselecciona el cliente al llegar con el botón "Cotizar" (state del router).
+  const navClientId = (location.state as { clientId?: number })?.clientId;
+  useEffect(() => {
+    if (navClientId != null) setClientId(String(navClientId));
+  }, [navClientId]);
 
   const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: api.getClients });
   const { data: products } = useQuery({ queryKey: ["products"], queryFn: api.getProducts });

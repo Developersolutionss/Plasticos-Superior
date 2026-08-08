@@ -43,7 +43,7 @@ client/
         ├── OrdenesProduccion.tsx
         ├── EstacionProduccion.tsx
         ├── Clients.tsx         → listado con búsqueda/filtros/vistas + ficha del cliente
-        ├── NuevoCliente.tsx    → página dedicada "Crear cliente"
+        ├── NuevoCliente.tsx    → página dedicada "Crear cliente" (vía el botón "+" del listado; sin ítem en el menú lateral)
         ├── Contactos.tsx       → pantalla global de contactos
         ├── Cotizaciones.tsx
         ├── Pedidos.tsx
@@ -80,8 +80,8 @@ client/
     <Route path="despachos" element={<Dispatches />} />
     <Route path="produccion" element={<ProductionUpload />} />
     <Route path="clientes" element={<Clients />} />
-    <Route path="clientes/nuevo" element={<Clients />} />
-    <Route path="clientes/contactos" element={<Clients />} />
+    <Route path="clientes/nuevo" element={<NuevoCliente />} />
+    <Route path="clientes/contactos" element={<Contactos />} />
     <Route path="clientes/cotizaciones" element={<Cotizaciones />} />
     <Route path="produccion/ordenes" element={<OrdenesProduccion />} />
     <Route path="produccion/estacion/:station" element={<EstacionProduccion />} />
@@ -223,6 +223,8 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - Crear y listar cotizaciones con estado; pedidos versionados con adjuntos; facturas con abonos y anulación.
 - El formulario de cotización usa **`ClientePicker.tsx`** (componente reutilizable): campo de búsqueda con la **pfp del cliente** seleccionado (`ClienteAvatar`), con el campo **vacío** sugiere **4 clientes por frecuencia** (`byFrequency(viewCount, lastViewedAt)`) y **a partir del 1.º carácter** filtra por **coincidencia** (substring), siempre con **4 slots** compactos; `×` limpia la selección, `Esc`/clic afuera cierran el listado.
 - **Pendiente**: reutilizar `ClientePicker` en otras selecciones de cliente (Pedidos, Facturas, Despachos) en una iteración futura.
+- La ficha del cliente (pestaña listado) tiene un botón **"Cotizar"** que navega a Cotizaciones **preseleccionando el cliente** (`navigate("/clientes/cotizaciones", { state: { clientId } })`); `Cotizaciones.tsx` lo lee con `location.state` y lo pasa al `ClientePicker`.
+- El submenú lateral **"Crear cliente" se quitó** por redundancia: el alta queda solo en el botón "+ Crear cliente" del listado (`/clientes/nuevo`, `NuevoCliente.tsx` se mantiene como ruta).
 
 ### `SecuritySettings.tsx`
 - Activar/desactivar 2FA: QR (`setup2fa`) → `verify2fa` → estado activo.

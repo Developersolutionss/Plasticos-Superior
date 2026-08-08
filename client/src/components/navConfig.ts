@@ -91,7 +91,6 @@ export const navSections: NavEntry[] = [
       { id: "clientes-listado", label: "Listado de clientes", to: "/clientes" },
       { id: "clientes-contactos", label: "Contactos", to: "/clientes/contactos" },
       { id: "clientes-cotizaciones", label: "Cotizaciones", to: "/clientes/cotizaciones" },
-      { id: "clientes-crear", label: "Crear cliente", to: "/clientes/nuevo" },
     ],
   },
   { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: ALMACEN },
