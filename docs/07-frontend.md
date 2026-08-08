@@ -221,6 +221,8 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 
 ### `Cotizaciones.tsx` / `Pedidos.tsx` / `Facturas.tsx`
 - Crear y listar cotizaciones con estado; pedidos versionados con adjuntos; facturas con abonos y anulación.
+- El formulario de cotización usa **`ClientePicker.tsx`** (componente reutilizable): campo de búsqueda con la **pfp del cliente** seleccionado (`ClienteAvatar`), con el campo **vacío** sugiere **4 clientes por frecuencia** (`byFrequency(viewCount, lastViewedAt)`) y **a partir del 1.º carácter** filtra por **coincidencia** (substring), siempre con **4 slots** compactos; `×` limpia la selección, `Esc`/clic afuera cierran el listado.
+- **Pendiente**: reutilizar `ClientePicker` en otras selecciones de cliente (Pedidos, Facturas, Despachos) en una iteración futura.
 
 ### `SecuritySettings.tsx`
 - Activar/desactivar 2FA: QR (`setup2fa`) → `verify2fa` → estado activo.

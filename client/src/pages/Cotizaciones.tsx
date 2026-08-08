@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 import { api } from "../api/client";
+import ClientePicker from "../components/ClientePicker";
 
 const STATUS_LABELS: Record<string, string> = {
   borrador: "Borrador",
@@ -104,15 +105,13 @@ export default function Cotizaciones() {
         {error && <p className="text-red-600 text-sm">{error}</p>}
         {message && <p className="text-emerald-700 text-sm">{message}</p>}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <select className="border rounded px-3 py-2 text-sm" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            <option value="">Cliente...</option>
-            {clients?.map((c: any) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+          <ClientePicker
+            clients={clients ?? []}
+            value={clientId ? Number(clientId) : null}
+            onChange={(id) => setClientId(id ? String(id) : "")}
+            placeholder="Buscar cliente por nombre..."
+          />
           <input
             className="border rounded px-3 py-2 text-sm"
             type="date"
