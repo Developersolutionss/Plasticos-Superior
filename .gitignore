@@ -11,4 +11,7 @@ docs/maindashboard.md
 .claude/settings.json
 .claude/settings.local.json
 .claude/worktrees/
+run.sh
+.run/
 server/uploads/
+prototype/
