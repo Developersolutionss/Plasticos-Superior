@@ -140,7 +140,8 @@ clientsRouter.post("/:id/visit", requireVentas, async (req, res) => {
   const hot = isHot(interactions, HOT_THRESHOLD);
 
   // Contador vivo: +1 por visita; al cruzar el umbral de interacciones el
-  // cliente sube arriba del ranking al instante (máximo actual + 1).
+  // cliente sube arriba del ranking al instante (máximo actual + 1) pero
+  // consume el boost: las interacciones vuelven a 0 y necesita 5 nuevas.
   const newCount = hot
     ? await prisma.client
         .aggregate({ _max: { viewCount: true } })
@@ -152,7 +153,7 @@ clientsRouter.post("/:id/visit", requireVentas, async (req, res) => {
     data: {
       ...(newCount === undefined ? { viewCount: { increment: 1 } } : { viewCount: newCount }),
       lastViewedAt: new Date(),
-      cycleInteractions: interactions,
+      cycleInteractions: hot ? 0 : interactions,
     },
   });
   res.json({

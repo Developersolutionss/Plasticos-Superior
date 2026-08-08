@@ -209,7 +209,8 @@ model Client {
   lastViewedAt  DateTime? @map("last_viewed_at")
   /// Interacciones (visitas) acumuladas desde la última purga semanal. Cuando
   /// llegan al umbral (5) el cliente se vuelve "hot" y su `viewCount` salta
-  /// arriba del ranking en vivo (ver frecuentesReset.ts).
+  /// arriba del ranking en vivo; el boost se consume y el contador vuelve a 0
+  /// (ver frecuentesReset.ts).
   cycleInteractions Int @default(0) @map("cycle_interactions")
   active      Boolean  @default(true)
   createdAt   DateTime @default(now()) @map("created_at")

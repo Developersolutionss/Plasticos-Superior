@@ -30,7 +30,8 @@ export const HOT_THRESHOLD = 5;
  * Siguiente estado tras una interacción (p. ej. abrir la ficha de un cliente).
  * Espeja el boost en vivo del servidor: +1 al conteo, y al cruzar el umbral –
  * de interacciones del ciclo el `viewCount` salta a `maxScore + 1` (arriba del
- * ranking al momento, sin esperar al refresh).
+ * ranking al momento, sin esperar al refresh) y consume el boost: las
+ * interacciones vuelven a 0 y necesita 5 nuevas para volver a saltar.
  */
 export function nextInteraction(
   prev: { viewCount?: number | null; cycleInteractions?: number | null },
@@ -39,7 +40,7 @@ export function nextInteraction(
   const cycleInteractions = (prev.cycleInteractions ?? 0) + 1;
   const hot = cycleInteractions >= HOT_THRESHOLD;
   return {
-    cycleInteractions,
+    cycleInteractions: hot ? 0 : cycleInteractions,
     viewCount: hot ? maxScore + 1 : (prev.viewCount ?? 0) + 1,
   };
 }

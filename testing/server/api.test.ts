@@ -341,8 +341,14 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
     const res = await fetch(`${baseUrl}/api/clients/${clientId}/visit`, { method: "POST", headers: authHeaders() });
     assert.equal(res.status, 200);
     const body = (await res.json()) as { viewCount: number; cycleInteractions: number };
-    assert.equal(body.cycleInteractions, HOT_THRESHOLD, "la visita cruza el umbral");
+    assert.equal(body.cycleInteractions, 0, "el boost se consume: las interacciones vuelven a 0");
     assert.equal(body.viewCount, (antes._max.viewCount ?? 0) + 1, "el boost sube al máximo + 1");
+
+    // La siguiente visita ya no cruza el umbral: solo +1 (necesita 5 nuevas).
+    const segunda = await fetch(`${baseUrl}/api/clients/${clientId}/visit`, { method: "POST", headers: authHeaders() });
+    const body2 = (await segunda.json()) as { viewCount: number; cycleInteractions: number };
+    assert.equal(body2.viewCount, body.viewCount + 1, "sin boost: solo incrementa en +1");
+    assert.equal(body2.cycleInteractions, 1, "arranca de nuevo el conteo de interacciones");
   });
 
   it("POST /clients crea el cliente arriba del ranking (máximo+1 y hot)", async () => {

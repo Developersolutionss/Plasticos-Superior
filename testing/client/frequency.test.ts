@@ -46,9 +46,16 @@ describe("nextInteraction · boost en vivo del lado del cliente", () => {
     expect(next).toEqual({ viewCount: 5, cycleInteractions: 3 });
   });
 
-  it("al cruzar el umbral salta a maxScore + 1 (arriba del ranking)", () => {
+  it("al cruzar el umbral salta a maxScore + 1 y consume el boost (interacciones a 0)", () => {
     const next = nextInteraction({ viewCount: 3, cycleInteractions: HOT_THRESHOLD - 1 }, 10);
-    expect(next).toEqual({ viewCount: 11, cycleInteractions: 5 });
+    expect(next).toEqual({ viewCount: 11, cycleInteractions: 0 });
+  });
+
+  it("tras el boost necesita 5 interacciones frescas para volver a saltar", () => {
+    const conBoost = nextInteraction({ viewCount: 3, cycleInteractions: HOT_THRESHOLD - 1 }, 10).cycleInteractions;
+    expect(conBoost).toBe(0);
+    const siguiente = nextInteraction({ viewCount: 11, cycleInteractions: conBoost }, 11);
+    expect(siguiente).toEqual({ viewCount: 12, cycleInteractions: 1 });
   });
 
   it("arranca desde cero cuando faltan datos", () => {
