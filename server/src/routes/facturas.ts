@@ -9,6 +9,7 @@ export const facturasRouter = Router();
 facturasRouter.use(requireAuth);
 
 const requireVentas = requireRole(...ROLES.VENTAS);
+facturasRouter.use(requireVentas);
 
 type TxClient = Prisma.TransactionClient;
 

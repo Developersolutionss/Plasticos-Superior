@@ -8,6 +8,7 @@ export const dispatchesRouter = Router();
 dispatchesRouter.use(requireAuth);
 
 const requireAlmacen = requireRole(...ROLES.ALMACEN);
+dispatchesRouter.use(requireAlmacen);
 
 dispatchesRouter.get("/", async (req, res) => {
   const { clientId, status } = req.query as { clientId?: string; status?: string };

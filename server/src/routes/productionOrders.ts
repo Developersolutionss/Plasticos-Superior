@@ -11,6 +11,7 @@ productionOrdersRouter.use(requireAuth);
 
 const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
 const requireOperarios = requireRole(...ROLES.OPERARIOS);
+productionOrdersRouter.use(requireOperarios);
 
 productionOrdersRouter.get("/", async (req, res) => {
   const status = req.query.status as string | undefined;

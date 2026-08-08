@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { buildChoices, type NavChoice } from "./navConfig";
+import { useAuth } from "../auth/AuthContext";
+import type { UserRole } from "../auth/AuthContext";
 
 const STORAGE_KEY = "ps_shortcuts";
 
@@ -13,12 +15,12 @@ interface ShortcutsContextValue {
 
 const ShortcutsContext = createContext<ShortcutsContextValue | null>(null);
 
-function load(): string[] {
+function load(role: UserRole | undefined): string[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    if (!raw || !role) return [];
     const parsed = JSON.parse(raw);
-    const valid = new Set(buildChoices().map((c) => c.id));
+    const valid = new Set(buildChoices(role).map((c) => c.id));
     return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string" && valid.has(id)) : [];
   } catch {
     return [];
@@ -26,7 +28,13 @@ function load(): string[] {
 }
 
 export function ShortcutsProvider({ children }: { children: ReactNode }) {
-  const [ids, setIds] = useState<string[]>(load);
+  const { user } = useAuth();
+  const [ids, setIds] = useState<string[]>(() => load(user?.role));
+
+  useEffect(() => {
+    setIds(load(user?.role));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role]);
 
   useEffect(() => {
     try {
@@ -43,7 +51,7 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
   const clearAll = useCallback(() => setIds([]), []);
 
   const value = useMemo<ShortcutsContextValue>(() => {
-    const byId = new Map(buildChoices().map((c) => [c.id, c]));
+    const byId = new Map(buildChoices(user?.role ?? "auditor").map((c) => [c.id, c]));
     const atajos = ids
       .map((id) => byId.get(id))
       .filter((c): c is NavChoice => Boolean(c));
@@ -53,7 +61,7 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
       toggle,
       clearAll,
     };
-  }, [ids, toggle, clearAll]);
+  }, [ids, toggle, clearAll, user?.role]);
 
   return <ShortcutsContext.Provider value={value}>{children}</ShortcutsContext.Provider>;
 }

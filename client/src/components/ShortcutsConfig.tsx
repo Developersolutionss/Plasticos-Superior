@@ -2,10 +2,12 @@ import { useEffect, useRef } from "react";
 import { Wrench, X, Zap } from "lucide-react";
 import { buildChoices } from "./navConfig";
 import { useShortcuts } from "./useShortcuts";
+import { useAuth } from "../auth/AuthContext";
 
 export default function ShortcutsConfig({ onClose }: { onClose: () => void }) {
   const { isActive, toggle, clearAll } = useShortcuts();
-  const choices = buildChoices();
+  const { user } = useAuth();
+  const choices = user ? buildChoices(user.role) : [];
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {

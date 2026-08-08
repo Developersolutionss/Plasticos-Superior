@@ -3,9 +3,10 @@ import { NavLink, useLocation } from "react-router-dom";
 import { ChevronRight, Menu, Wrench, Zap } from "lucide-react";
 import "./Sidebar.css";
 import NavIcon from "./NavIcon";
-import { navSections, type NavChoice, type NavEntry, type NavLeaf } from "./navConfig";
+import { filterNavSections, type NavChoice, type NavEntry, type NavLeaf } from "./navConfig";
 import { useShortcuts } from "./useShortcuts";
 import ShortcutsConfig from "./ShortcutsConfig";
+import { useAuth } from "../auth/AuthContext";
 
 function AtajoItem({ item }: { item: NavChoice }) {
   const to = item.to;
@@ -100,6 +101,8 @@ function NavSection({ entry }: { entry: NavEntry }) {
 export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const { atajos } = useShortcuts();
   const [showConfig, setShowConfig] = useState(false);
+  const { user } = useAuth();
+  const navSections = user ? filterNavSections(user.role) : [];
 
   return (
     <aside className="sidebar">

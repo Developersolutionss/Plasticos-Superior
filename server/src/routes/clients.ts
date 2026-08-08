@@ -8,6 +8,7 @@ clientsRouter.use(requireAuth);
 
 /** CRM (clientes, contactos, direcciones, cotizaciones) es dominio de Ventas/Pedidos. */
 const requireVentas = requireRole(...ROLES.VENTAS);
+clientsRouter.use(requireVentas);
 
 clientsRouter.get("/", async (_req, res) => {
   const clients = await prisma.client.findMany({ where: { active: true }, orderBy: { name: "asc" } });

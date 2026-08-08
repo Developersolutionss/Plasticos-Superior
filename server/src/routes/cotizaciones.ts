@@ -8,6 +8,7 @@ export const cotizacionesRouter = Router();
 cotizacionesRouter.use(requireAuth);
 
 const requireVentas = requireRole(...ROLES.VENTAS);
+cotizacionesRouter.use(requireVentas);
 
 cotizacionesRouter.get("/", async (req, res) => {
   const clientId = req.query.clientId ? Number(req.query.clientId) : undefined;

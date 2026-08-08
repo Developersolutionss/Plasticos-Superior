@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import { useAuth } from "./auth/AuthContext";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { useAuth, type UserRole } from "./auth/AuthContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import InventoryDashboard from "./pages/InventoryDashboard";
@@ -15,10 +15,42 @@ import Facturas from "./pages/Facturas";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import SecuritySettings from "./pages/SecuritySettings";
+import {
+  ADMIN,
+  ALMACEN,
+  VENTAS,
+  PRODUCCION_GESTION,
+  OP_EXTRUSION,
+  OP_IMPRESION,
+  OP_SELLADO,
+} from "./components/navConfig";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+/** Además de ocultarse en el menú, cada ruta valida el rol acá — así nadie
+ * accede a un módulo ajeno tipeando la URL directamente. */
+function RequireRole({ roles, children }: { roles: UserRole[]; children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user || !roles.includes(user.role)) return <Navigate to="/" replace />;
+  return children;
+}
+
+const STATION_ROLES: Record<string, UserRole[]> = {
+  extrusion: OP_EXTRUSION,
+  impresion: OP_IMPRESION,
+  sellado: OP_SELLADO,
+  precorte: OP_SELLADO,
+};
+
+function RequireStationRole({ children }: { children: ReactNode }) {
+  const { station } = useParams();
+  const { user } = useAuth();
+  const allowed = station ? STATION_ROLES[station] : undefined;
+  if (!user || !allowed || !allowed.includes(user.role)) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -37,17 +69,94 @@ export default function App() {
         }
       >
         <Route index element={<InventoryDashboard />} />
-        <Route path="despachos" element={<Dispatches />} />
-        <Route path="produccion" element={<ProductionUpload />} />
-        <Route path="clientes" element={<Clients />} />
-        <Route path="clientes/nuevo" element={<Clients />} />
-        <Route path="clientes/contactos" element={<Clients />} />
-        <Route path="produccion/ordenes" element={<OrdenesProduccion />} />
-        <Route path="produccion/estacion/:station" element={<EstacionProduccion />} />
-        <Route path="clientes/cotizaciones" element={<Cotizaciones />} />
-        <Route path="pedidos" element={<Pedidos />} />
-        <Route path="facturas" element={<Facturas />} />
-        <Route path="configuracion/autenticacion" element={<SecuritySettings />} />
+        <Route
+          path="despachos"
+          element={
+            <RequireRole roles={ALMACEN}>
+              <Dispatches />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="produccion"
+          element={
+            <RequireRole roles={[...ALMACEN, ...PRODUCCION_GESTION]}>
+              <ProductionUpload />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="clientes"
+          element={
+            <RequireRole roles={VENTAS}>
+              <Clients />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="clientes/nuevo"
+          element={
+            <RequireRole roles={VENTAS}>
+              <Clients />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="clientes/contactos"
+          element={
+            <RequireRole roles={VENTAS}>
+              <Clients />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="produccion/ordenes"
+          element={
+            <RequireRole roles={PRODUCCION_GESTION}>
+              <OrdenesProduccion />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="produccion/estacion/:station"
+          element={
+            <RequireStationRole>
+              <EstacionProduccion />
+            </RequireStationRole>
+          }
+        />
+        <Route
+          path="clientes/cotizaciones"
+          element={
+            <RequireRole roles={VENTAS}>
+              <Cotizaciones />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="pedidos"
+          element={
+            <RequireRole roles={VENTAS}>
+              <Pedidos />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="facturas"
+          element={
+            <RequireRole roles={VENTAS}>
+              <Facturas />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="configuracion/autenticacion"
+          element={
+            <RequireRole roles={ADMIN}>
+              <SecuritySettings />
+            </RequireRole>
+          }
+        />
       </Route>
     </Routes>
   );

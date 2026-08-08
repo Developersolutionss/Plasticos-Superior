@@ -11,6 +11,7 @@ export const pedidosRouter = Router();
 pedidosRouter.use(requireAuth);
 
 const requireVentas = requireRole(...ROLES.VENTAS);
+pedidosRouter.use(requireVentas);
 
 const UPLOADS_DIR = path.join(__dirname, "..", "..", "uploads", "pedidos");
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
