@@ -1,4 +1,7 @@
 import { Router } from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
@@ -9,6 +12,26 @@ clientsRouter.use(requireAuth);
 /** CRM (clientes, contactos, direcciones, cotizaciones) es dominio de Ventas/Pedidos. */
 const requireVentas = requireRole(...ROLES.VENTAS);
 clientsRouter.use(requireVentas);
+
+const CLIENTS_UPLOADS_DIR = path.join(__dirname, "..", "..", "uploads", "clients");
+fs.mkdirSync(CLIENTS_UPLOADS_DIR, { recursive: true });
+
+/** Avatares de clientes: disco + servir estático (ver index.ts → /api/uploads). */
+const avatarUpload = multer({
+  storage: multer.diskStorage({
+    destination: CLIENTS_UPLOADS_DIR,
+    filename: (_req, file, cb) => {
+      const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      cb(null, `${unique}${path.extname(file.originalname)}`);
+    },
+  }),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Solo se permiten imágenes JPG, PNG o WEBP"));
+  },
+});
 
 clientsRouter.get("/", async (_req, res) => {
   const clients = await prisma.client.findMany({ where: { active: true }, orderBy: { name: "asc" } });
@@ -27,6 +50,103 @@ clientsRouter.post("/", requireVentas, async (req, res) => {
 
   const client = await prisma.client.create({ data: parsed.data });
   res.status(201).json(client);
+});
+
+const updateClientSchema = z.object({
+  name: z.string().min(1).optional(),
+  contactInfo: z.record(z.string(), z.any()).optional(),
+  creditLimit: z.number().min(0).optional(),
+});
+
+/** Edita datos del cliente (nombre, contactInfo, límite de crédito). */
+clientsRouter.patch("/:id", requireVentas, async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
+
+  const parsed = updateClientSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (Object.keys(parsed.data).length === 0) {
+    return res.status(400).json({ error: "No se indicó ningún campo para actualizar" });
+  }
+
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+
+  const updated = await prisma.client.update({ where: { id: clientId }, data: parsed.data });
+  res.json(updated);
+});
+
+/** Sube (o reemplaza) la foto de perfil del cliente. */
+clientsRouter.post(
+  "/:id/avatar",
+  requireVentas,
+  (req, res, next) => {
+    avatarUpload.single("avatar")(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      next();
+    });
+  },
+  async (req, res) => {
+    const clientId = Number(req.params.id);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      if (req.file) fs.rmSync(req.file.path, { force: true });
+      return res.status(400).json({ error: "ID de cliente inválido" });
+    }
+    if (!req.file) return res.status(400).json({ error: "No se recibió la imagen" });
+
+    const client = await prisma.client.findUnique({ where: { id: clientId } });
+    if (!client) {
+      fs.rmSync(req.file.path, { force: true });
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+
+    const avatarUrl = `/api/uploads/clients/${req.file.filename}`;
+    const updated = await prisma.client.update({ where: { id: clientId }, data: { avatarUrl } });
+
+    // Recién después de persistir el cambio se borra el archivo anterior de
+    // reemplazar la foto, para no dejar la DB apuntando a un archivo eliminado.
+    if (client.avatarUrl) {
+      const prevPath = path.join(CLIENTS_UPLOADS_DIR, path.basename(client.avatarUrl));
+      fs.rmSync(prevPath, { force: true });
+    }
+
+    res.json(updated);
+  }
+);
+
+/** Registra una "visita" al abrir la ficha del cliente (filtro "Frecuentes"). */
+clientsRouter.post("/:id/visit", requireVentas, async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
+
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+
+  const updated = await prisma.client.update({
+    where: { id: clientId },
+    data: { viewCount: { increment: 1 }, lastViewedAt: new Date() },
+  });
+  res.json({ viewCount: updated.viewCount, lastViewedAt: updated.lastViewedAt });
+});
+
+/** Elimina (desactiva) un cliente. Soft delete: el registro se conserva porque
+ * tiene facturas, cotizaciones y pedidos relacionados; los listados solo
+ * devuelven clientes `active: true`. */
+clientsRouter.delete("/:id", requireVentas, async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
+
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+
+  const updated = await prisma.client.update({ where: { id: clientId }, data: { active: false } });
+  res.json(updated);
 });
 
 const updateCreditLimitSchema = z.object({
@@ -77,6 +197,19 @@ clientsRouter.get("/:id/cartera", async (req, res) => {
     saldoPendiente,
     facturasPendientes: facturasConSaldo.filter((f) => f.saldo > 0),
   });
+});
+
+/** Lista global de contactos de todos los clientes (pantalla CRM "Contactos"),
+ * con datos de la empresa relacionada para mostrar su avatar y nombre. */
+clientsRouter.get("/contacts", async (_req, res) => {
+  const contacts = await prisma.clientContact.findMany({
+    where: { client: { active: true } },
+    include: {
+      client: { select: { id: true, name: true, avatarUrl: true, viewCount: true, lastViewedAt: true } },
+    },
+    orderBy: [{ client: { name: "asc" } }, { isPrimary: "desc" }, { name: "asc" }],
+  });
+  res.json(contacts);
 });
 
 /** Lista los contactos de un cliente. */

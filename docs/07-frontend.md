@@ -42,7 +42,9 @@ client/
         ├── ProductionUpload.tsx
         ├── OrdenesProduccion.tsx
         ├── EstacionProduccion.tsx
-        ├── Clients.tsx
+        ├── Clients.tsx         → listado con búsqueda/filtros/vistas + ficha del cliente
+        ├── NuevoCliente.tsx    → página dedicada "Crear cliente"
+        ├── Contactos.tsx       → pantalla global de contactos
         ├── Cotizaciones.tsx
         ├── Pedidos.tsx
         ├── Facturas.tsx
@@ -129,7 +131,7 @@ Métodos expuestos (`api.*`), agrupados por dominio:
 |---|---|
 | Auth | `login(email, password, totpToken?)`, `getMe()`, `forgotPassword(email)`, `resetPassword(token, newPassword)`, `setup2fa()`, `verify2fa(token)`, `disable2fa(token)` |
 | Inventario | `getInventory(category?)`, `getAlerts()`, `getProducts()` |
-| Clientes (CRM) | `getClients()`, `createClient(name)`, `updateCreditLimit(id, creditLimit)`, `getClientContacts(id)`, `createClientContact(id, data)`, `deleteClientContact(id, contactId)`, `getClientAddresses(id)`, `createClientAddress(id, data)`, `deleteClientAddress(id, addressId)`, `getClientInteractions(id)`, `createClientInteraction(id, data)`, `getClientCartera(id)` |
+| Clientes (CRM) | `getClients()`, `createClient(name)`, `updateClient(id, data)`, `uploadClientAvatar(id, file)`, `recordClientVisit(id)`, `deleteClient(id)`, `getAllContacts()`, `updateCreditLimit(id, creditLimit)`, `getClientContacts(id)`, `createClientContact(id, data)`, `deleteClientContact(id, contactId)`, `getClientAddresses(id)`, `createClientAddress(id, data)`, `deleteClientAddress(id, addressId)`, `getClientInteractions(id)`, `createClientInteraction(id, data)`, `getClientCartera(id)` |
 | Producción | `createProductionEntry(data)`, `previewImport(file)`, `confirmImport(filename, rows)`, `getProductionOrders(status?)`, `createProductionOrder(data)`, `updateProductionOrderStatus(id, status)`, `getProductionOrderStages(id)`, `createProductionStageLog(id, data)` |
 | Despachos | `getDispatches(params?)`, `createDispatch(clientId, items)`, `markItemDispatched(dispatchId, itemId, qty)` |
 | Comercial | `getCotizaciones(clientId?)`, `createCotizacion(data)`, `updateCotizacionStatus(id, status)`, `convertCotizacionToPedido(id)`, `getPedidos(params?)`, `createPedido(data)`, `getPedidoVersions(id)`, `updatePedido(id, data)`, `duplicatePedido(id)`, `getPedidoAttachments(id)`, `uploadPedidoAttachment(id, file)` (descarga como blob), `getFacturas(params?)`, `createFactura(data)`, `createFacturaFromPedido(pedidoId)`, `anularFactura(id)`, `getFacturaPayments(id)`, `createPayment(id, data)` |
@@ -201,7 +203,15 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - Pantalla por `:station`. El operario registra su etapa (kilos, merma, tiempos, etc.).
 
 ### `Clients.tsx`
-- Ficha del cliente con pestañas: contactos, direcciones, interacciones y cartera.
+- Listado maestro–detalle del CRM con **búsqueda** (substring; la búsqueda fuzzy queda pendiente) y **filtros** ABC / Antigüedad (`createdAt`) / Frecuentes (`viewCount`), toggles de **vista en lista o cajas** (con avatar del cliente y fallback de iniciales).
+- Al seleccionar un cliente se registra la visita (`api.recordClientVisit`, actualización optimista del cache) y se muestra la ficha con pestañas: contactos, direcciones, historial, cartera y **editar/eliminar**. 
+- Pestaña "Editar/Eliminar": botón "Editar datos / foto" abre `ClienteForm` en modal reutilizable, y zona de peligro con confirmación para **eliminar** el cliente (`api.deleteClient` → soft delete, `active: false`).
+
+### `ClienteForm.tsx` (componente reutilizable)
+- Formulario único para **crear** (página `/clientes/nuevo` → `NuevoCliente.tsx`) y **editar** (modal). Campos: nombre, email/teléfono/notas (en `contactInfo`), límite de crédito y **foto de perfil** (preview + upload). `NuevoCliente` redirige al listado dejando el cliente creado seleccionado.
+
+### `Contactos.tsx`
+- Pantalla global de contactos de todos los clientes (`api.getAllContacts`): buscador, filtros ABC/Antigüedad/Frecuentes y **por empresa** (select), vista lista/cajas con el avatar de la empresa relacionada.
 
 ### `Cotizaciones.tsx` / `Pedidos.tsx` / `Facturas.tsx`
 - Crear y listar cotizaciones con estado; pedidos versionados con adjuntos; facturas con abonos y anulación.

@@ -51,6 +51,17 @@ export const api = {
 
   getClients: () => request<any[]>("/clients"),
   createClient: (name: string) => request<any>("/clients", { method: "POST", body: JSON.stringify({ name }) }),
+  updateClient: (clientId: number, data: { name?: string; contactInfo?: Record<string, unknown>; creditLimit?: number }) =>
+    request<any>(`/clients/${clientId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  uploadClientAvatar: (clientId: number, file: File) => {
+    const form = new FormData();
+    form.append("avatar", file);
+    return request<any>(`/clients/${clientId}/avatar`, { method: "POST", body: form });
+  },
+  /** Registra una visita a la ficha del cliente (alimenta el filtro "Frecuentes"). */
+  recordClientVisit: (clientId: number) =>
+    request<{ viewCount: number; lastViewedAt: string }>(`/clients/${clientId}/visit`, { method: "POST" }),
+  deleteClient: (clientId: number) => request<any>(`/clients/${clientId}`, { method: "DELETE" }),
   updateCreditLimit: (clientId: number, creditLimit: number) =>
     request<any>(`/clients/${clientId}/credit-limit`, { method: "PATCH", body: JSON.stringify({ creditLimit }) }),
 
@@ -61,6 +72,8 @@ export const api = {
   ) => request<any>(`/clients/${clientId}/contacts`, { method: "POST", body: JSON.stringify(data) }),
   deleteClientContact: (clientId: number, contactId: number) =>
     request<{ ok: boolean }>(`/clients/${clientId}/contacts/${contactId}`, { method: "DELETE" }),
+  /** Lista global de contactos con la empresa relacionada (pantalla CRM "Contactos"). */
+  getAllContacts: () => request<any[]>("/clients/contacts"),
 
   getClientAddresses: (clientId: number) => request<any[]>(`/clients/${clientId}/addresses`),
   createClientAddress: (
