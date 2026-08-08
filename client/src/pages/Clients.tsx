@@ -190,6 +190,7 @@ export default function Clients() {
       <div className="space-y-4">
         <form onSubmit={handleCreateClient} className="bg-white rounded-lg shadow p-4 space-y-2">
           <label className="block text-sm font-medium text-slate-700">Nuevo cliente</label>
+          {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex gap-2">
             <input
               ref={newClientInputRef}
