@@ -7,7 +7,7 @@ import Modal from "../components/Modal";
 import ClienteAvatar from "../components/ClienteAvatar";
 import ClienteForm from "../components/ClienteForm";
 
-type Tab = "contactos" | "direcciones" | "historial" | "cartera";
+type Tab = "contactos" | "direcciones" | "historial" | "cartera" | "editar";
 type Filter = "abc" | "antiguedad" | "frecuentes";
 type View = "list" | "cajas";
 
@@ -52,6 +52,7 @@ export default function Clients() {
   });
   const [creditLimitInput, setCreditLimitInput] = useState("");
   const [selectedContact, setSelectedContact] = useState<any>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -189,11 +190,26 @@ export default function Clients() {
     }
   }
 
+  async function handleDeleteClient() {
+    if (!selectedClientId) return;
+    setError(null);
+    try {
+      await api.deleteClient(selectedClientId);
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      setSelectedClientId(null);
+      setConfirmingDelete(false);
+    } catch {
+      setError("No se pudo eliminar el cliente");
+      setConfirmingDelete(false);
+    }
+  }
+
   const TABS: { key: Tab; label: string }[] = [
     { key: "contactos", label: "Contactos" },
     { key: "direcciones", label: "Direcciones" },
     { key: "historial", label: "Historial" },
     { key: "cartera", label: "Cartera" },
+    { key: "editar", label: "Editar / Eliminar" },
   ];
 
   function clienteEmail(c: any) {
@@ -576,6 +592,51 @@ export default function Clients() {
                       Guardar
                     </button>
                   </form>
+                </div>
+              )}
+
+              {activeTab === "editar" && (
+                <div className="space-y-6">
+                  <div>
+                    <p className="text-sm font-medium text-slate-700 mb-2">Editar datos y foto de perfil</p>
+                    <button
+                      onClick={() => setEditingClient(selectedClient)}
+                      className="border border-slate-300 rounded px-4 py-2 text-sm inline-flex items-center gap-1.5 hover:bg-slate-50"
+                    >
+                      <Pencil size={14} strokeWidth={2} aria-hidden="true" /> Editar datos / foto
+                    </button>
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <p className="text-sm font-medium text-slate-700 mb-1">Zona de peligro</p>
+                    <p className="text-xs text-slate-500 mb-3">
+                      Al eliminar, el cliente se desactiva y deja de aparecer en las listas. Sus facturas, cotizaciones y
+                      pedidos se conservan.
+                    </p>
+                    {confirmingDelete ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleDeleteClient}
+                          className="bg-red-600 text-white text-sm px-4 py-2 rounded hover:bg-red-700"
+                        >
+                          Confirmar eliminación
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDelete(false)}
+                          className="border border-slate-300 text-slate-700 text-sm px-4 py-2 rounded hover:bg-slate-50"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmingDelete(true)}
+                        className="text-red-600 text-sm hover:underline inline-flex items-center gap-1.5"
+                      >
+                        Eliminar cliente
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

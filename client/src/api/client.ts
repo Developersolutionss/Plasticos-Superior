@@ -61,6 +61,7 @@ export const api = {
   /** Registra una visita a la ficha del cliente (alimenta el filtro "Frecuentes"). */
   recordClientVisit: (clientId: number) =>
     request<{ viewCount: number; lastViewedAt: string }>(`/clients/${clientId}/visit`, { method: "POST" }),
+  deleteClient: (clientId: number) => request<any>(`/clients/${clientId}`, { method: "DELETE" }),
   updateCreditLimit: (clientId: number, creditLimit: number) =>
     request<any>(`/clients/${clientId}/credit-limit`, { method: "PATCH", body: JSON.stringify({ creditLimit }) }),
 

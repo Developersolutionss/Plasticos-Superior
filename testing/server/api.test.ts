@@ -379,4 +379,16 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
 
     await prisma.client.update({ where: { id: clientId }, data: { avatarUrl: null } });
   });
+
+  it("DELETE /:id desactiva el cliente", async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}`, { method: "DELETE", headers: authHeaders() });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { active: boolean };
+    assert.equal(body.active, false);
+    const enDb = await prisma.client.findUnique({ where: { id: clientId } });
+    assert.equal(enDb!.active, false);
+    // Ya no aparece en el listado (solo clientes activos).
+    const list = (await (await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() })).json()) as { id: number }[];
+    assert.ok(!list.some((c) => c.id === clientId));
+  });
 });

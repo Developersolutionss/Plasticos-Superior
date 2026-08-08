@@ -91,6 +91,7 @@ curl -X POST http://localhost:4000/api/auth/forgot-password \
 | POST | `/api/clients/:id/avatar` | multipart `avatar` (JPG/PNG/WEBP, ≤2 MB) | Sube o reemplaza la foto de perfil; setea `avatarUrl` |
 | POST | `/api/clients/:id/visit` | — | Registra una visita a la ficha (`viewCount++`, `lastViewedAt`) |
 | PATCH | `/api/clients/:id/credit-limit` | `{ creditLimit }` | Edita el límite de crédito manual |
+| DELETE | `/api/clients/:id` | — | Desactiva el cliente (`active: false`, soft delete: conserva facturas/cotizaciones/pedidos y deja de aparecer en listas) |
 | GET | `/api/clients/:id/cartera` | — | Saldo pendiente calculado (total facturado no anulado − pagos) + detalle de facturas pendientes |
 | GET | `/api/clients/contacts` | — | **Lista global** de contactos con la empresa relacionada (nombre y `avatarUrl`) — pantalla CRM "Contactos" |
 | GET | `/api/clients/:id/contacts` | — | Contactos del cliente (principal primero) |

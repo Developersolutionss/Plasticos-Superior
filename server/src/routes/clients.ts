@@ -133,6 +133,22 @@ clientsRouter.post("/:id/visit", requireVentas, async (req, res) => {
   res.json({ viewCount: updated.viewCount, lastViewedAt: updated.lastViewedAt });
 });
 
+/** Elimina (desactiva) un cliente. Soft delete: el registro se conserva porque
+ * tiene facturas, cotizaciones y pedidos relacionados; los listados solo
+ * devuelven clientes `active: true`. */
+clientsRouter.delete("/:id", requireVentas, async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
+
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+
+  const updated = await prisma.client.update({ where: { id: clientId }, data: { active: false } });
+  res.json(updated);
+});
+
 const updateCreditLimitSchema = z.object({
   creditLimit: z.number().min(0),
 });
