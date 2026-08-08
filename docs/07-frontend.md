@@ -19,21 +19,26 @@ client/
 ├── tsconfig.json
 └── src/
     ├── main.tsx          → proveedores (QueryClient, Auth, Router)
-    ├── App.tsx           → definición de rutas + guard RequireAuth
+    ├── App.tsx           → rutas + guards RequireAuth, RequireRole y RequireStationRole
     ├── index.css         → solo @import "tailwindcss"
     ├── api/
     │   └── client.ts     → objeto `api` (único helper fetch, tipado)
     ├── auth/
     │   └── AuthContext.tsx → sesión (localStorage) y tipo UserRole (11 valores)
+    ├── lib/
+    │   └── frequency.ts  → motor "Frecuentes" del lado del cliente (byFrequency, nextInteraction)
     ├── components/
     │   ├── Layout.tsx    → shell: Sidebar + header + <Outlet />
-    │   ├── Sidebar.tsx   → menú lateral + atajos
+    │   ├── Sidebar.tsx   → menú lateral filtrado por rol + atajos
     │   ├── Sidebar.css   → variables CSS del sidebar (tema oscuro)
     │   ├── NavIcon.tsx   → mapa clave → ícono lucide
-    │   ├── navConfig.ts  → declaración de los ítems del menú (iconos por clave)
+    │   ├── navConfig.ts  → ítems del menú con `roles` por entrada + filterNavSections
     │   ├── useShortcuts.tsx / ShortcutsConfig.tsx → atajos favoritos (localStorage)
     │   ├── Modal.tsx     → modal genérico sin dependencias
-    │   └── ContactoForm.tsx → formulario reutilizable crear/editar contacto
+    │   ├── ClienteAvatar.tsx → avatar del cliente (foto o iniciales)
+    │   ├── ClientePicker.tsx → selector de cliente con búsqueda por frecuencia
+    │   ├── ClienteForm.tsx   → formulario crear/editar cliente con foto
+    │   └── ContactoForm.tsx  → formulario reutilizable crear/editar contacto
     └── pages/
         ├── Login.tsx
         ├── ForgotPassword.tsx
@@ -43,9 +48,10 @@ client/
         ├── ProductionUpload.tsx
         ├── OrdenesProduccion.tsx
         ├── EstacionProduccion.tsx
-        ├── Clients.tsx         → listado con búsqueda/filtros/vistas + ficha del cliente
-        ├── NuevoCliente.tsx    → página dedicada "Crear cliente" (vía el botón "+" del listado; sin ítem en el menú lateral)
-        ├── Contactos.tsx       → pantalla global de contactos
+        ├── Planeacion.tsx    → cola de Planeación: items de pedidos sin OP + generar OP
+        ├── Clients.tsx       → listado con búsqueda/filtros/vistas + ficha del cliente
+        ├── NuevoCliente.tsx  → página dedicada "Crear cliente" (botón "+" del listado)
+        ├── Contactos.tsx     → pantalla global de contactos
         ├── Cotizaciones.tsx
         ├── Pedidos.tsx
         ├── Facturas.tsx
@@ -75,30 +81,34 @@ client/
   <Route path="/forgot-password" element={<ForgotPassword />} />
   <Route path="/reset-password" element={<ResetPassword />} />
 
-  {/* protegidas */}
+  {/* protegidas — RequireAuth valida la sesión; RequireRole valida el rol */}
   <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
     <Route index element={<InventoryDashboard />} />
-    <Route path="despachos" element={<Dispatches />} />
-    <Route path="produccion" element={<ProductionUpload />} />
-    <Route path="clientes" element={<Clients />} />
-    <Route path="clientes/nuevo" element={<NuevoCliente />} />
-    <Route path="clientes/contactos" element={<Contactos />} />
-    <Route path="clientes/cotizaciones" element={<Cotizaciones />} />
-    <Route path="produccion/ordenes" element={<OrdenesProduccion />} />
-    <Route path="produccion/estacion/:station" element={<EstacionProduccion />} />
-    <Route path="pedidos" element={<Pedidos />} />
-    <Route path="facturas" element={<Facturas />} />
-    <Route path="configuracion/autenticacion" element={<SecuritySettings />} />
+    <Route path="despachos" element={<RequireRole roles={ALMACEN}><Dispatches /></RequireRole>} />
+    <Route path="produccion" element={<RequireRole roles={[...ALMACEN, ...PRODUCCION_GESTION]}><ProductionUpload /></RequireRole>} />
+    <Route path="produccion/ordenes" element={<RequireRole roles={PRODUCCION_GESTION}><OrdenesProduccion /></RequireRole>} />
+    <Route path="produccion/estacion/:station" element={<RequireStationRole><EstacionProduccion /></RequireStationRole>} />
+    <Route path="planeacion" element={<RequireRole roles={PRODUCCION_GESTION}><Planeacion /></RequireRole>} />
+    <Route path="clientes" element={<RequireRole roles={VENTAS}><Clients /></RequireRole>} />
+    <Route path="clientes/nuevo" element={<RequireRole roles={VENTAS}><NuevoCliente /></RequireRole>} />
+    <Route path="clientes/contactos" element={<RequireRole roles={VENTAS}><Contactos /></RequireRole>} />
+    <Route path="clientes/cotizaciones" element={<RequireRole roles={VENTAS}><Cotizaciones /></RequireRole>} />
+    <Route path="pedidos" element={<RequireRole roles={VENTAS}><Pedidos /></RequireRole>} />
+    <Route path="facturas" element={<RequireRole roles={VENTAS}><Facturas /></RequireRole>} />
+    <Route path="configuracion/autenticacion" element={<RequireRole roles={ADMIN}><SecuritySettings /></RequireRole>} />
   </Route>
 </Routes>
 ```
 
 - `RequireAuth` redirige a `/login` si no hay usuario en sesión.
-- `Clients` es una sola pantalla con 3 modos según `pathname`.
+- `RequireRole` muestra un mensaje de acceso denegado si el rol no pertenece al grupo. Los grupos (`VENTAS`, `ALMACEN`, `PRODUCCION_GESTION`, `OPERARIOS`, `ADMIN`, …) vienen de `navConfig.ts`.
+- `RequireStationRole` mapea la estación de la URL al grupo de operarios adecuado (`extrusion`→ extrusión, `impresion`→ impresión, `sellado`/`precorte`→ sellado-precorte).
 
 ## Menú lateral
 
-`navConfig.ts` declara los ítems del menú. Cada ítem usa un `icon` como **clave** (p. ej. `"users"`, `"truck"`, `"factory"`) y `NavIcon.tsx` la resuelve a un componente de `lucide-react`. Los módulos del roadmap no construidos salen como `disabled: true` con la etiqueta "Próximamente".
+`navConfig.ts` declara los ítems del menú. Cada ítem tiene un campo `roles` (los grupos de roles que lo ven) y un `icon` como **clave** (p. ej. `"users"`, `"truck"`, `"factory"`). `NavIcon.tsx` resuelve la clave a un componente de `lucide-react`. Los módulos del roadmap no construidos salen como `disabled: true` con la etiqueta "Próximamente".
+
+La función `filterNavSections(role)` filtra secciones y entradas según el rol del usuario. `Sidebar.tsx` llama a `filterNavSections(user.role)` y dibuja solo lo que el rol puede ver. Los atajos (`useShortcuts`, `ShortcutsConfig`) aplican el mismo filtro con `buildChoices(role)`: un operario no puede marcar como atajo un módulo sin acceso.
 
 ## `api/client.ts` — el helper HTTP
 
@@ -107,12 +117,17 @@ Es el **único** punto que hace `fetch`. Toda página usa sus métodos.
 ```ts
 const API_BASE = "/api";   // sin dominio: usa el proxy de Vite
 
-async function request<T>(path, options) {
-  const token = getToken();                     // localStorage.getItem("token")
+function getToken() {
+  return localStorage.getItem("token");
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      ...(opciones multipart ? {} : { "Content-Type": "application/json" }),
+      // FormData (subidas de archivos) no lleva Content-Type manual: lo pone el navegador
+      ...(options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
@@ -132,8 +147,8 @@ Métodos expuestos (`api.*`), agrupados por dominio:
 |---|---|
 | Auth | `login(email, password, totpToken?)`, `getMe()`, `forgotPassword(email)`, `resetPassword(token, newPassword)`, `setup2fa()`, `verify2fa(token)`, `disable2fa(token)` |
 | Inventario | `getInventory(category?)`, `getAlerts()`, `getProducts()` |
-| Clientes (CRM) | `getClients()`, `createClient(name)`, `updateClient(id, data)`, `uploadClientAvatar(id, file)`, `recordClientVisit(id)`, `deleteClient(id)`, `getAllContacts()`, `updateCreditLimit(id, creditLimit)`, `getClientContacts(id)`, `createClientContact(id, data)`, `deleteClientContact(id, contactId)`, `getClientAddresses(id)`, `createClientAddress(id, data)`, `deleteClientAddress(id, addressId)`, `getClientInteractions(id)`, `createClientInteraction(id, data)`, `getClientCartera(id)` |
-| Producción | `createProductionEntry(data)`, `previewImport(file)`, `confirmImport(filename, rows)`, `getProductionOrders(status?)`, `createProductionOrder(data)`, `updateProductionOrderStatus(id, status)`, `getProductionOrderStages(id)`, `createProductionStageLog(id, data)` |
+| Clientes (CRM) | `getClients()`, `createClient(name)`, `updateClient(id, data)`, `uploadClientAvatar(id, file)`, `recordClientVisit(id)`, `deleteClient(id)`, `getAllContacts()`, `recordContactVisit(contactId)`, `updateClientContact(id, contactId, data)`, `updateCreditLimit(id, creditLimit)`, `getClientContacts(id)`, `createClientContact(id, data)`, `deleteClientContact(id, contactId)`, `getClientAddresses(id)`, `createClientAddress(id, data)`, `deleteClientAddress(id, addressId)`, `getClientInteractions(id)`, `createClientInteraction(id, data)`, `getClientCartera(id)` |
+| Producción | `createProductionEntry(data)`, `previewImport(file)`, `confirmImport(filename, rows)`, `getProductionOrders(status?)`, `createProductionOrder(data)`, `updateProductionOrderStatus(id, status)`, `getProductionOrderStages(id)`, `createProductionStageLog(id, data)`, `getPendingPlanning()`, `createProductionOrderFromPedidoItem(pedidoVersionItemId)` |
 | Despachos | `getDispatches(params?)`, `createDispatch(clientId, items)`, `markItemDispatched(dispatchId, itemId, qty)` |
 | Comercial | `getCotizaciones(clientId?)`, `createCotizacion(data)`, `updateCotizacionStatus(id, status)`, `convertCotizacionToPedido(id)`, `getPedidos(params?)`, `createPedido(data)`, `getPedidoVersions(id)`, `updatePedido(id, data)`, `duplicatePedido(id)`, `getPedidoAttachments(id)`, `uploadPedidoAttachment(id, file)` (descarga como blob), `getFacturas(params?)`, `createFactura(data)`, `createFacturaFromPedido(pedidoId)`, `anularFactura(id)`, `getFacturaPayments(id)`, `createPayment(id, data)` |
 
@@ -144,7 +159,7 @@ Métodos expuestos (`api.*`), agrupados por dominio:
 - `useAuth()` expone `{ user, login, logout }`. Lanza error si se usa fuera del proveedor.
 - El tipo `UserRole` tiene **11 valores** (matriz completa).
 
-> El frontend **no** filtra por rol: `RequireAuth` solo comprueba que haya sesión. El control de permisos vive en el servidor (`requireRole`). Ver [06 — Backend](06-backend.md).
+> El frontend replica el control del servidor: el menú se filtra con `filterNavSections(user.role)` y cada ruta valida su grupo con `RequireRole`. Un rol sin permiso no ve el ítem y no puede abrir la URL. El servidor sigue siendo la autoridad final (`requireRole`). Ver [06 — Backend](06-backend.md).
 
 ## TanStack Query — patrón en las páginas
 
@@ -204,33 +219,40 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - Pantalla por `:station`. El operario registra su etapa (kilos, merma, tiempos, etc.).
 
 ### `Clients.tsx`
-- Listado maestro–detalle del CRM con **búsqueda** (substring; la búsqueda fuzzy queda pendiente) y **filtros** ABC / Antigüedad (`createdAt`) / Frecuentes (`viewCount`), toggles de **vista en lista o cajas** (con avatar del cliente y fallback de iniciales).
-- El contador **Frecuentes** es **en vivo**: cada visita suma `viewCount`. Si un cliente acumula **5 interacciones** del ciclo (`HOT_THRESHOLD`, motor en `server/src/services/frequency.ts`), se le hace boost al instante igualando el máximo actual + 1, así salta arriba del ranking sin esperar ninguna fecha. El boost se **consume**: al cruzar el umbral las interacciones vuelven a 0 y necesita 5 nuevas (el front lo replica con `nextInteraction` en `client/src/lib/frequency.ts` para el update optimista).
-- Un cliente nuevo **nace "hot"**: arranca en el máximo actual + 1 y se le cuenta el umbral como ya alcanzado.
-- El **reset semanal es solo una purga** (ver `server/src/services/frecuentesReset.ts`): redistribuye los valores por ranking para que no crezcan sin límite — el más visitado conserva el valor más alto y el menos visitado 0 (p. ej. 4 clientes → 3, 2, 1, 0). No reordena posiciones: solo remapea números y deja las interacciones del ciclo en 0. Corre regularmente al arrancar el servidor y cada hora (`app_meta.frecuentes:lastResetAt`), sin detener el conteo en vivo.
-- El orden por defecto del listado es **Frecuentes** (antes ABC). El comparador `frequency` (`client/src/lib/frequency.ts`) se usa también en la pantalla de contactos.
-- Al seleccionar un cliente se registra la visita (`api.recordClientVisit`, actualización optimista del cache) y se muestra la ficha con pestañas: contactos, direcciones, historial, cartera y **editar/eliminar**. 
-- Pestaña "Editar/Eliminar": botón "Editar datos / foto" abre `ClienteForm` en modal reutilizable, y zona de peligro con confirmación para **eliminar** el cliente (`api.deleteClient` → soft delete, `active: false`).
+- Layout maestro–detalle en dos columnas: listado (izquierda) y ficha (derecha).
+- Filtros de orden: **ABC**, **Antigüedad** (`createdAt`) y **Frecuentes** (orden por defecto). El orden Frecuentes usa `byFrequency(viewCount, lastViewedAt)` de `client/src/lib/frequency.ts`.
+- Vistas: **lista** o **cajas** (avatar con `ClienteAvatar`, fallback de iniciales). Preselección opcional con `location.state.selectedClientId`.
+- Al abrir la ficha se registra la visita (`api.recordClientVisit`) con actualización optimista (`nextInteraction`).
+- La ficha tiene **5 pestañas**: contactos, direcciones, historial, cartera y editar/eliminar.
+- Pestaña "Editar/Eliminar": botón "Editar" abre `ClienteForm` en modal; zona de peligro para **eliminar** (`api.deleteClient`, soft delete: `active: false`).
+
+### `NuevoCliente.tsx`
+- Página "Crear cliente": envuelve `ClienteForm` en modo crear. Tras guardar navega a `/clientes` y deja el cliente nuevo seleccionado.
 
 ### `ClienteForm.tsx` (componente reutilizable)
-- Formulario único para **crear** (página `/clientes/nuevo` → `NuevoCliente.tsx`) y **editar** (modal). Campos: nombre, email/teléfono/notas (en `contactInfo`), límite de crédito y **foto de perfil** (preview + upload). `NuevoCliente` redirige al listado dejando el cliente creado seleccionado.
+- Formulario único para **crear** y **editar** clientes. Campos: nombre, email/teléfono/notas (`contactInfo`), límite de crédito y **foto de perfil** (preview + upload).
+- En modo crear: `createClient(name)` + `updateClient(id, datos)`. Si hay archivo: `uploadClientAvatar(id, file)`.
 
 ### `Contactos.tsx`
-- Pantalla global de contactos de todos los clientes (`api.getAllContacts`): buscador, filtros ABC/Antigüedad/Frecuentes y **por cliente** (select), vista lista/cajas con el avatar del cliente relacionado.
-- La **frecuencia del contacto es propia e independiente** de la del cliente (mismo motor: `HOT_THRESHOLD=5`, boost consumible): el clic en una fila/caja abre un **modal con sus datos** (cliente, cargo, teléfono `tel:`, email `mailto:`, principal, alta) y registra la visita del contacto (`api.recordContactVisit`, optimista con `nextInteraction`). `Esc` o el ✕ cierran el modal.
+- Pantalla global de contactos de todos los clientes (`api.getAllContacts`). Buscador, filtro **por cliente** (select) y orden ABC / Antigüedad / Frecuentes. Vistas lista/cajas con el avatar del cliente relacionado.
+- La frecuencia del contacto es **propia e independiente** de la del cliente (mismo motor, umbral `HOT_THRESHOLD`).
+- Un clic en un contacto abre un **modal con sus datos** (cliente, cargo, teléfono `tel:`, email `mailto:`, principal, alta) y registra la visita (`api.recordContactVisit`, optimista con `nextInteraction`). `Esc` o el ✕ cierran el modal.
+- El modal ofrece **"Editar"**: abre `ContactoForm` precargado y guarda con `api.updateClientContact`. Al marcar **principal**, el servidor desmarca a los demás.
+- Cada contacto tiene un **menú ⋮**: "Abrir empresa" (navega a `/clientes` con el cliente seleccionado) y "Eliminar" (confirmación en dos pasos).
 
-- El modal de detalle ofrece **"Editar"**: cambia a `ContactoForm` (componente reutilizable con los mismos campos del alta, precargados) y guarda con `api.updateClientContact` (`PATCH .../contacts/:contactId`); al marcar principal, el servidor desmarca a los demás en una transacción. El mismo "Editar" está disponible en el modal de contacto de la **ficha** (`Clients.tsx`).
+### `Planeacion.tsx`
+- Cola de Planeación (`api.getPendingPlanning`). Tabla con pedido, cliente, producto (SKU), cantidad, medida y botón **"Generar OP"** por fila.
+- "Generar OP" llama a `api.createProductionOrderFromPedidoItem`. Tras el éxito invalida `["pendingPlanning"]` y `["productionOrders"]`.
 
-- Cada contacto tiene un **menú ⋮** con "Abrir empresa" (navega a `/clientes` con el cliente seleccionado) y "Eliminar" (confirmación en dos pasos); se cierra con clic afuera o `Esc`.
 ### `Cotizaciones.tsx` / `Pedidos.tsx` / `Facturas.tsx`
 - Crear y listar cotizaciones con estado; pedidos versionados con adjuntos; facturas con abonos y anulación.
-- El formulario de cotización usa **`ClientePicker.tsx`** (componente reutilizable): campo de búsqueda con la **pfp del cliente** seleccionado (`ClienteAvatar`), con el campo **vacío** sugiere **4 clientes por frecuencia** (`byFrequency(viewCount, lastViewedAt)`) y **a partir del 1.º carácter** filtra por **coincidencia** (substring), siempre con **4 slots** compactos; `×` limpia la selección, `Esc`/clic afuera cierran el listado.
-- **Pendiente**: reutilizar `ClientePicker` en otras selecciones de cliente (Pedidos, Facturas, Despachos) en una iteración futura.
-- La ficha del cliente (pestaña listado) tiene un botón **"Cotizar"** que navega a Cotizaciones **preseleccionando el cliente** (`navigate("/clientes/cotizaciones", { state: { clientId } })`); `Cotizaciones.tsx` lo lee con `location.state` y lo pasa al `ClientePicker`.
-- El submenú lateral **"Crear cliente" se quitó** por redundancia: el alta queda solo en el botón "+ Crear cliente" del listado (`/clientes/nuevo`, `NuevoCliente.tsx` se mantiene como ruta).
+- El formulario de cotización usa **`ClientePicker.tsx`**: con el campo **vacío** sugiere **4 clientes por frecuencia** (`byFrequency(viewCount, lastViewedAt)`); a partir del 1.º carácter filtra por coincidencia; muestra la foto del seleccionado (`ClienteAvatar`); `×` limpia y `Esc`/clic afuera cierran el listado.
+- **Pendiente**: reutilizar `ClientePicker` en otros módulos de selección de cliente (Pedidos, Facturas, Despachos).
+- El botón **"Cotizar"** de la ficha del cliente navega a `/clientes/cotizaciones` con el cliente preseleccionado (`location.state.clientId`).
+- El alta de cliente vive solo en el botón "+ Crear cliente" del listado (`/clientes/nuevo`).
 
 ### `SecuritySettings.tsx`
-- Activar/desactivar 2FA: QR (`setup2fa`) → `verify2fa` → estado activo.
+- Activar/desactivar 2FA: `setup2fa` (QR) → `verify2fa` → estado activo.
 
 ## `components/Layout.tsx`
 
@@ -238,9 +260,9 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 
 ## PWA (`vite.config.ts`)
 
-- `registerType: "autoUpdate"`.
-- Manifest: nombre "Inventario y Despachos", `display: "standalone"`.
-- `runtimeCaching`: `StaleWhileRevalidate` para todo lo que matchea `/\/api\/inventory/` (incluye `/api/inventory/alerts` y `/api/inventory/products`). Las mutaciones (POST/PATCH/DELETE) nunca se cachean.
+- `registerType: "autoUpdate"`. El service worker se registra **a mano** en `main.tsx` (`injectRegister: false`) para forzar la recarga cuando hay una build nueva; así nadie queda pegado en un build viejo en memoria.
+- Manifest: nombre "Plásticos Superior", `short_name` "Pl. Superior", `display: "standalone"`, tema `#0f172a`.
+- `runtimeCaching`: `StaleWhileRevalidate` para lo que coincide con `/\/api\/inventory/`. Las mutaciones (POST/PATCH/DELETE) nunca se cachean.
 
 ## Dependencias principales (`client/package.json`)
 

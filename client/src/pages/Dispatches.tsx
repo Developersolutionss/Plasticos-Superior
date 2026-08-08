@@ -1,13 +1,21 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
+import { VENTAS } from "../components/navConfig";
 
 export default function Dispatches() {
   const [clientId, setClientId] = useState<string>("");
   const [status, setStatus] = useState<string>("pendiente");
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
-  const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: api.getClients });
+  const canReadClients = !!user && VENTAS.includes(user.role);
+  const { data: clients } = useQuery({
+    queryKey: ["clients"],
+    queryFn: api.getClients,
+    enabled: canReadClients,
+  });
   const { data: dispatches, isLoading } = useQuery({
     queryKey: ["dispatches", clientId, status],
     queryFn: () => api.getDispatches({ clientId: clientId ? Number(clientId) : undefined, status: status || undefined }),
@@ -23,14 +31,16 @@ export default function Dispatches() {
   return (
     <div className="space-y-4">
       <div className="flex gap-3">
-        <select className="border rounded px-3 py-2" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-          <option value="">Todos los clientes</option>
-          {clients?.map((c: any) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        {canReadClients && (
+          <select className="border rounded px-3 py-2" value={clientId} onChange={(e) => setClientId(e.target.value)}>
+            <option value="">Todos los clientes</option>
+            {clients?.map((c: any) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        )}
         <select className="border rounded px-3 py-2" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">Todos los estados</option>
           <option value="pendiente">Pendiente</option>

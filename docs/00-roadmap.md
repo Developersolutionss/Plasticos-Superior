@@ -39,7 +39,7 @@ El avance real frente al plan se detalla a continuación.
 |---|---|---|
 | 1 | Autenticación | ✅ Implementado (matriz de 11 roles, bloqueo por intentos, 2FA/TOTP, recuperación de contraseña) |
 | 2 | Auditoría | 🟡 Parcial (bitácora de movimientos de inventario + registro de importaciones) |
-| 3 | CRM de clientes | ✅ Implementado (clientes, contactos, direcciones, interacciones, cartera y límite de crédito; listado con búsqueda y filtros, pantalla de contactos, avatar por cliente, tracking de visitas "Frecuentes" con reset semanal por ranking) |
+| 3 | CRM de clientes | ✅ Implementado (clientes con avatar y ranking "Frecuentes" en vivo, contactos y direcciones, historial de interacciones, cartera y límite de crédito; pantalla global de contactos; búsqueda y filtros por frecuencia) |
 | 4 | Pedidos | ✅ Implementado (pedidos versionados v1..vn, adjuntos, duplicar) |
 | — | Cotizaciones | ✅ Implementado (cotizaciones con estado y conversión a pedido) |
 | — | Facturación y pagos | ✅ Implementado (facturas desde pedido o sueltas, anulación, abonos, cartera) |
@@ -48,7 +48,7 @@ El avance real frente al plan se detalla a continuación.
 
 | # | Módulo | Estado |
 |---|---|---|
-| 5 | Planeación | ❌ Pendiente |
+| 5 | Planeación | ✅ Implementado (cola de items de pedidos aprobados/en producción sin OP y generación de OP desde cada item) |
 | 6 | Órdenes de producción | ✅ Implementado (OP-00001, estado y paso por estación) |
 | 7 | Extrusión | ✅ Implementado (registro de etapa en `production_stage_logs`) |
 | 8 | Impresión | ✅ Implementado (registro de etapa) |
@@ -80,9 +80,9 @@ El avance real frente al plan se detalla a continuación.
 
 | Estado | Cantidad |
 |---|---|
-| ✅ Implementado | 12 |
+| ✅ Implementado | 13 |
 | 🟡 Parcial | 2 |
-| ❌ Pendiente | 9 |
+| ❌ Pendiente | 8 |
 
 ## Stack
 

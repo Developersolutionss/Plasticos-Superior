@@ -181,8 +181,10 @@ queryClient.invalidateQueries({ queryKey: ["contacts", clientId] });
 Registre la ruta en `client/src/App.tsx` dentro de `<Layout />`:
 
 ```tsx
-<Route path="contactos" element={<Contacts />} />
+<Route path="contactos" element={<RequireRole roles={VENTAS}><Contacts /></RequireRole>} />
 ```
+
+Proteja la ruta con `RequireRole` y el grupo de roles correspondiente (los grupos viven en `client/src/components/navConfig.ts`). Agregue la entrada al menú en `navConfig.ts` con su campo `roles`; si no, el ítem no aparece para el rol.
 
 Si la lectura debe funcionar offline (PWA), amplíe el `runtimeCaching` de `vite.config.ts`. Ver [07 — Frontend](07-frontend.md).
 

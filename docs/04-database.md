@@ -42,11 +42,13 @@ clients 1───N dispatches / production_entries / facturas / pedidos
 products 1───1 inventory_stock
 products 1───N production_entries / dispatch_items / inventory_movements
 production_orders 1───N production_stage_logs
+pedido_version_items 0..1───0..1 production_orders (vínculo opcional, módulo Planeación)
 cotizaciones 1───N cotizacion_items · 1───0..N pedidos
 pedidos 1───N pedido_versions 1───N pedido_version_items
 pedidos 1───N pedido_attachments · 1───0..N facturas
 facturas 1───N factura_items / payments
 users 1───N password_reset_tokens
+app_meta 1 fila (clave/valor, sin FKs)
 ```
 
 ## Modelos (tablas)
@@ -88,6 +90,10 @@ users 1───N password_reset_tokens
 | name | String | (sin `@unique`: dos clientes pueden coincidir en nombre) |
 | contactInfo | Json? | ⚠️ **columna antigua, sin uso**. Los datos reales viven en `client_contacts`, `client_addresses` e `client_interactions` |
 | creditLimit | Decimal? | Límite de crédito **manual** (módulo "Cartera"), editable con `PATCH /credit-limit` |
+| avatarUrl | String? | Foto de perfil. Ruta pública `/api/uploads/clients/<archivo>` |
+| viewCount | Int | `@default(0)`. Conteo de "Frecuentes". Arranca arriba del ranking al crear el cliente |
+| lastViewedAt | DateTime? | Última visita a la ficha |
+| cycleInteractions | Int | `@default(0)`. Interacciones desde la última purga semanal. Al llegar a 5 el cliente se vuelve "hot", sube al máximo+1 y el contador vuelve a 0 |
 | active | Boolean | `@default(true)` — el listado filtra `active: true` |
 | createdAt | DateTime | `@map("created_at")` |
 
@@ -102,6 +108,8 @@ users 1───N password_reset_tokens
 | phone | String? | |
 | email | String? | validado en la API con zod (`z.email()`) |
 | isPrimary | Boolean | `@default(false)`. Un solo principal por cliente (lo garantiza una transacción) |
+| viewCount / lastViewedAt | Int / DateTime? | Frecuencia **propia del contacto**, independiente del cliente (mismo motor) |
+| cycleInteractions | Int | `@default(0)`. Igual que en el cliente, con umbral 5 |
 | createdAt | DateTime | `@map("created_at")` |
 
 ### `client_addresses`
@@ -174,14 +182,13 @@ users 1───N password_reset_tokens
 
 **Orden de Producción (OP)**: la unidad de trabajo que se mueve por las estaciones.
 
-| Campo | Tipo | Notas |
-|---|---|---|
 | id | Int | PK |
 | orderNumber | String | `@unique`, formato `OP-00001` (numeración consecutiva en transacción) |
 | productId | Int | FK → products |
 | quantityPlanned | Decimal | `@map("quantity_planned")` |
 | measure | String? | hereda del producto si no se indica |
 | status | `ProductionOrderStatus` | `pendiente` / `en_proceso` / `detenida` / `finalizada` / `cancelada` |
+| pedidoVersionItemId | Int? | `@unique` `@map("pedido_version_item_id")`. FK → pedido_version_items. Vínculo opcional con el item del pedido que originó la OP (módulo Planeación). `NULL` en las OPs manuales |
 | notes | String? | |
 | createdById | Int? | |
 | createdAt | DateTime | `@map("created_at")` |
@@ -265,7 +272,7 @@ El pedido **versionado**: la identidad vive en `pedidos`; el contenido real de c
 |---|---|
 | `pedidos` | `orderNumber` (`PED-00001` @unique), `clientId`, `cotizacionId?`, `status`, `currentVersion Int @default(1)`, `createdById` |
 | `pedido_versions` | `pedidoId`, `versionNumber`, `status`, `notes`. `@@unique([pedidoId, versionNumber])` |
-| `pedido_version_items` | `pedidoVersionId`, `productId`, `quantity`, `unitPrice`, `measure` |
+| `pedido_version_items` | `pedidoVersionId`, `productId`, `quantity`, `unitPrice`, `measure`. Un item puede tener una OP (`productionOrder 0..1`) generada desde Planeación |
 | `pedido_attachments` | `pedidoId`, `storedName`, `originalName`, `mimeType`, `sizeBytes`, `uploadedById`. Los archivos viven en disco (`server/uploads/pedidos/`) |
 
 ### `facturas` + `factura_items` + `payments`
@@ -288,6 +295,15 @@ El estado de la factura se **recalcula solo** con cada abono (`emitida` → `pag
 | expiresAt | DateTime | `@map("expires_at")` — 1 hora de validez |
 | usedAt | DateTime? | `@map("used_at")` — usa el token una sola vez |
 | createdAt | DateTime | `@map("created_at")` |
+
+### `app_meta`
+
+Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la última purga semanal de "Frecuentes".
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| key | String | PK. P. ej. `frecuentes:lastResetAt` y `frecuentes:lastResetAt:contacts` |
+| value | String | Valor asociado |
 
 ## Enums (definidos en el schema)
 
@@ -322,6 +338,12 @@ El estado de la factura se **recalcula solo** con cada abono (`emitida` → `pag
 | `20260807045314_add_crm_cotizaciones_pedidos` | Cotizaciones, pedidos versionados y adjuntos |
 | `20260807051412_add_facturacion_pagos` | Facturas, ítems y pagos |
 | `20260807180000_expand_role_matrix_and_auth_security` | Matriz de 11 roles + bloqueo + TOTP + reset de contraseña |
+| `20260808021150_add_client_avatar_views` | `clients`: `avatar_url`, `view_count`, `last_viewed_at` |
+| `20260808025104_add_pedido_link_to_production_order` | `production_orders`: `pedido_version_item_id` + FK a `pedido_version_items` |
+| `20260808033245_add_app_meta` | Tabla `app_meta` (clave/valor) |
+| `20260808033850_add_client_visit_streak` | `clients`: `visit_streak` |
+| `20260808040000_rename_visit_streak_to_cycle_interactions` | Renombra `visit_streak` → `cycle_interactions` |
+| `20260808045144_add_contact_frequency` | `client_contacts`: `view_count`, `last_viewed_at`, `cycle_interactions` |
 
 Para aplicar cambios nuevos:
 
@@ -335,9 +357,10 @@ npm run prisma:migrate    # crea una carpeta nueva con el SQL + regenera el clie
 
 `npm run prisma:seed` siembra datos iniciales (idempotente):
 
-- **11 usuarios** de prueba (contraseña `password123`): uno por rol (ver tabla en [02 — Puesta en marcha](02-setup.md)).
+- **11 usuarios** de prueba (contraseña `password123`): uno por rol (tabla en [02 — Puesta en marcha](02-setup.md)).
 - **6 productos** (SKUs `BUL-001`, `ROL-PL-001`, `ROL-F-001`, `MAN-001`, `TIR-001`, `CTL-001`) con precio de catálogo.
 - **2 clientes**: "Cliente ACME" (con límite de crédito `5.000.000`, bodega principal y 2 contactos) y "Distribuidora Norte".
+- **1 pedido de Planeación**: `PED-SEED-PLANEACION` (estado `aprobado`, 2 items de `BUL-001` y `ROL-PL-001`). Este pedido llena la cola de Planeación al entrar.
 
 ## Consultas útiles en psql
 

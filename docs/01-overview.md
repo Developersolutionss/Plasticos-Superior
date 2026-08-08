@@ -39,8 +39,9 @@ El sistema digitaliza este flujo:
 | Módulo | Estado | Descripción |
 |---|---|---|
 | Autenticación | ✅ Implementado | Login JWT con matriz de **11 roles**, bloqueo por intentos fallidos (5), 2FA/TOTP opcional y recuperación de contraseña |
-| CRM de clientes | ✅ Implementado | Clientes, contactos, direcciones, historial de interacciones, límite de crédito y cartera |
+| CRM de clientes | ✅ Implementado | Clientes con avatar y ranking "Frecuentes" en vivo, contactos, direcciones, historial de interacciones, límite de crédito y cartera |
 | Comercial | ✅ Implementado | Cotizaciones (con estado), pedidos **versionados** con adjuntos, facturación y abonos |
+| Planeación | ✅ Implementado | Cola de items de pedidos aprobados/en producción sin OP. Genera la OP de cada item |
 | Órdenes de producción | ✅ Implementado | OP con numeración consecutiva y paso por las 4 estaciones |
 | Estaciones de planta | ✅ Implementado | Registro de etapa con kilos, merma y tiempos. El precorte genera la entrada de inventario |
 | Inventario | ✅ Implementado | Stock por producto, stock mínimo, alertas, categorías. Movimientos como bitácora |
@@ -57,7 +58,7 @@ La matriz completa tiene **11 roles** (`server/src/middleware/auth.ts` los agrup
 |---|---|
 | `super_admin` / `admin` | Todo |
 | `gerente_produccion` | Crear OPs, cambiar su estado, cargar producción, registrar etapas de cualquier estación |
-| `planeacion` | Igual que gerente de producción (gestión) |
+| `planeacion` | Gestiona la cola de Planeación: ve los items de pedidos sin OP y genera sus OPs. También puede crear/cambiar OPs y registrar etapas |
 | `operario_extrusion` | Registrar etapas de **Extrusión** |
 | `operario_impresion` | Registrar etapas de **Impresión** |
 | `operario_sellado_precorte` | Registrar etapas de **Sellado y Precorte** |
@@ -67,6 +68,8 @@ La matriz completa tiene **11 roles** (`server/src/middleware/auth.ts` los agrup
 | `auditor` | Reservado (sin endpoints específicos hoy) |
 
 Los grupos reutilizables (`ROLES.VENTAS`, `ROLES.ALMACEN`, `ROLES.PRODUCCION_GESTION`, `ROLES.OPERARIOS`) restringen las rutas con `requireRole`. `super_admin` y `admin` siempre tienen acceso. Ver [06 — Backend](06-backend.md).
+
+El **frontend replica este control**: el menú lateral y las rutas de la SPA se filtran por rol (`filterNavSections` + `RequireRole`). Un rol solo ve y accede a sus módulos. Ver [07 — Frontend](07-frontend.md).
 
 ## Repositorio y monorepo
 

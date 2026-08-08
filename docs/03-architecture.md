@@ -57,7 +57,7 @@ En **producción**, el servidor solo expone la API (no sirve el build del fronte
 
 ### Formato
 
-- Todo es **JSON** (salvo la subida de Excel, que es `multipart/form-data`).
+- Todo es **JSON**. Solo las subidas de archivos usan `multipart/form-data`: Excel de producción, avatar de cliente y adjuntos de pedido.
 - Respuestas de éxito: JSON plano del recurso (objeto o arreglo). También `{ "ok": true }` o `204` en mutaciones simples.
 - Respuestas de error: `{ "error": string }` o `{ "error": ..., "details": ... }` (errores de zod).
 
@@ -70,11 +70,12 @@ En **producción**, el servidor solo expone la API (no sirve el build del fronte
 
 El token define **quién es** el usuario. Después del login, las rutas sensibles aplican `requireRole(...)` con los grupos de `ROLES` (Ventas, Almacén, Producción, Operarios) de `server/src/middleware/auth.ts`:
 
-- `requireAuth` protege **todo** router (excepto login y webhook de WhatsApp).
+- `requireAuth` protege **todo** router, excepto `POST /api/auth/login`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password` y el webhook de WhatsApp.
+- `GET /health` y `/api/uploads` son **públicos**. El primero es el health check. El segundo sirve los archivos subidos (avatares de clientes y adjuntos de pedidos) para las etiquetas `<img>`.
 - `requireRole(...)` restringe una ruta concreta. Devuelve `403` si el rol no está en la lista.
 - `super_admin` y `admin` pertenecen a todos los grupos, así que siempre pasan.
 
-Ejemplo: `POST /api/cotizaciones` exige rol de ventas; `POST /api/production-orders/:id/stages` exige un rol de operario, y el operario solo registra su estación (via `OPERARIO_STATIONS`).
+Ejemplo: `POST /api/cotizaciones` exige rol de ventas; `POST /api/production-orders/:id/stages` exige un rol de operario, y el operario solo registra su estación (mediante `OPERARIO_STATIONS`).
 
 ### Formato de errores
 
@@ -90,10 +91,10 @@ El helper `request()` del frontend lanza una excepción cuando `!res.ok`. Extrae
 
 ## Flujo de una petición (ejemplo: GET /api/clients)
 
-1. **Frontend**: `client/src/pages/Dispatches.tsx` llama `api.getClients()` → `fetch("/api/clients")` con `Authorization: Bearer <token>`.
+1. **Frontend**: `client/src/pages/Clients.tsx` llama `api.getClients()` → `fetch("/api/clients")` con `Authorization: Bearer <token>`.
 2. **Vite proxy** (dev): reenvía a `http://localhost:4000/api/clients`.
 3. **Express**: `server/src/index.ts` monta `app.use("/api/clients", clientsRouter)`.
-4. **Router**: `clientsRouter.use(requireAuth)` valida el token. El handler consulta `prisma.client.findMany({ where: { active: true } })`.
+4. **Router**: `clientsRouter.use(requireAuth)` valida el token. Además, `clientsRouter.use(requireVentas)` restringe **todo** el módulo CRM (incluidos los `GET`) al rol de ventas. El handler consulta `prisma.client.findMany({ where: { active: true } })`.
 5. **Prisma**: traduce a SQL. Consulta PostgreSQL. Devuelve objetos JS.
 6. **Respuesta**: JSON de vuelta por el mismo camino.
 
@@ -124,6 +125,7 @@ Configurado en `vite.config.ts` con `vite-plugin-pwa`:
 | Prefijo | Router | Archivo |
 |---|---|---|
 | `GET /health` | — | `index.ts` (público) |
+| `/api/uploads` | `express.static` | sirve archivos subidos de forma pública: avatares (`.../clients/`) y adjuntos de pedidos (`.../pedidos/`) |
 | `/api/auth` | `authRouter` | `server/src/routes/auth.ts` |
 | `/api/clients` | `clientsRouter` | `server/src/routes/clients.ts` |
 | `/api/inventory` | `inventoryRouter` | `server/src/routes/inventory.ts` |
@@ -136,6 +138,10 @@ Configurado en `vite.config.ts` con `vite-plugin-pwa`:
 | `/webhook/whatsapp` | `whatsappWebhookRouter` | `server/src/routes/whatsappWebhook.ts` |
 
 El router de clientes también expone sub-recursos: contactos (`GET/POST/DELETE /api/clients/:id/contacts`), direcciones (`.../addresses`), interacciones (`.../interactions`), cartera (`.../cartera`) y límite de crédito (`PATCH .../credit-limit`). No requieren montaje aparte en `index.ts`.
+
+Varios routers aplican el rol a nivel de **router completo** (no solo a la ruta sensible): `clients`, `cotizaciones`, `pedidos` y `facturas` exigen ventas; `dispatches` exige almacén; `production-orders` exige OPERARIOS. Ver [06 — Backend](06-backend.md).
+
+Al iniciar, `index.ts` también arranca el cron de purga semanal de "Frecuentes" (`scheduleFrecuentesReset`).
 
 ## Configuración compartida (una sola instancia)
 

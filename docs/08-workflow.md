@@ -5,10 +5,10 @@
 El sistema conecta el negocio de punta a punta:
 
 ```
-Cotización ─► Pedido (versión v1) ─► Órdenes de Producción ─► Estaciones (precorte genera stock)
-                                          │
-                                          ▼
-                                   Inventario ─► Despacho (resta stock) ─► Factura ─► Pagos (cartera)
+Cotización ───► Pedido (v1) ──► [aprobado] ──► [Planeación] ──► Órdenes de Producción ──► Estaciones (precorte genera stock)
+                                                                                            │
+                                                                                            ▼
+                                                                        Inventario ─── Despacho (resta stock) ─── Factura ─── Pagos (cartera)
 ```
 
 ## El ciclo del stock
@@ -77,6 +77,36 @@ La **bitácora** (`inventory_movements`) guarda cada movimiento individual (audi
 
 > Nota: las reglas de **ajuste** y **devolución** están definidas en los enums (`MovementType`). No hay endpoints que las usen todavía.
 
+## Planeación: pedido a órdenes de producción
+
+El módulo de Planeación convierte los items de un pedido aprobado en órdenes de producción.
+
+1. Un pedido con estado `aprobado` o `en_produccion` tiene los items de su versión vigente.
+2. La **cola de Planeación** (`GET /api/production-orders/pending-planning`) devuelve los items que aún no tienen una OP.
+3. `POST /api/production-orders/from-pedido-item/:id` genera la OP de un item. Usa `quantityPlanned = item.quantity` y `measure` del item (o del producto).
+4. La OP queda enlazada con `pedidoVersionItemId`. Un item solo tiene una OP (`@unique`): si ya la tiene, el endpoint responde `400`.
+
+Reglas:
+
+- Acceso a la cola y a la generación: gestión de producción (`gerente_produccion`, `planeacion`).
+- La cola no es una tabla. Se deriva de los pedidos en cada consulta.
+- La OP nueva usa numeración `OP-XXXXX` con reintento.
+
+## Ranking "Frecuentes" (CRM)
+
+Cada cliente y cada contacto guarda su propio contador:
+
+- `viewCount` — veces que se abrió la ficha.
+- `cycleInteractions` — interacciones del ciclo actual (semana).
+- `lastViewedAt` — última visita.
+
+Reglas:
+
+- Cada apertura suma 1. Al llegar al umbral `HOT_THRESHOLD` (5), el perfil sube a máximo actual + 1 y el contador del ciclo vuelve a 0.
+- Un cliente o contacto nuevo **nace "hot"**: empieza arriba del ranking.
+- La frecuencia del cliente y la del contacto son **independientes**.
+- La **purga semanal** (`frecuentesReset.ts`) re-escala los valores por ranking (n-1 … 0) para que no crezcan sin límite. No reordena posiciones. Corre al arrancar y luego cada hora.
+
 ## Comercial: cotización → pedido → factura → pago
 
 1. **Cotización**: `COT-00001`, con estado (`borrador → enviada → aceptada…`). Si un ítem no trae precio, toma el del catálogo.
@@ -138,6 +168,8 @@ Operaciones transaccionales actuales:
 - Crear contacto/dirección principal (desmarcar el anterior + crear el nuevo).
 - Borrar un contacto principal (asignar el siguiente + borrar).
 - Numeración consecutiva (`OP-`, `COT-`, `PED-`, `FAC-`).
+- Generar una OP desde la cola de Planeación (crea la OP y enlaza el item).
+- Purga semanal de Frecuentes (re-escalar `viewCount` + reset de `cycleInteractions` + actualizar `app_meta`).
 - Reset de contraseña (password + token usado).
 - Registrar un pago (payment + `recalculateStatus`).
 

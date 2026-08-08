@@ -122,6 +122,7 @@ Todos con contraseña `password123`, uno por rol de la matriz completa:
 
 Productos sembrados (catálogo): `BUL-001`, `ROL-PL-001`, `ROL-F-001`, `MAN-001`, `TIR-001`, `CTL-001`.
 Clientes sembrados: "Cliente ACME" y "Distribuidora Norte". Cliente ACME tiene límite de crédito `5.000.000`, una bodega principal, y los contactos María López (principal) y Carlos Pérez.
+La semilla también crea un pedido de prueba para el módulo de Planeación: `PED-SEED-PLANEACION` (cliente "Distribuidora Norte", estado `aprobado`, con 2 items — `BUL-001` × 40 y `ROL-PL-001` × 25). Este pedido aparece en la cola de Planeación al entrar al sistema.
 
 ## Scripts
 

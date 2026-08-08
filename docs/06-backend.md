@@ -6,13 +6,15 @@
 server/
 ├── .env.example           → plantilla de variables de entorno
 ├── tsconfig.json          → TypeScript estricto, CommonJS, outDir: dist
-├── uploads/pedidos/       → adjuntos de pedidos (disco)
+├── uploads/
+│   ├── pedidos/           → adjuntos de pedidos (disco)
+│   └── clients/           → avatares de clientes (disco)
 ├── prisma/
-│   ├── schema.prisma      → fuente de verdad de la BD (24 modelos)
+│   ├── schema.prisma      → fuente de verdad de la BD (25 modelos)
 │   ├── seed.ts            → datos de ejemplo (npm run prisma:seed)
 │   └── migrations/        → SQL versionado (prisma migrate dev)
 └── src/
-    ├── index.ts           → inicio de Express, monta los routers
+    ├── index.ts           → inicio de Express, monta los routers, arranca el cron de Frecuentes
     ├── prisma.ts          → una única instancia de PrismaClient (adapter pg)
     ├── middleware/
     │   └── auth.ts        → requireAuth (JWT) + requireRole + ROLES + OPERARIO_STATIONS
@@ -22,13 +24,15 @@ server/
     │   ├── email.ts          → sendPasswordResetEmail (Resend, fallback console)
     │   ├── emailTemplate.ts  → plantilla HTML inline del correo
     │   ├── totp.ts           → TOTP + QR (otplib / qrcode)
-    │   └── sequentialNumber.ts → withSequentialNumberRetry (reintenta la numeración)
+    │   ├── sequentialNumber.ts → withSequentialNumberRetry (reintenta la numeración)
+    │   ├── frequency.ts      → motor de "Frecuentes": umbral, boost, reorden, redistribución
+    │   └── frecuentesReset.ts → purga semanal del ranking (cron en memoria)
     ├── routes/
     │   ├── auth.ts            → login, me, forgot/reset-password, 2FA
-    │   ├── clients.ts         → CRM: clientes, contactos, direcciones, interacciones, cartera
+    │   ├── clients.ts         → CRM: clientes, contactos, direcciones, interacciones, cartera, avatares, visitas
     │   ├── inventory.ts       → GET /api/inventory[/alerts[/products]]
     │   ├── production.ts      → alta manual + import Excel (preview/confirm)
-    │   ├── productionOrders.ts→ OPs + registro de etapa por estación
+    │   ├── productionOrders.ts→ OPs + registro de etapa + cola de Planeación
     │   ├── dispatches.ts      → GET/POST despachos + marcar items
     │   ├── cotizaciones.ts    → cotizaciones + convertir a pedido
     │   ├── pedidos.ts         → pedidos versionados + adjuntos
@@ -43,13 +47,18 @@ server/
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import path from "path";
 // ... routers
+import { scheduleFrecuentesReset } from "./services/frecuentesReset";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Archivos subidos (avatares, adjuntos): ruta pública /api/uploads/<carpeta>/<archivo>
+app.use("/api/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 app.use("/api/auth", authRouter);
 app.use("/api/clients", clientsRouter);
@@ -62,13 +71,15 @@ app.use("/api/pedidos", pedidosRouter);
 app.use("/api/facturas", facturasRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
 
+scheduleFrecuentesReset(); // purga semanal del ranking "Frecuentes"
+
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 app.listen(port, () => console.log(`API escuchando en http://localhost:${port}`));
 ```
 
 Notas:
 - `dotenv/config` carga `server/.env` automáticamente.
-- `express.json()` parsea cuerpos JSON. Las subidas de Excel y adjuntos usan `multer` en la ruta correspondiente (memoria para Excel, disco para adjuntos).
+- `express.json()` parsea cuerpos JSON. Las subidas de archivos usan `multer` en la ruta correspondiente (memoria para el Excel; disco para adjuntos de pedido y avatares de cliente).
 - No hay manejador global de errores. Cada router maneja sus propios errores con try/catch o `safeParse`.
 
 ## El patrón router → zod → prisma
@@ -112,7 +123,7 @@ clientsRouter.post("/", requireVentas, async (req, res) => {     // 5. validar +
 4. Schema zod que define la forma del body.
 5. `safeParse` → si falla, `400` con errores. Si pasa, `prisma.<modelo>.<método>()` → respuesta.
 
-> Los sub-recursos dependientes (contactos, direcciones, interacciones de un cliente) viven dentro del router padre con rutas anidadas (`/:id/contacts`). Valida el parámetro `:id` a mano (`Number.isInteger`) en los endpoints sin body. Las mutaciones multi-tabla usan `$transaction`.
+> Los sub-recursos dependientes (contactos, direcciones, interacciones de un cliente) viven dentro del router padre con rutas anidadas (`/:id/contacts`). Valide `:id` y `:contactId` a mano (`Number.isInteger`) en los endpoints de cliente y de contactos. Los endpoints de cartera, límite de crédito, direcciones e interacciones no validan el `:id`. Las mutaciones multi-tabla usan `$transaction`.
 
 ## Middleware de autenticación (`middleware/auth.ts`)
 
@@ -141,6 +152,8 @@ export function requireAuth(req, res, next) {
 | `ROLES.ALMACEN` | `almacen_despachos` |
 | `ROLES.PRODUCCION_GESTION` | `gerente_produccion`, `planeacion` |
 | `ROLES.OPERARIOS` | `gerente_produccion`, `planeacion`, `operario_extrusion`, `operario_impresion`, `operario_sellado_precorte` |
+
+Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `dispatches` usa `use(requireAlmacen)`; `production-orders` usa `use(requireOperarios)` y aplica `requireProduccionGestion` en crear/cambiar estado/Planeación.
 
 - `OPERARIO_STATIONS` mapea cada rol de operario a sus estaciones (`operario_extrusion → ["extrusion"]`, etc.). Se aplica en el POST de etapas: el operario solo registra su estación.
 
@@ -187,6 +200,26 @@ export async function applyMovement(
 - `totp.ts`: `generateSecret()`, `generateQrCodeDataUrl(email, secret)`, `verifyToken(token, secret)` con `otplib` y `qrcode`.
 - `email.ts`: `sendPasswordResetEmail(email, url)` con Resend. Sin `RESEND_API_KEY` imprime el link en la consola del servidor (para pruebas locales).
 
+### `services/frequency.ts` — motor "Frecuentes"
+
+Funciones puras (sin I/O). `clients.ts` las usa en tiempo real; `frecuentesReset.ts` usa la distribución.
+
+- `HOT_THRESHOLD = 5` — umbral de interacciones por ciclo.
+- `isHot(cycle, threshold)` — ¿el ciclo llegó al umbral?
+- `boostValue(currentMax)` — `máximo actual + 1` (el boost en vivo).
+- `nextVisitState(state, maxScore)` — estado siguiente tras una visita: suma 1 a `cycleInteractions`; si cruza el umbral, `viewCount` sube a `maxScore + 1`, `cycleInteractions` vuelve a 0 (el boost se consume).
+- `sortByFrequency(entries)` — ordena por `score` desc, desempata por actividad reciente.
+- `redistributeScores(entries)` — re-escala la escalera `n-1 … 0` según el orden (para la purga semanal).
+
+### `services/frecuentesReset.ts` — purga semanal
+
+Evita que los puntajes crezcan sin límite:
+
+- `runFrecuentesReset(kind)` — procesa un grupo (`clients` o `contacts`). Reordena con `redistributeScores`, aplica `viewCount = score`, deja `cycleInteractions` en 0 (en transacción) y actualiza la fecha en `app_meta`.
+- `scheduleFrecuentesReset()` — cron en memoria: corre a los 5 s del arranque y luego cada hora. Guarda la última purga en `app_meta` (`frecuentes:lastResetAt` y `frecuentes:lastResetAt:contacts`).
+
+La purga **no reordena posiciones**: solo remapea los números. El más visitado conserva el valor más alto.
+
 ## Transacciones (`prisma.$transaction`)
 
 Use transacciones donde la operación debe ser atómica (todo o nada). Operaciones transaccionales actuales:
@@ -196,6 +229,8 @@ Use transacciones donde la operación debe ser atómica (todo o nada). Operacion
 - **Etapa de producción** (`POST /:id/stages`): crea la etapa; si la estación es `precorte`, además `applyMovement` + marca la OP finalizada.
 - **Contactos/direcciones principal**: desmarca el anterior + crea el nuevo.
 - **Numeración consecutiva** (`OP-`, `COT-`, `PED-`, `FAC-`): el `count()` y el `create` corren en la misma transacción, envuelta en `withSequentialNumberRetry`. Si dos requests calculan el mismo número y chocan contra el `@unique` (P2002), el servicio reintenta la transacción (hasta 3 veces); en el reintento el `count()` ya ve la fila del otro request.
+- **OP desde Planeación** (`POST /from-pedido-item/:id`): valida que el item no tenga OP, la crea con numeración y enlaza `pedidoVersionItemId`.
+- **Purga semanal de Frecuentes** (`frecuentesReset`): redistribuye `viewCount` y resetea `cycleInteractions` en transacción, y actualiza la marca en `app_meta`.
 - **Reset de contraseña**: actualiza el password + marca el token usado.
 - **Factura** (abono): registra el pago + `recalculateStatus`.
 

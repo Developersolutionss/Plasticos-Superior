@@ -36,15 +36,16 @@ Respuesta (sin 2FA):
 
 ### Permisos por rol
 
-Además de `requireAuth`, varias rutas exigen un rol concreto con `requireRole` (devuelve `403` si el rol no corresponde). Reglas generales:
+Además de `requireAuth`, varios routers aplican el rol **a nivel de router** (protegen también los `GET`). Reglas por módulo:
 
-- **CRM/comercial** (crear/editar clientes, contactos, direcciones, interacciones, cotizaciones, pedidos, facturas, pagos): rol de ventas (`super_admin`, `admin`, `ventas_pedidos`).
-- **Despachos** (crear y marcar items): almacén (`super_admin`, `admin`, `almacen_despachos`).
-- **Producción** (alta manual/Excel): almacén o gestión de producción.
-- **Órdenes de producción** (crear, cambiar estado): gestión de producción (`gerente_produccion`, `planeacion`). Registrar etapa de estación: operarios o gestión (un operario solo en **su** estación).
-- **Lecturas** (GET de todos los módulos): cualquier usuario autenticado.
+- **Clientes (CRM)** — todo el módulo: rol de ventas (`super_admin`, `admin`, `ventas_pedidos`).
+- **Cotizaciones, Pedidos y Facturas** — todo el módulo: rol de ventas.
+- **Despachos** — todo el módulo: rol de almacén (`super_admin`, `admin`, `almacen_despachos`).
+- **Órdenes de producción** — todo el módulo: rol de OPERARIOS. Crear, cambiar estado y Planeación exigen además gestión de producción (`gerente_produccion`, `planeacion`). Registrar una etapa: operarios o gestión (un operario solo en **su** estación).
+- **Producción** (alta manual/Excel) — almacén o gestión de producción.
+- **Inventario** — solo `requireAuth`. Cualquier usuario autenticado.
 
-`GET /api/auth/me` no exige rol, pero sí token. `super_admin` y `admin` pasan siempre.
+`GET /api/auth/me` no exige rol, pero sí token. `super_admin` y `admin` siempre pasan.
 
 ## Formato de errores
 
@@ -86,14 +87,14 @@ curl -X POST http://localhost:4000/api/auth/forgot-password \
 | Método | Ruta | Cuerpo | Descripción |
 |---|---|---|---|
 | GET | `/api/clients` | — | Lista clientes activos, ordenados por nombre (incluye `avatarUrl`, `viewCount`, `lastViewedAt`) |
-| POST | `/api/clients` | `{ name, contactInfo?, creditLimit? }` | Crea un cliente (rol de ventas) |
+| POST | `/api/clients` | `{ name, contactInfo?, creditLimit? }` | Crea un cliente (rol de ventas). Nace **arriba del ranking** "Frecuentes" (máximo actual + 1) y con el umbral del ciclo ya alcanzado |
 | PATCH | `/api/clients/:id` | `{ name?, contactInfo?, creditLimit? }` | Edita datos del cliente |
-| POST | `/api/clients/:id/avatar` | multipart `avatar` (JPG/PNG/WEBP, ≤2 MB) | Sube o reemplaza la foto de perfil; setea `avatarUrl` |
-| POST | `/api/clients/:id/visit` | — | Registra una visita a la ficha (`viewCount++`, `lastViewedAt`) |
+| POST | `/api/clients/:id/avatar` | multipart `avatar` (JPG/PNG/WEBP, ≤2 MB) | Sube o reemplaza la foto de perfil; setea `avatarUrl`. Borra el avatar anterior tras persistir |
+| POST | `/api/clients/:id/visit` | — | Registra una visita a la ficha (motor "Frecuentes"): +1 interacción. Al llegar al umbral 5 sube `viewCount` al máximo+1 y consume el boost. Respuesta `{ viewCount, lastViewedAt, cycleInteractions }` |
 | PATCH | `/api/clients/:id/credit-limit` | `{ creditLimit }` | Edita el límite de crédito manual |
 | DELETE | `/api/clients/:id` | — | Desactiva el cliente (`active: false`, soft delete: conserva facturas/cotizaciones/pedidos y deja de aparecer en listas) |
 | GET | `/api/clients/:id/cartera` | — | Saldo pendiente calculado (total facturado no anulado − pagos) + detalle de facturas pendientes |
-| GET | `/api/clients/contacts` | — | **Lista global** de contactos con la empresa relacionada (nombre y `avatarUrl`) — pantalla CRM "Contactos" |
+| GET | `/api/clients/contacts` | — | **Lista global** de contactos con la empresa relacionada (nombre, `avatarUrl`, `viewCount`, `lastViewedAt`) — pantalla CRM "Contactos" |
 | GET | `/api/clients/:id/contacts` | — | Contactos del cliente (principal primero) |
 | POST | `/api/clients/:id/contacts` | `{ name, position?, phone?, email?, isPrimary? }` | Crea un contacto. Si `isPrimary: true`, desmarca los demás en una transacción |
 | PATCH | `/api/clients/:id/contacts/:contactId` | `{ name, position?, phone?, email?, isPrimary? }` | Edita un contacto (misma validación que el alta). Si `isPrimary=true`, desmarca los demás en una transacción |
@@ -103,6 +104,7 @@ curl -X POST http://localhost:4000/api/auth/forgot-password \
 | DELETE | `/api/clients/:id/addresses/:addressId` | — | Borra una dirección |
 | GET | `/api/clients/:id/interactions` | — | Historial de interacciones |
 | POST | `/api/clients/:id/interactions` | `{ type, description }` | Registra una interacción (`llamada` / `email` / `reunion` / `nota`) |
+| POST | `/api/clients/contacts/:contactId/visit` | — | Visita a un contacto (frecuencia **propia** del contacto, mismo motor que clientes) |
 
 ```bash
 curl http://localhost:4000/api/clients -H "Authorization: Bearer <token>"
@@ -144,6 +146,8 @@ curl -X POST http://localhost:4000/api/production/import/preview \
 |---|---|---|---|
 | GET | `/api/production-orders` | `?status=` (opcional) | Lista OPs con producto y etapas, por fecha desc |
 | POST | `/api/production-orders` | `{ productId, quantityPlanned, measure?, notes? }` | Crea una OP con numeración `OP-00001` (gestión de producción) |
+| GET | `/api/production-orders/pending-planning` | — | **Cola de Planeación**: items de pedidos `aprobado`/`en_produccion` que aún no tienen OP. Devuelve `pedidoVersionItemId`, `pedidoId`, `pedidoOrderNumber`, `clientName`, `productId`, `productName`, `productSku`, `quantity`, `measure` |
+| POST | `/api/production-orders/from-pedido-item/:pedidoVersionItemId` | — | Genera la OP de un item de pedido (gestiona la cola). `404` si el item no existe; `400` si ya tiene OP. Crea la OP con `OP-00001`, `quantityPlanned = item.quantity` y enlaza `pedidoVersionItemId` |
 | PATCH | `/api/production-orders/:id/status` | `{ status }` | Cambia el estado (`pendiente` / `en_proceso` / `detenida` / `finalizada` / `cancelada`) |
 | GET | `/api/production-orders/:id/stages` | — | Etapas registradas de la OP |
 | POST | `/api/production-orders/:id/stages` | `{ station, machine, operatorName, startTime, endTime?, kilosProduced, mermaKg?, downtimeMinutes?, downtimeReason?, details?, notes? }` | Registra el paso por estación. Un operario solo puede usar **su** estación (`OPERARIO_STATIONS`). Si la estación es `precorte`, genera la entrada de inventario y finaliza la OP |
