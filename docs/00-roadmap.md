@@ -20,8 +20,6 @@ El sistema objetivo digitaliza el flujo completo del negocio:
 5. Cada rollo se etiqueta e imprime con etiqueta térmica.
 6. El rollo sale despachado y facturado.
 
-El sistema actual implementa solo una parte de este flujo: producción, inventario y despacho. Ver [01 — Visión general](01-overview.md).
-
 ## Objetivos
 
 La planta debe dejar de depender de papel y hojas de cálculo. El sistema debe proveer:
@@ -31,33 +29,31 @@ La planta debe dejar de depender de papel y hojas de cálculo. El sistema debe p
 - **Identificación física de cada rollo** con etiqueta térmica + código de barras/QR, escaneable con pistola en cada estación.
 - **Dashboard ejecutivo** con los indicadores clave del negocio.
 
-## Nota sobre el estado actual
+## Módulos y su estado real
 
-El plan original asigna la autenticación a la Fase 1. La autenticación **ya está implementada** (JWT, tres roles). El avance real respecto al plan se detalla en la tabla de módulos.
+El avance real frente al plan se detalla a continuación.
 
-## Los 20 módulos en 4 fases
-
-El proyecto se construye en 21 módulos, repartidos en 4 fases a lo largo de 6 meses.
-
-### Fase 1 (semanas 1-8)
+### Fase 1 (semanas 1-8) — Base comercial y de acceso
 
 | # | Módulo | Estado |
 |---|---|---|
-| 1 | Autenticación | ✅ Implementado |
-| 2 | Auditoría | 🟡 Parcial (solo bitácora de inventario) |
-| 3 | CRM de clientes | 🟡 Parcial (listar/crear + contactos) |
-| 4 | Pedidos | ❌ Pendiente |
+| 1 | Autenticación | ✅ Implementado (matriz de 11 roles, bloqueo por intentos, 2FA/TOTP, recuperación de contraseña) |
+| 2 | Auditoría | 🟡 Parcial (bitácora de movimientos de inventario + registro de importaciones) |
+| 3 | CRM de clientes | ✅ Implementado (clientes, contactos, direcciones, interacciones, cartera y límite de crédito) |
+| 4 | Pedidos | ✅ Implementado (pedidos versionados v1..vn, adjuntos, duplicar) |
+| — | Cotizaciones | ✅ Implementado (cotizaciones con estado y conversión a pedido) |
+| — | Facturación y pagos | ✅ Implementado (facturas desde pedido o sueltas, anulación, abonos, cartera) |
 
-### Fase 2 (semanas 9-16)
+### Fase 2 (semanas 9-16) — Producción
 
 | # | Módulo | Estado |
 |---|---|---|
 | 5 | Planeación | ❌ Pendiente |
-| 6 | Órdenes de producción | ❌ Pendiente |
-| 7 | Extrusión | ❌ Pendiente |
-| 8 | Impresión | ❌ Pendiente |
-| 9 | Sellado | ❌ Pendiente |
-| 10 | Precorte | ❌ Pendiente |
+| 6 | Órdenes de producción | ✅ Implementado (OP-00001, estado y paso por estación) |
+| 7 | Extrusión | ✅ Implementado (registro de etapa en `production_stage_logs`) |
+| 8 | Impresión | ✅ Implementado (registro de etapa) |
+| 9 | Sellado | ✅ Implementado (registro de etapa) |
+| 10 | Precorte | ✅ Implementado (registro de etapa + genera entrada de inventario al finalizar) |
 | 11 | Trazabilidad básica | ❌ Pendiente |
 
 ### Fase 3 (semanas 17-20)
@@ -65,10 +61,10 @@ El proyecto se construye en 21 módulos, repartidos en 4 fases a lo largo de 6 m
 | # | Módulo | Estado |
 |---|---|---|
 | 12 | Calidad | ❌ Pendiente |
-| 13 | Inventario | ✅ Implementado |
-| 14 | Despachos | 🟡 Parcial (crear despacho y marcar items → descuenta stock; falta UI de creación) |
+| 13 | Inventario | ✅ Implementado (stock por producto, categorías, alertas de mínimo) |
+| 14 | Despachos | ✅ Implementado (crear despacho y marcar items → descuenta stock) |
 | 15 | Almacén / WMS | ❌ Pendiente |
-| 16 | Dashboard | 🟡 Parcial (solo dashboard de stock) |
+| 16 | Dashboard | 🟡 Parcial (dashboard de stock con alertas) |
 | 17 | Exportaciones | ❌ Pendiente |
 
 ### Fase 4 (semanas 21-24)
@@ -84,9 +80,9 @@ El proyecto se construye en 21 módulos, repartidos en 4 fases a lo largo de 6 m
 
 | Estado | Cantidad |
 |---|---|
-| ✅ Implementado | 2 |
-| 🟡 Parcial | 4 |
-| ❌ Pendiente | 15 |
+| ✅ Implementado | 12 |
+| 🟡 Parcial | 2 |
+| ❌ Pendiente | 9 |
 
 ## Stack
 
@@ -99,5 +95,5 @@ La documentación técnica actual cubre parte de este plan:
 | Documento | Cubre |
 |---|---|
 | [01 — Visión general](01-overview.md) | Estado actual de los módulos |
-| [08 — Reglas de negocio](08-workflow.md) | Ciclo del stock de inventario y despachos (salida de stock) |
+| [08 — Reglas de negocio](08-workflow.md) | Ciclo del stock, producción por estaciones, facturación y pagos |
 | [09 — Guía de contribución](09-contributing.md) | Cómo agregar módulos nuevos (modelo + migración + endpoint + página) |

@@ -1,8 +1,19 @@
 # 08 — Reglas de negocio
 
+## El flujo completo
+
+El sistema conecta el negocio de punta a punta:
+
+```
+Cotización ─► Pedido (versión v1) ─► Órdenes de Producción ─► Estaciones (precorte genera stock)
+                                          │
+                                          ▼
+                                   Inventario ─► Despacho (resta stock) ─► Factura ─► Pagos (cartera)
+```
+
 ## El ciclo del stock
 
-Este es el flujo central del sistema:
+Este es el flujo central de inventario:
 
 ```
 ┌────────────────────┐     ┌──────────────────┐     ┌──────────────────────┐
@@ -14,12 +25,12 @@ Este es el flujo central del sistema:
 
 ### 1. Entrada: producción suma stock
 
-Cuando se crea una entrada de producción (manual o por importación), el sistema ejecuta **una sola transacción** (`server/src/routes/production.ts` → `createProductionEntry`):
+**Por carga directa** (`POST /api/production/entries` o importación) — una sola transacción (`createProductionEntry`):
 
-1. El sistema valida que el `SKU` exista en el catálogo (`products`). Si no → error `400`.
-2. Si viene `clientName`, el sistema busca el cliente por nombre. Si no existe, **lo crea**.
-3. El sistema crea el registro en `production_entries` (con `status: "recibido"` y `source` según el origen).
-4. `applyMovement(tx, { quantity: +kilos, movementType: "entrada_produccion", referenceType: "production_entry", ... })`:
+1. Valida que el `SKU` exista en el catálogo. Si no → `400`.
+2. Si viene `clientName`, busca el cliente por nombre. Si no existe, **lo crea**.
+3. Crea el registro en `production_entries` (con `status: "recibido"` y `source` según el origen).
+4. `applyMovement(tx, { quantity: +kilos, movementType: "entrada_produccion", referenceType: "production_entry" })`:
    - Registra un `inventory_movement` (bitácora).
    - **Incrementa** `inventory_stock.current_quantity`.
 
@@ -27,17 +38,35 @@ El `measure` de la entrada hereda del producto si no se indica.
 
 ### 2. Salida: despacho resta stock
 
-Cuando se marca un item como despachado (`PATCH /api/dispatches/:dispatchId/items/:itemId`), el sistema ejecuta **una sola transacción** (`server/src/routes/dispatches.ts`):
+Cuando se marca un item como despachado (`PATCH /api/dispatches/:dispatchId/items/:itemId`) — una sola transacción:
 
-1. El sistema actualiza `quantity_dispatched` del item.
-2. `applyMovement(tx, { quantity: -kilos, movementType: "salida_despacho", referenceType: "dispatch_item", ... })`:
+1. Actualiza `quantity_dispatched` del item.
+2. `applyMovement(tx, { quantity: -kilos, movementType: "salida_despacho", referenceType: "dispatch_item" })`:
    - Registra el movimiento de salida.
    - **Decrementa** `inventory_stock.current_quantity`.
-3. El sistema recalcula los items pendientes del despacho:
+3. Recalcula los items pendientes del despacho:
    - Si **no quedan** pendientes → `status: "despachado"` y fija `dispatched_date`.
    - Si **quedan** → `status: "en_proceso"`.
 
-### 3. El stock desnormalizado
+### 3. Producción por Órdenes de Trabajo (OP)
+
+La OP es la unidad de trabajo. Cada OP pasa por las **cuatro estaciones** en orden:
+
+```
+Extrusión → Impresión → Sellado → Precorte
+```
+
+- `POST /api/production-orders` crea la OP (`OP-00001`) con `status: pendiente`.
+- `POST /api/production-orders/:id/stages` registra el paso por una estación:
+  - Crea el `production_stage_log` (máquina, operario, kilos, merma, tiempos, `details` JSON).
+  - Si la OP está `pendiente`, pasa a `en_proceso`.
+  - **Cuando la estación es `precorte`** (la última), además:
+    1. Genera una **entrada de inventario** con `applyMovement` (producto terminado del OP).
+    2. Marca la OP como `finalizada`.
+- Un operario solo puede registrar **su** estación (definido por `OPERARIO_STATIONS`). Gestión de producción puede registrar cualquier estación.
+- Estados de OP: `pendiente` → `en_proceso` → `finalizada` (o `detenida` / `cancelada`, control evolutivo por `PATCH /status`).
+
+### 4. El stock desnormalizado
 
 `inventory_stock` guarda el **total actual** por producto (`current_quantity`). `applyMovement` lo mantiene con `upsert`:
 
@@ -48,17 +77,30 @@ La **bitácora** (`inventory_movements`) guarda cada movimiento individual (audi
 
 > Nota: las reglas de **ajuste** y **devolución** están definidas en los enums (`MovementType`). No hay endpoints que las usen todavía.
 
+## Comercial: cotización → pedido → factura → pago
+
+1. **Cotización**: `COT-00001`, con estado (`borrador → enviada → aceptada…`). Si un ítem no trae precio, toma el del catálogo.
+2. **Conversión**: `POST /cotizaciones/:id/convertir-a-pedido` copia los ítems a un **Pedido nuevo** (v1). La cotización queda enlazada (no se borra).
+3. **Pedido versionado**: cada edición relevante (`PATCH /pedidos/:id`) crea una **versión nueva completa** (v2, v3…) en vez de sobrescribir. El pedido guarda `current_version` y su estado aparte, para listarlo sin buscar la última versión.
+4. **Factura**: puede nacer de un **pedido** (`/desde-pedido/:id`, copia la última versión) o **suelta** (cliente + ítems directo). Numeración `FAC-00001`.
+5. **Pagos**: se registran como abonos (`POST /facturas/:id/payments`). El estado de la factura se **recalcula solo** con cada abono:
+   - pagado ≤ 0 → `emitida`
+   - 0 < pagado < total → `pagada_parcial`
+   - pagado ≥ total → `pagada`
+   - `anulada` es una acción manual (`PATCH /facturas/:id/anular`).
+6. **Cartera** (`GET /clients/:id/cartera`): saldo pendiente = total facturado (no anulado) − pagos recibidos. El `creditLimit` es un tope manual editable.
+
 ## Alertas de stock mínimo
 
 - Cada producto tiene un `min_stock`.
 - `getLowStockAlerts()` devuelve solo los productos con `currentStock < minStock`.
-- La UI (`InventoryDashboard`) muestra una alerta superior cuando hay al menos un producto bajo el stock mínimo. Marca el estado en la tabla.
+- La UI (`InventoryDashboard`) muestra una alerta superior cuando hay al menos un producto bajo el mínimo. Marca el estado en la tabla.
 
 ## Estados de producción (`ProductionStatus`)
 
 `pendiente` → `en_transito` → `recibido` → `rechazado`.
 
-**Hoy**, las entradas se crean directamente como `recibido` (por alta manual o importación). Los estados intermedios (`pendiente`/`en_transito`) están definidos para la integración con WhatsApp (cuando el archivo llega sin confirmar). No se usan en el código actual.
+**Hoy**, las entradas en `production_entries` se crean directamente como `recibido` (por alta manual o importación). El **precorte** no crea una fila en `production_entries`: genera un movimiento de inventario de tipo `entrada_produccion` (con `referenceType: "manual_adjustment"` referenciando la etapa) y actualiza `inventory_stock`. Los estados intermedios (`pendiente`/`en_transito`) están definidos para la integración con WhatsApp (cuando el archivo llega sin confirmar). No se usan en el código actual.
 
 ## Estados de despacho (`DispatchStatus`)
 
@@ -90,15 +132,20 @@ Toda operación que toca **dos o más tablas** usa `prisma.$transaction`. El sis
 
 Operaciones transaccionales actuales:
 
-- Crear entrada de producción (entry + movimiento + stock).
+- Alta de producción (entrada + movimiento + stock).
+- Registrar etapa de estación con precorte (etapa + entrada + stock + estado de la OP).
 - Marcar item despachado (item + movimiento + stock + estado del despacho).
-- Crear un contacto principal (desmarcar el principal anterior + crear el nuevo).
+- Crear contacto/dirección principal (desmarcar el anterior + crear el nuevo).
 - Borrar un contacto principal (asignar el siguiente + borrar).
+- Numeración consecutiva (`OP-`, `COT-`, `PED-`, `FAC-`).
+- Reset de contraseña (password + token usado).
+- Registrar un pago (payment + `recalculateStatus`).
 
 ## Notas de integridad
 
 - Los clientes se crean automáticamente desde el nombre en una entrada de producción si no existen.
-- `users`, `products`, `production_entries`, `dispatches` y `import_logs` guardan `created_by`/`created_at` para trazabilidad.
+- `users`, `products`, `production_entries`, `dispatches` e `import_logs` guardan `created_by`/`created_at` para trazabilidad.
 - `inventory_stock` es 1:1 con `products` (PK = `product_id`).
-- `client_contacts.client_id` es FK hacia `clients` con `ON DELETE RESTRICT`: no se puede borrar un cliente que tenga contactos.
-- La unicidad del contacto principal la garantiza la API (transacción), no un índice en la BD.
+- `client_contacts`, `client_addresses` y `client_interactions` cuelgan de `clients`.
+- La unicidad del contacto o dirección principal la garantiza la API (transacción), no un índice en la BD.
+- Los tokens de reset de contraseña se guardan **hasheados** y son de un solo uso (1 hora de validez).

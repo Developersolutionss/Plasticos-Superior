@@ -6,25 +6,35 @@
 server/
 ├── .env.example           → plantilla de variables de entorno
 ├── tsconfig.json          → TypeScript estricto, CommonJS, outDir: dist
+├── uploads/pedidos/       → adjuntos de pedidos (disco)
 ├── prisma/
-│   ├── schema.prisma      → fuente de verdad de la BD
+│   ├── schema.prisma      → fuente de verdad de la BD (24 modelos)
 │   ├── seed.ts            → datos de ejemplo (npm run prisma:seed)
 │   └── migrations/        → SQL versionado (prisma migrate dev)
 └── src/
     ├── index.ts           → inicio de Express, monta los routers
-    ├── prisma.ts          → exporta una única instancia de PrismaClient
+    ├── prisma.ts          → una única instancia de PrismaClient (adapter pg)
     ├── middleware/
-    │   └── auth.ts        → requireAuth (JWT) + requireRole (no usado aún)
+    │   └── auth.ts        → requireAuth (JWT) + requireRole + ROLES + OPERARIO_STATIONS
+    ├── services/
+    │   ├── stockService.ts   → applyMovement, getStockByCategory, getLowStockAlerts
+    │   ├── importExcel.ts    → parseProductionFile (ExcelJS)
+    │   ├── email.ts          → sendPasswordResetEmail (Resend, fallback console)
+    │   ├── emailTemplate.ts  → plantilla HTML inline del correo
+    │   ├── totp.ts           → TOTP + QR (otplib / qrcode)
+    │   └── sequentialNumber.ts → withSequentialNumberRetry (reintenta la numeración)
     ├── routes/
-    │   ├── auth.ts        → POST /login
-    │   ├── clients.ts     → clientes (GET/POST /api/clients) + contactos (/:id/contacts)
-    │   ├── inventory.ts   → GET /api/inventory[/alerts[/products]]
-    │   ├── production.ts  → alta manual + import Excel (preview/confirm)
-    │   ├── dispatches.ts  → GET/POST despachos + marcar items
+    │   ├── auth.ts            → login, me, forgot/reset-password, 2FA
+    │   ├── clients.ts         → CRM: clientes, contactos, direcciones, interacciones, cartera
+    │   ├── inventory.ts       → GET /api/inventory[/alerts[/products]]
+    │   ├── production.ts      → alta manual + import Excel (preview/confirm)
+    │   ├── productionOrders.ts→ OPs + registro de etapa por estación
+    │   ├── dispatches.ts      → GET/POST despachos + marcar items
+    │   ├── cotizaciones.ts    → cotizaciones + convertir a pedido
+    │   ├── pedidos.ts         → pedidos versionados + adjuntos
+    │   ├── facturas.ts        → facturas + abonos/pagos + anulación
     │   └── whatsappWebhook.ts → handshake + recepción de documentos (fase 2)
-    └── services/
-        ├── stockService.ts    → applyMovement, getStockByCategory, getLowStockAlerts
-        └── importExcel.ts     → parseProductionFile (ExcelJS)
+    └── generated/prisma/    → Prisma Client generado
 ```
 
 ## `index.ts` (entrada)
@@ -45,7 +55,11 @@ app.use("/api/auth", authRouter);
 app.use("/api/clients", clientsRouter);
 app.use("/api/inventory", inventoryRouter);
 app.use("/api/production", productionRouter);
+app.use("/api/production-orders", productionOrdersRouter);
 app.use("/api/dispatches", dispatchesRouter);
+app.use("/api/cotizaciones", cotizacionesRouter);
+app.use("/api/pedidos", pedidosRouter);
+app.use("/api/facturas", facturasRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
 
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
@@ -54,8 +68,8 @@ app.listen(port, () => console.log(`API escuchando en http://localhost:${port}`)
 
 Notas:
 - `dotenv/config` carga `server/.env` automáticamente.
-- `express.json()` parsea cuerpos JSON. La subida de Excel usa `multer` en la ruta correspondiente.
-- No hay manejo global de errores. Cada router maneja sus propios errores con try/catch o `safeParse`.
+- `express.json()` parsea cuerpos JSON. Las subidas de Excel y adjuntos usan `multer` en la ruta correspondiente (memoria para Excel, disco para adjuntos).
+- No hay manejador global de errores. Cada router maneja sus propios errores con try/catch o `safeParse`.
 
 ## El patrón router → zod → prisma
 
@@ -65,22 +79,25 @@ Todos los routers siguen el mismo molde. Tomando `server/src/routes/clients.ts`:
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 
 export const clientsRouter = Router();
-clientsRouter.use(requireAuth);               // 1. protege TODAS las rutas del archivo
+clientsRouter.use(requireAuth);                                  // 1. protege TODAS las rutas
 
-clientsRouter.get("/", async (_req, res) => { // 2. handler
+const requireVentas = requireRole(...ROLES.VENTAS);              // 2. rol para rutas sensibles
+
+clientsRouter.get("/", async (_req, res) => {                    // 3. GET
   const clients = await prisma.client.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   res.json(clients);
 });
 
-const createClientSchema = z.object({          // 3. schema zod
+const createClientSchema = z.object({                            // 4. schema zod
   name: z.string().min(1),
-  contactInfo: z.record(z.any()).optional(),
+  contactInfo: z.record(z.string(), z.any()).optional(),
+  creditLimit: z.number().min(0).optional(),
 });
 
-clientsRouter.post("/", async (req, res) => {  // 4. validar + actuar
+clientsRouter.post("/", requireVentas, async (req, res) => {     // 5. validar + actuar
   const parsed = createClientSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const client = await prisma.client.create({ data: parsed.data });
@@ -88,13 +105,14 @@ clientsRouter.post("/", async (req, res) => {  // 4. validar + actuar
 });
 ```
 
-**Los 4 pasos:**
+**Los 5 pasos:**
 1. `router.use(requireAuth)` — autenticación a nivel de router.
-2. Handler asíncrono.
-3. Esquema zod que define la forma del body.
-4. `safeParse` → si falla, `400` con errores. Si pasa, `prisma.<modelo>.<método>()` → respuesta.
+2. Middleware de rol (`requireRole`) para las rutas restringidas.
+3. Handler asíncrono.
+4. Schema zod que define la forma del body.
+5. `safeParse` → si falla, `400` con errores. Si pasa, `prisma.<modelo>.<método>()` → respuesta.
 
-> El mismo archivo (`clients.ts`) define los endpoints de contactos: `GET/POST/DELETE /:id/contacts`. Sigue el patrón, con una diferencia: valida el parámetro `:id` a mano (`Number.isInteger`) porque un GET o DELETE no tiene body que valide zod. El POST y el DELETE usan `$transaction` para mantener la unicidad del contacto principal (ver [Transacciones](#transacciones-prismatransaction)).
+> Los sub-recursos dependientes (contactos, direcciones, interacciones de un cliente) viven dentro del router padre con rutas anidadas (`/:id/contacts`). Valida el parámetro `:id` a mano (`Number.isInteger`) en los endpoints sin body. Las mutaciones multi-tabla usan `$transaction`.
 
 ## Middleware de autenticación (`middleware/auth.ts`)
 
@@ -111,12 +129,20 @@ export function requireAuth(req, res, next) {
     return res.status(401).json({ error: "Token inválido o expirado" });
   }
 }
-
-export function requireRole(...roles) { /* middleware por rol — definido pero NO se usa aún */ }
 ```
 
-- `AuthPayload` = `{ userId, role, name }`. El token se firma en `routes/auth.ts` con `jwt.sign(...)`.
-- `requireRole` existe en el código y está listo para restringir endpoints por rol. Ningún router lo aplica hoy.
+- `AuthPayload = { userId, role, name }`. El token se firma en `routes/auth.ts` con `jwt.sign(...)` (expira en 12 h).
+- `requireRole(...roles)` devuelve un middleware que responde `403` si `req.user.role` no está en la lista.
+- Grupos reutilizables:
+
+| Grupo | Roles (además de `super_admin` y `admin`) |
+|---|---|
+| `ROLES.VENTAS` | `ventas_pedidos` |
+| `ROLES.ALMACEN` | `almacen_despachos` |
+| `ROLES.PRODUCCION_GESTION` | `gerente_produccion`, `planeacion` |
+| `ROLES.OPERARIOS` | `gerente_produccion`, `planeacion`, `operario_extrusion`, `operario_impresion`, `operario_sellado_precorte` |
+
+- `OPERARIO_STATIONS` mapea cada rol de operario a sus estaciones (`operario_extrusion → ["extrusion"]`, etc.). Se aplica en el POST de etapas: el operario solo registra su estación.
 
 ## Servicios
 
@@ -132,7 +158,7 @@ export function requireRole(...roles) { /* middleware por rol — definido pero 
 ```ts
 export async function applyMovement(
   tx: Prisma.TransactionClient,
-  params: { productId: number; quantity: number; movementType: ...; referenceType: ...; referenceId?: number; productionEntryId?: number; createdById?: number }
+  params: { productId; quantity; movementType; referenceType; referenceId?; productionEntryId?; createdById? }
 ) {
   await tx.inventoryMovement.create({ data: { ...params } });
   await tx.inventoryStock.upsert({
@@ -151,46 +177,43 @@ export async function applyMovement(
 
 **`parseProductionFile(buffer, filename)`** — parsea Excel (`.xlsx`/`.xls`) o CSV (`.csv`) con `exceljs`.
 
-- Columnas esperadas (la primera fila es el encabezado): `SKU | Etiqueta | Operario | Cliente | Medida | Kilos | Conductor | Observaciones`.
-- Normaliza encabezados (minúsculas, sin acentos). Esto tolera variaciones.
+- Columnas esperadas: `SKU | Etiqueta | Operario | Cliente | Medida | Kilos | Conductor | Observaciones`.
+- Normaliza encabezados (minúsculas, sin acentos). Tolera variaciones.
 - Valida por fila: SKU obligatorio, operario obligatorio, kilos numérico > 0.
-- Devuelve `ParsedProductionRow[]`. Cada fila puede llevar un `error`. Las filas vacías se omiten.
+- Devuelve `ParsedProductionRow[]`; cada fila puede llevar `error`. Las filas vacías se omiten.
+
+### `services/totp.ts` y `services/email.ts`
+
+- `totp.ts`: `generateSecret()`, `generateQrCodeDataUrl(email, secret)`, `verifyToken(token, secret)` con `otplib` y `qrcode`.
+- `email.ts`: `sendPasswordResetEmail(email, url)` con Resend. Sin `RESEND_API_KEY` imprime el link en la consola del servidor (para pruebas locales).
 
 ## Transacciones (`prisma.$transaction`)
 
-Use transacciones donde la operación debe ser atómica (todo o nada).
+Use transacciones donde la operación debe ser atómica (todo o nada). Operaciones transaccionales actuales:
 
-**En `routes/production.ts` (`createProductionEntry`)** — dentro de `$transaction`:
-1. Crea la `production_entry` (status `recibido`).
-2. Aplica el movimiento de **entrada** de stock con `applyMovement`.
-
-Antes de la transacción, valida el SKU en el catálogo. Si no existe, devuelve error → `400`. Después resuelve el `clientId`: busca el cliente por nombre. Si no existe, lo crea.
-
-**En `routes/dispatches.ts` (PATCH de item)** — dentro de `$transaction`:
-1. Actualiza `quantityDispatched` del item.
-2. Aplica el movimiento de **salida** de stock (`quantity` negativo).
-3. Cuenta items pendientes. Si no quedan, el despacho pasa a `despachado` (y fija `dispatchedDate`). Si quedan, pasa a `en_proceso`.
-
-**En `routes/clients.ts` (contactos)** — dentro de `$transaction`:
-
-- **POST** con `isPrimary: true`: desmarca los primarios actuales del cliente (`updateMany`) y crea el contacto nuevo. Así siempre queda un solo principal.
-- **DELETE** de un contacto principal: asigna como principal el contacto restante más reciente (`orderBy: { createdAt: "desc" }`) y borra el contacto.
+- **Alta de producción** (`createProductionEntry`): crea `production_entry` + `applyMovement` de entrada.
+- **Despacho** (PATCH de item): actualiza item + `applyMovement` de salida + estado del despacho.
+- **Etapa de producción** (`POST /:id/stages`): crea la etapa; si la estación es `precorte`, además `applyMovement` + marca la OP finalizada.
+- **Contactos/direcciones principal**: desmarca el anterior + crea el nuevo.
+- **Numeración consecutiva** (`OP-`, `COT-`, `PED-`, `FAC-`): el `count()` y el `create` corren en la misma transacción, envuelta en `withSequentialNumberRetry`. Si dos requests calculan el mismo número y chocan contra el `@unique` (P2002), el servicio reintenta la transacción (hasta 3 veces); en el reintento el `count()` ya ve la fila del otro request.
+- **Reset de contraseña**: actualiza el password + marca el token usado.
+- **Factura** (abono): registra el pago + `recalculateStatus`.
 
 ## Uso de `req.user`
 
-Los handlers que registran quién hizo la acción usan `req.user!.userId`. Por ejemplo: `createdById` en producción, despachos y `import_logs`.
-
-## Dependencias del server (`server/package.json`)
-
-- **Runtime:** `@prisma/client`, `bcryptjs`, `cors`, `dotenv`, `exceljs`, `express`, `jsonwebtoken`, `multer`, `zod`.
-- **Dev:** `prisma`, `tsx`, `typescript`, `@types/*`.
+Los handlers que registran quién hizo la acción usan `req.user!.userId` como `createdById` (producción, despachos, etapas, cotizaciones, pedidos, facturas, pagos, interacciones, `import_logs`).
 
 ## Scripts útiles
 
 ```bash
 npm run dev --workspace=server            # dev con recarga (tsx watch)
-npm run build --workspace=server          # tsc → dist/
+npm run build --workspace=server          # prisma generate && tsc → dist/
 npm run start --workspace=server          # node dist/index.js
 npm run prisma:migrate --workspace=server # prisma migrate dev + prisma generate
 npm run prisma:seed --workspace=server    # prisma db seed
 ```
+
+## Dependencias del server (`server/package.json`)
+
+- **Runtime:** `@prisma/client`, `@prisma/adapter-pg`, `pg`, `bcryptjs`, `cors`, `dotenv`, `exceljs`, `express`, `jsonwebtoken`, `multer`, `otplib`, `qrcode`, `resend`, `zod`.
+- **Dev:** `prisma`, `tsx`, `typescript`, `@types/*`.

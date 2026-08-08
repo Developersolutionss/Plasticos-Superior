@@ -68,7 +68,13 @@ En **producción**, el servidor solo expone la API (no sirve el build del fronte
 3. Cada request protegido viaja con `Authorization: Bearer <token>`.
 4. El middleware `requireAuth` (`server/src/middleware/auth.ts`) verifica la firma. Expone `req.user`. Si el token falta o es inválido → `401`.
 
-El token define **quién es** el usuario. Las rutas no aplican `requireRole` todavía. Todos los roles autenticados acceden a todo. La distinción de roles existe en el modelo y el token. Está lista para usarse.
+El token define **quién es** el usuario. Después del login, las rutas sensibles aplican `requireRole(...)` con los grupos de `ROLES` (Ventas, Almacén, Producción, Operarios) de `server/src/middleware/auth.ts`:
+
+- `requireAuth` protege **todo** router (excepto login y webhook de WhatsApp).
+- `requireRole(...)` restringe una ruta concreta. Devuelve `403` si el rol no está en la lista.
+- `super_admin` y `admin` pertenecen a todos los grupos, así que siempre pasan.
+
+Ejemplo: `POST /api/cotizaciones` exige rol de ventas; `POST /api/production-orders/:id/stages` exige un rol de operario, y el operario solo registra su estación (via `OPERARIO_STATIONS`).
 
 ### Formato de errores
 
@@ -76,8 +82,9 @@ El token define **quién es** el usuario. Las rutas no aplican `requireRole` tod
 |---|---|
 | `400` | Body inválido (zod) o regla de negocio fallida |
 | `401` | Token no provisto, inválido o expirado |
-| `403` | Sin permisos (reservado; no se usa hoy) |
+| `403` | Rol sin permiso para la ruta (`requireRole`) o estación no asignada al operario |
 | `404` | Recurso no encontrado |
+| `423` | Cuenta bloqueada temporalmente por intentos fallidos (login) |
 
 El helper `request()` del frontend lanza una excepción cuando `!res.ok`. Extrae `body.error`.
 
@@ -121,10 +128,14 @@ Configurado en `vite.config.ts` con `vite-plugin-pwa`:
 | `/api/clients` | `clientsRouter` | `server/src/routes/clients.ts` |
 | `/api/inventory` | `inventoryRouter` | `server/src/routes/inventory.ts` |
 | `/api/production` | `productionRouter` | `server/src/routes/production.ts` |
+| `/api/production-orders` | `productionOrdersRouter` | `server/src/routes/productionOrders.ts` |
 | `/api/dispatches` | `dispatchesRouter` | `server/src/routes/dispatches.ts` |
+| `/api/cotizaciones` | `cotizacionesRouter` | `server/src/routes/cotizaciones.ts` |
+| `/api/pedidos` | `pedidosRouter` | `server/src/routes/pedidos.ts` |
+| `/api/facturas` | `facturasRouter` | `server/src/routes/facturas.ts` |
 | `/webhook/whatsapp` | `whatsappWebhookRouter` | `server/src/routes/whatsappWebhook.ts` |
 
-El router de clientes también expone los contactos: `GET/POST /api/clients/:id/contacts` y `DELETE /api/clients/:id/contacts/:contactId`. No requiere un montaje aparte en `index.ts`.
+El router de clientes también expone sub-recursos: contactos (`GET/POST/DELETE /api/clients/:id/contacts`), direcciones (`.../addresses`), interacciones (`.../interactions`), cartera (`.../cartera`) y límite de crédito (`PATCH .../credit-limit`). No requieren montaje aparte en `index.ts`.
 
 ## Configuración compartida (una sola instancia)
 
