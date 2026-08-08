@@ -158,7 +158,7 @@ createContact: (clientId: number, data: Record<string, unknown>) =>
   request<any>(`/clients/${clientId}/contacts`, { method: "POST", body: JSON.stringify(data) }),
 ```
 
-> Los helpers de contactos, direcciones e interacciones ya existen en `api`: `getClientContacts`, `createClientContact`, `deleteClientContact`, `getClientAddresses`, `getClientInteractions`, `createClientInteraction`. `Clients.tsx` los usa en sus pestañas.
+> Los helpers de contactos, direcciones e interacciones ya existen en `api`: `getClientContacts`, `createClientContact`, `updateClientContact`, `deleteClientContact`, `getClientAddresses`, `getClientInteractions`, `createClientInteraction`. `Clients.tsx` y `Contactos.tsx` los usan.
 
 ## Paso 6: Cree la página y la ruta
 

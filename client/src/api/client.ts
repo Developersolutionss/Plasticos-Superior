@@ -72,6 +72,11 @@ export const api = {
   ) => request<any>(`/clients/${clientId}/contacts`, { method: "POST", body: JSON.stringify(data) }),
   deleteClientContact: (clientId: number, contactId: number) =>
     request<{ ok: boolean }>(`/clients/${clientId}/contacts/${contactId}`, { method: "DELETE" }),
+  updateClientContact: (
+    clientId: number,
+    contactId: number,
+    data: { name: string; position?: string; phone?: string; email?: string; isPrimary?: boolean }
+  ) => request<any>(`/clients/${clientId}/contacts/${contactId}`, { method: "PATCH", body: JSON.stringify(data) }),
   /** Lista global de contactos con la empresa relacionada (pantalla CRM "Contactos"). */
   getAllContacts: () => request<any[]>("/clients/contacts"),
   /** Registra una visita a la ficha de un contacto (frecuencia propia del contacto). */

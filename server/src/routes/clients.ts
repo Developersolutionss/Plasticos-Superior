@@ -342,6 +342,42 @@ clientsRouter.post("/:id/contacts", requireVentas, async (req, res) => {
   res.status(201).json(contact);
 });
 
+/** Edita un contacto. Si isPrimary:true, desmarca los demás del cliente. */
+clientsRouter.patch("/:id/contacts/:contactId", requireVentas, async (req, res) => {
+  const clientId = Number(req.params.id);
+  const contactId = Number(req.params.contactId);
+  if (!Number.isInteger(clientId) || clientId <= 0 || !Number.isInteger(contactId) || contactId <= 0) {
+    return res.status(400).json({ error: "IDs inválidos" });
+  }
+
+  const parsed = createContactSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const contact = await prisma.clientContact.findFirst({ where: { id: contactId, clientId } });
+  if (!contact) return res.status(404).json({ error: "Contacto no encontrado" });
+
+  const updated = await prisma.$transaction(async (tx) => {
+    if (parsed.data.isPrimary) {
+      await tx.clientContact.updateMany({
+        where: { clientId, id: { not: contactId }, isPrimary: true },
+        data: { isPrimary: false },
+      });
+    }
+    return tx.clientContact.update({
+      where: { id: contactId },
+      data: {
+        name: parsed.data.name,
+        position: parsed.data.position,
+        phone: parsed.data.phone,
+        email: parsed.data.email,
+        isPrimary: parsed.data.isPrimary,
+      },
+    });
+  });
+
+  res.json(updated);
+});
+
 /** Borra un contacto. Si era el principal, asigna el siguiente más reciente. */
 clientsRouter.delete("/:id/contacts/:contactId", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);

@@ -32,7 +32,8 @@ client/
     │   ├── NavIcon.tsx   → mapa clave → ícono lucide
     │   ├── navConfig.ts  → declaración de los ítems del menú (iconos por clave)
     │   ├── useShortcuts.tsx / ShortcutsConfig.tsx → atajos favoritos (localStorage)
-    │   └── Modal.tsx     → modal genérico sin dependencias
+    │   ├── Modal.tsx     → modal genérico sin dependencias
+    │   └── ContactoForm.tsx → formulario reutilizable crear/editar contacto
     └── pages/
         ├── Login.tsx
         ├── ForgotPassword.tsx
@@ -217,8 +218,10 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 ### `Contactos.tsx`
 - Pantalla global de contactos de todos los clientes (`api.getAllContacts`): buscador, filtros ABC/Antigüedad/Frecuentes y **por cliente** (select), vista lista/cajas con el avatar del cliente relacionado.
 - La **frecuencia del contacto es propia e independiente** de la del cliente (mismo motor: `HOT_THRESHOLD=5`, boost consumible): el clic en una fila/caja abre un **modal con sus datos** (cliente, cargo, teléfono `tel:`, email `mailto:`, principal, alta) y registra la visita del contacto (`api.recordContactVisit`, optimista con `nextInteraction`). `Esc` o el ✕ cierran el modal.
-- Cada contacto tiene un **menú ⋮** con "Abrir cliente" (navega a `/clientes` con el cliente seleccionado) y "Eliminar" (confirmación en dos pasos); se cierra con clic afuera o `Esc`.
 
+- El modal de detalle ofrece **"Editar"**: cambia a `ContactoForm` (componente reutilizable con los mismos campos del alta, precargados) y guarda con `api.updateClientContact` (`PATCH .../contacts/:contactId`); al marcar principal, el servidor desmarca a los demás en una transacción. El mismo "Editar" está disponible en el modal de contacto de la **ficha** (`Clients.tsx`).
+
+- Cada contacto tiene un **menú ⋮** con "Abrir empresa" (navega a `/clientes` con el cliente seleccionado) y "Eliminar" (confirmación en dos pasos); se cierra con clic afuera o `Esc`.
 ### `Cotizaciones.tsx` / `Pedidos.tsx` / `Facturas.tsx`
 - Crear y listar cotizaciones con estado; pedidos versionados con adjuntos; facturas con abonos y anulación.
 - El formulario de cotización usa **`ClientePicker.tsx`** (componente reutilizable): campo de búsqueda con la **pfp del cliente** seleccionado (`ClienteAvatar`), con el campo **vacío** sugiere **4 clientes por frecuencia** (`byFrequency(viewCount, lastViewedAt)`) y **a partir del 1.º carácter** filtra por **coincidencia** (substring), siempre con **4 slots** compactos; `×` limpia la selección, `Esc`/clic afuera cierran el listado.

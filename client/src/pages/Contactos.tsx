@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ExternalLink, LayoutGrid, List, MoreVertical, Search } from "lucide-react";
+import { ExternalLink, LayoutGrid, List, MoreVertical, Pencil, Search } from "lucide-react";
 import { api } from "../api/client";
 import ClienteAvatar from "../components/ClienteAvatar";
+import ContactoForm from "../components/ContactoForm";
 import Modal from "../components/Modal";
 import { byFrequency, nextInteraction } from "../lib/frequency";
 
@@ -28,6 +29,7 @@ export default function Contactos() {
   const [view, setView] = useState<View>("list");
   const [companyId, setCompanyId] = useState("");
   const [selectedContact, setSelectedContact] = useState<any | null>(null);
+  const [editingContact, setEditingContact] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
@@ -42,6 +44,7 @@ export default function Contactos() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setSelectedContact(null);
+        setEditingContact(false);
         setOpenMenuId(null);
         setConfirmDeleteId(null);
       }
@@ -104,12 +107,27 @@ export default function Contactos() {
     }
     try {
       await api.deleteClientContact(c.clientId, c.id);
-      if (selectedContact?.id === c.id) setSelectedContact(null);
+      if (selectedContact?.id === c.id) {
+        setSelectedContact(null);
+        setEditingContact(false);
+      }
       setOpenMenuId(null);
       setConfirmDeleteId(null);
       queryClient.invalidateQueries({ queryKey: ["allContacts"] });
     } catch {
       setConfirmDeleteId(null);
+    }
+  }
+
+  /** Guarda los cambios del contacto y refresca el modal y el listado. */
+  async function saveContactEdit(c: any, data: any) {
+    try {
+      const updated = await api.updateClientContact(c.clientId, c.id, data);
+      setEditingContact(false);
+      setSelectedContact((prev: any) => (prev?.id === c.id ? { ...prev, ...updated } : prev));
+      queryClient.invalidateQueries({ queryKey: ["allContacts"] });
+    } catch {
+      // se mantiene la edición abierta para reintentar
     }
   }
 
@@ -258,9 +276,17 @@ export default function Contactos() {
 
       {/* Modal de detalle del contacto */}
       {selectedContact && (
-        <Modal title={selectedContact.name} onClose={() => setSelectedContact(null)}>
-          <div className="space-y-3 text-sm">
-            {selectedContact.isPrimary && (
+        <Modal title={selectedContact.name} onClose={() => { setSelectedContact(null); setEditingContact(false); }}>
+          {editingContact ? (
+            <ContactoForm
+              initial={selectedContact}
+              submitLabel="Guardar cambios"
+              onCancel={() => setEditingContact(false)}
+              onSubmit={(data) => saveContactEdit(selectedContact, data)}
+            />
+          ) : (
+            <div className="space-y-3 text-sm">
+              {selectedContact.isPrimary && (
               <span className="inline-block text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Contacto principal</span>
             )}
             <div className="flex items-center gap-2">
@@ -298,7 +324,14 @@ export default function Contactos() {
               <p className="text-xs uppercase tracking-wide text-slate-400">Agregado el</p>
               <p className="text-slate-700">{new Date(selectedContact.createdAt).toLocaleString()}</p>
             </div>
-            <div className="border-t pt-3 flex justify-end">
+            <div className="border-t pt-3 flex items-center justify-between">
+              <button
+                onClick={() => setEditingContact(true)}
+                className="flex items-center gap-1.5 text-slate-600 text-xs hover:underline"
+              >
+                <Pencil size={14} strokeWidth={2} aria-hidden="true" />
+                Editar
+              </button>
               <button
                 onClick={() => openCompany(selectedContact)}
                 className="flex items-center gap-1.5 text-sky-600 text-xs hover:underline"
@@ -308,6 +341,7 @@ export default function Contactos() {
               </button>
             </div>
           </div>
+          )}
         </Modal>
       )}
     </div>

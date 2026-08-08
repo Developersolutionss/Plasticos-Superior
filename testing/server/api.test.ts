@@ -285,6 +285,51 @@ describe("contactos", () => {
     const aAfter = after.find((c) => c.id === a!.id);
     assert.equal(aAfter!.isPrimary, true, "El contacto más reciente restante debió quedar como principal");
   });
+
+  it("PATCH edita datos y al marcar principal desmarca a los demás", async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/contacts`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: `TEST-EDIT-${Date.now()}`, isPrimary: false, position: "Vendedor" }),
+    });
+    assert.equal(res.status, 201);
+    const contact = (await res.json()) as { id: number };
+    created.push(contact.id);
+
+    const patch = await fetch(`${baseUrl}/api/clients/${clientId}/contacts/${contact.id}`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "TEST-EDIT Renombrado", position: "Gerente", phone: "123", email: "e@x.com", isPrimary: true }),
+    });
+    assert.equal(patch.status, 200);
+    const updated = (await patch.json()) as { name: string; position: string; phone: string; email: string; isPrimary: boolean };
+    assert.equal(updated.name, "TEST-EDIT Renombrado");
+    assert.equal(updated.position, "Gerente");
+    assert.equal(updated.phone, "123");
+    assert.equal(updated.email, "e@x.com");
+    assert.equal(updated.isPrimary, true);
+
+    const listRes = await fetch(`${baseUrl}/api/clients/${clientId}/contacts`, { headers: authHeaders() });
+    const list = (await listRes.json()) as { name: string; isPrimary: boolean }[];
+    const prev = list.find((c) => c.name.startsWith("TEST-A-") && !c.name.includes("Renombrado"));
+    assert.equal(prev?.isPrimary, false, "El principal anterior debió quedar desmarcado");
+  });
+
+  it("PATCH valida y responde 404 si el contacto no existe", async () => {
+    const bad = await fetch(`${baseUrl}/api/clients/${clientId}/contacts/99999999`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "X" }),
+    });
+    assert.equal(bad.status, 404);
+
+    const badBody = await fetch(`${baseUrl}/api/clients/${clientId}/contacts/${created[0] ?? 1}`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "" }),
+    });
+    assert.equal(badBody.status, 400);
+  });
 });
 
 describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () => {

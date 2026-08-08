@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ClienteAvatar from "../components/ClienteAvatar";
 import ClienteForm from "../components/ClienteForm";
+import ContactoForm from "../components/ContactoForm";
 import { byFrequency, nextInteraction } from "../lib/frequency";
 
 type Tab = "contactos" | "direcciones" | "historial" | "cartera" | "editar";
@@ -53,6 +54,7 @@ export default function Clients() {
   });
   const [creditLimitInput, setCreditLimitInput] = useState("");
   const [selectedContact, setSelectedContact] = useState<any>(null);
+  const [editingContact, setEditingContact] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -138,6 +140,20 @@ export default function Clients() {
     if (!selectedClientId) return;
     await api.deleteClientContact(selectedClientId, contactId);
     queryClient.invalidateQueries({ queryKey: ["clientContacts", selectedClientId] });
+  }
+
+  /** Guarda los cambios del contacto y refresca ficha y listado global. */
+  async function saveContactEdit(data: any) {
+    if (!selectedClientId || !selectedContact) return;
+    try {
+      const updated = await api.updateClientContact(selectedClientId, selectedContact.id, data);
+      setEditingContact(false);
+      setSelectedContact((prev: any) => (prev?.id === selectedContact.id ? { ...prev, ...updated } : prev));
+      queryClient.invalidateQueries({ queryKey: ["clientContacts", selectedClientId] });
+      queryClient.invalidateQueries({ queryKey: ["allContacts"] });
+    } catch {
+      // se mantiene la edición abierta para reintentar
+    }
   }
 
   async function handleCreateAddress(e: FormEvent) {
@@ -673,41 +689,64 @@ export default function Clients() {
 
       {/* Modal de detalle de contacto */}
       {selectedContact && (
-        <Modal title={selectedContact.name} onClose={() => setSelectedContact(null)}>
-          <div className="space-y-3 text-sm">
-            {selectedContact.isPrimary && (
-              <span className="inline-block text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">
-                Contacto principal
-              </span>
-            )}
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Cargo</p>
-              <p className="text-slate-700">{selectedContact.position ?? "-"}</p>
+        <Modal
+          title={selectedContact.name}
+          onClose={() => {
+            setSelectedContact(null);
+            setEditingContact(false);
+          }}
+        >
+          {editingContact ? (
+            <ContactoForm
+              initial={selectedContact}
+              submitLabel="Guardar cambios"
+              onCancel={() => setEditingContact(false)}
+              onSubmit={saveContactEdit}
+            />
+          ) : (
+            <div className="space-y-3 text-sm">
+              {selectedContact.isPrimary && (
+                <span className="inline-block text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">
+                  Contacto principal
+                </span>
+              )}
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Cargo</p>
+                <p className="text-slate-700">{selectedContact.position ?? "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Teléfono</p>
+                <p className="text-slate-700">{selectedContact.phone ?? "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Email</p>
+                <p className="text-slate-700">{selectedContact.email ?? "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Agregado el</p>
+                <p className="text-slate-700">{new Date(selectedContact.createdAt).toLocaleString()}</p>
+              </div>
+              <div className="border-t pt-3 flex items-center justify-between">
+                <button
+                  onClick={() => setEditingContact(true)}
+                  className="flex items-center gap-1.5 text-slate-600 text-xs hover:underline"
+                >
+                  <Pencil size={14} strokeWidth={2} aria-hidden="true" />
+                  Editar
+                </button>
+                <button
+                  onClick={() => {
+                    handleDeleteContact(selectedContact.id);
+                    setSelectedContact(null);
+                    setEditingContact(false);
+                  }}
+                  className="text-red-600 text-xs hover:underline"
+                >
+                  Eliminar contacto
+                </button>
+              </div>
             </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Teléfono</p>
-              <p className="text-slate-700">{selectedContact.phone ?? "-"}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Email</p>
-              <p className="text-slate-700">{selectedContact.email ?? "-"}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Agregado el</p>
-              <p className="text-slate-700">{new Date(selectedContact.createdAt).toLocaleString()}</p>
-            </div>
-            <div className="border-t pt-3 flex justify-end">
-              <button
-                onClick={() => {
-                  handleDeleteContact(selectedContact.id);
-                  setSelectedContact(null);
-                }}
-                className="text-red-600 text-xs hover:underline"
-              >
-                Eliminar contacto
-              </button>
-            </div>
-          </div>
+          )}
         </Modal>
       )}
     </div>

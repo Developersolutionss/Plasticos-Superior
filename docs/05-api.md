@@ -96,6 +96,7 @@ curl -X POST http://localhost:4000/api/auth/forgot-password \
 | GET | `/api/clients/contacts` | — | **Lista global** de contactos con la empresa relacionada (nombre y `avatarUrl`) — pantalla CRM "Contactos" |
 | GET | `/api/clients/:id/contacts` | — | Contactos del cliente (principal primero) |
 | POST | `/api/clients/:id/contacts` | `{ name, position?, phone?, email?, isPrimary? }` | Crea un contacto. Si `isPrimary: true`, desmarca los demás en una transacción |
+| PATCH | `/api/clients/:id/contacts/:contactId` | `{ name, position?, phone?, email?, isPrimary? }` | Edita un contacto (misma validación que el alta). Si `isPrimary=true`, desmarca los demás en una transacción |
 | DELETE | `/api/clients/:id/contacts/:contactId` | — | Borra un contacto; si era principal, asigna el más reciente restante |
 | GET | `/api/clients/:id/addresses` | — | Lista direcciones del cliente |
 | POST | `/api/clients/:id/addresses` | `{ label, addressLine, city?, region?, postalCode?, isPrimary?, notes? }` | Crea una dirección (principal exclusivo por transacción) |

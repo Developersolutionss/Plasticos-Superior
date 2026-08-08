@@ -11,6 +11,7 @@ vi.mock("../../client/src/api/client", () => ({
     getClients: vi.fn().mockResolvedValue([]),
     recordContactVisit: vi.fn().mockResolvedValue({ viewCount: 1, lastViewedAt: new Date().toISOString(), cycleInteractions: 1 }),
     deleteClientContact: vi.fn().mockResolvedValue({ ok: true }),
+    updateClientContact: vi.fn().mockResolvedValue({ id: 1, name: "Ana Editada", position: "", phone: "", email: "", isPrimary: true }),
   },
 }));
 
@@ -67,5 +68,20 @@ describe("Contactos · modal y menú ⋮", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.queryByText("Abrir empresa")).not.toBeInTheDocument();
+  });
+
+  it("'Editar' del modal permite cambiar los datos del contacto", async () => {
+    const user = userEvent.setup();
+    renderContactos();
+    await user.click(await screen.findByText("Ana López"));
+    await user.click(await screen.findByText("Editar"));
+
+    expect(screen.getByPlaceholderText("Cargo")).toHaveValue("Compras");
+    const nameInput = screen.getByPlaceholderText("Nombre");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Ana Editada");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.updateClientContact).toHaveBeenCalledWith(10, 1, expect.objectContaining({ name: "Ana Editada" }));
   });
 });
