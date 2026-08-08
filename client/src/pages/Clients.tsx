@@ -598,12 +598,12 @@ export default function Clients() {
               {activeTab === "editar" && (
                 <div className="space-y-6">
                   <div>
-                    <p className="text-sm font-medium text-slate-700 mb-2">Editar datos y foto de perfil</p>
+                    <p className="text-sm font-medium text-slate-700 mb-2">Editar datos</p>
                     <button
                       onClick={() => setEditingClient(selectedClient)}
                       className="border border-slate-300 rounded px-4 py-2 text-sm inline-flex items-center gap-1.5 hover:bg-slate-50"
                     >
-                      <Pencil size={14} strokeWidth={2} aria-hidden="true" /> Editar datos / foto
+                      <Pencil size={14} strokeWidth={2} aria-hidden="true" /> Editar datos
                     </button>
                   </div>
 
