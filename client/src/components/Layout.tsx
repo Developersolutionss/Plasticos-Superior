@@ -1,41 +1,27 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useState } from "react";
+import { Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-
-const navItems = [
-  { to: "/", label: "Inventario" },
-  { to: "/despachos", label: "Despachos" },
-  { to: "/produccion", label: "Carga de Producción" },
-];
+import Sidebar from "./Sidebar";
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
-        <span className="font-semibold">Inventario y Despachos</span>
-        <div className="flex items-center gap-4 text-sm">
-          <span>{user?.name}</span>
-          <button onClick={logout} className="underline">
+    <div className={`app-shell ${collapsed ? "collapsed" : ""}`}>
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+
+      <div className="flex flex-col min-h-screen">
+        <header className="bg-white border-b px-6 py-3 flex items-center justify-end gap-4">
+          <span className="text-sm text-slate-600">{user?.name}</span>
+          <button onClick={logout} className="text-sm text-slate-500 underline">
             Salir
           </button>
-        </div>
-      </header>
-      <nav className="bg-slate-800 text-slate-200 px-4 flex gap-4 text-sm">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/"}
-            className={({ isActive }) => `py-2 border-b-2 ${isActive ? "border-white text-white" : "border-transparent"}`}
-          >
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
-      <main className="p-4">
-        <Outlet />
-      </main>
+        </header>
+        <main className="app-content flex-1">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

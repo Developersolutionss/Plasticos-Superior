@@ -8,10 +8,21 @@ datasource db {
   provider = "postgresql"
 }
 
+/// Matriz de roles completa (Módulo 1). Reemplaza los 3 roles iniciales
+/// (produccion/despacho/admin) — la migración de datos existente vive en
+/// server/prisma/migrations/*_expand_role_matrix/migration.sql.
 enum UserRole {
-  produccion
-  despacho
+  super_admin
   admin
+  gerente_produccion
+  planeacion
+  ventas_pedidos
+  operario_extrusion
+  operario_impresion
+  operario_sellado_precorte
+  calidad
+  almacen_despachos
+  auditor
 }
 
 enum ProductCategory {
@@ -65,6 +76,60 @@ enum ImportSource {
   whatsapp_bot
 }
 
+enum ProductionOrderStatus {
+  pendiente
+  en_proceso
+  detenida
+  finalizada
+  cancelada
+}
+
+enum ProductionStation {
+  extrusion
+  impresion
+  sellado
+  precorte
+}
+
+enum InteractionType {
+  llamada
+  email
+  reunion
+  nota
+}
+
+enum CotizacionStatus {
+  borrador
+  enviada
+  aceptada
+  rechazada
+  expirada
+}
+
+enum PedidoStatus {
+  borrador
+  pendiente
+  aprobado
+  en_produccion
+  despachado
+  cancelado
+}
+
+enum FacturaStatus {
+  emitida
+  pagada_parcial
+  pagada
+  anulada
+}
+
+enum PaymentMethod {
+  efectivo
+  transferencia
+  cheque
+  tarjeta
+  otro
+}
+
 model User {
   id            Int               @id @default(autoincrement())
   name          String
@@ -73,10 +138,35 @@ model User {
   role          UserRole
   createdAt     DateTime          @default(now()) @map("created_at")
 
+  /// Bloqueo por intentos fallidos: se incrementa en cada password
+  /// incorrecto, se resetea en un login exitoso. Al llegar al umbral
+  /// (ver auth.ts) se completa lockedUntil y el login se rechaza hasta
+  /// esa fecha aunque la contraseña sea correcta.
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime? @map("locked_until")
+
+  /// 2FA opcional (TOTP). El secret se genera en /2fa/setup pero
+  /// twoFactorEnabled queda en false hasta que el usuario confirma un
+  /// código válido en /2fa/verify — evita que alguien quede bloqueado
+  /// de su propia cuenta por una vinculación a medias.
+  twoFactorSecret  String?  @map("two_factor_secret")
+  twoFactorEnabled Boolean  @default(false) @map("two_factor_enabled")
+
+  passwordResetTokens PasswordResetToken[]
+
   productionEntries ProductionEntry[]
   inventoryMovements InventoryMovement[]
   dispatches        Dispatch[]
   importLogs        ImportLog[]
+  productionOrders     ProductionOrder[]
+  productionStageLogs  ProductionStageLog[]
+  clientInteractions   ClientInteraction[]
+  cotizaciones         Cotizacion[]
+  pedidos              Pedido[]
+  pedidoVersions       PedidoVersion[]
+  pedidoAttachments    PedidoAttachment[]
+  facturas             Factura[]
+  payments             Payment[]
 
   @@map("users")
 }
@@ -89,12 +179,17 @@ model Product {
   measure   String?
   unit      ProductUnit
   minStock  Decimal         @default(0) @map("min_stock") @db.Decimal(12, 2)
+  unitPrice Decimal         @default(0) @map("unit_price") @db.Decimal(12, 2)
   createdAt DateTime        @default(now()) @map("created_at")
 
   productionEntries  ProductionEntry[]
   inventoryMovements InventoryMovement[]
   dispatchItems      DispatchItem[]
   stock              InventoryStock?
+  productionOrders   ProductionOrder[]
+  cotizacionItems    CotizacionItem[]
+  pedidoVersionItems PedidoVersionItem[]
+  facturaItems       FacturaItem[]
 
   @@map("products")
 }
@@ -103,14 +198,57 @@ model Client {
   id          Int      @id @default(autoincrement())
   name        String
   contactInfo Json?    @map("contact_info")
+  /// Límite de crédito manual (module "Cartera"). No hay facturación/pagos
+  /// todavía, así que por ahora es un tope de referencia editable a mano,
+  /// no un saldo calculado automáticamente.
+  creditLimit Decimal? @default(0) @map("credit_limit") @db.Decimal(12, 2)
   active      Boolean  @default(true)
   createdAt   DateTime @default(now()) @map("created_at")
 
   productionEntries ProductionEntry[]
   dispatches        Dispatch[]
-  contacts          ClientContact[]  
+  contacts          ClientContact[]
+  addresses         ClientAddress[]
+  interactions      ClientInteraction[]
+  cotizaciones      Cotizacion[]
+  pedidos           Pedido[]
+  facturas          Factura[]
 
   @@map("clients")
+}
+
+/// Direcciones de entrega del cliente (un cliente puede tener varias
+/// bodegas/sucursales). `isPrimary` marca la dirección por defecto.
+model ClientAddress {
+  id         Int      @id @default(autoincrement())
+  clientId   Int      @map("client_id")
+  client     Client   @relation(fields: [clientId], references: [id])
+  label      String
+  addressLine String  @map("address_line")
+  city       String?
+  region     String?
+  postalCode String?  @map("postal_code")
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("client_addresses")
+}
+
+/// Historial de interacciones comerciales con el cliente (llamadas,
+/// correos, reuniones, notas internas), para que Ventas tenga contexto
+/// sin depender de la memoria de una persona.
+model ClientInteraction {
+  id          Int              @id @default(autoincrement())
+  clientId    Int              @map("client_id")
+  client      Client           @relation(fields: [clientId], references: [id])
+  type        InteractionType
+  description String
+  createdById Int?             @map("created_by")
+  createdBy   User?            @relation(fields: [createdById], references: [id])
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@map("client_interactions")
 }
 
 model ClientContact {
@@ -217,4 +355,231 @@ model ImportLog {
   createdAt     DateTime     @default(now()) @map("created_at")
 
   @@map("import_logs")
+}
+
+/// Orden de Producción (OP): la unidad de trabajo que se mueve por las
+/// estaciones de planta (Extrusión → Impresión → Sellado → Precorte).
+/// Todavía no cuelga de un Pedido real porque ese módulo no existe aún;
+/// cuando exista, se le agrega `orderRequestId` sin romper esto.
+model ProductionOrder {
+  id              Int                   @id @default(autoincrement())
+  orderNumber     String                @unique @map("order_number")
+  productId       Int                   @map("product_id")
+  product         Product               @relation(fields: [productId], references: [id])
+  quantityPlanned Decimal               @map("quantity_planned") @db.Decimal(12, 2)
+  measure         String?
+  status          ProductionOrderStatus @default(pendiente)
+  notes           String?
+  createdById     Int?                  @map("created_by")
+  createdBy       User?                 @relation(fields: [createdById], references: [id])
+  createdAt       DateTime              @default(now()) @map("created_at")
+
+  stages ProductionStageLog[]
+
+  @@map("production_orders")
+}
+
+/// Registro de paso de una OP por una estación de planta. Los 4 tipos de
+/// estación comparten estos campos comunes; lo que cada una necesita de
+/// especial (materia prima, tintas, tipo de sellado, etc.) va en `details`
+/// como JSON, para no tener 4 tablas casi idénticas.
+model ProductionStageLog {
+  id                Int               @id @default(autoincrement())
+  productionOrderId Int               @map("production_order_id")
+  productionOrder   ProductionOrder   @relation(fields: [productionOrderId], references: [id])
+  station           ProductionStation
+  machine           String
+  operatorName      String            @map("operator_name")
+  startTime         DateTime          @map("start_time")
+  endTime           DateTime?         @map("end_time")
+  kilosProduced     Decimal           @map("kilos_produced") @db.Decimal(12, 2)
+  mermaKg           Decimal           @default(0) @map("merma_kg") @db.Decimal(12, 2)
+  downtimeMinutes   Int               @default(0) @map("downtime_minutes")
+  downtimeReason    String?           @map("downtime_reason")
+  details           Json?
+  notes             String?
+  createdById       Int?              @map("created_by")
+  createdBy         User?             @relation(fields: [createdById], references: [id])
+  createdAt         DateTime          @default(now()) @map("created_at")
+
+  @@map("production_stage_logs")
+}
+
+/// Cotización comercial. No tiene versionamiento formal (a diferencia de
+/// Pedido) porque el roadmap solo pide versionar pedidos — una cotización
+/// se edita en el lugar hasta que se acepta o se convierte en Pedido.
+model Cotizacion {
+  id          Int               @id @default(autoincrement())
+  quoteNumber String            @unique @map("quote_number")
+  clientId    Int               @map("client_id")
+  client      Client            @relation(fields: [clientId], references: [id])
+  status      CotizacionStatus  @default(borrador)
+  validUntil  DateTime?         @map("valid_until")
+  notes       String?
+  createdById Int?              @map("created_by")
+  createdBy   User?             @relation(fields: [createdById], references: [id])
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  items   CotizacionItem[]
+  pedidos Pedido[]
+
+  @@map("cotizaciones")
+}
+
+model CotizacionItem {
+  id           Int        @id @default(autoincrement())
+  cotizacionId Int        @map("cotizacion_id")
+  cotizacion   Cotizacion @relation(fields: [cotizacionId], references: [id])
+  productId    Int        @map("product_id")
+  product      Product    @relation(fields: [productId], references: [id])
+  quantity     Decimal    @db.Decimal(12, 2)
+  unitPrice    Decimal    @map("unit_price") @db.Decimal(12, 2)
+  measure      String?
+
+  @@map("cotizacion_items")
+}
+
+/// Pedido (orden de venta). La identidad del pedido (número, cliente) vive
+/// acá; el contenido real (ítems, precios, estado en ese momento) vive en
+/// PedidoVersion — cada edición relevante crea una versión nueva completa
+/// (v1, v2, v3...) en vez de sobrescribir la anterior, para poder navegar
+/// el historial completo tal como pidió Steban.
+model Pedido {
+  id             Int      @id @default(autoincrement())
+  orderNumber    String   @unique @map("order_number")
+  clientId       Int      @map("client_id")
+  client         Client   @relation(fields: [clientId], references: [id])
+  cotizacionId   Int?     @map("cotizacion_id")
+  cotizacion     Cotizacion? @relation(fields: [cotizacionId], references: [id])
+  /// Se mantienen desnormalizados acá (además de vivir en la versión
+  /// vigente) para poder listar/filtrar pedidos sin tener que buscar
+  /// primero cuál es la última versión de cada uno.
+  status         PedidoStatus @default(borrador)
+  currentVersion Int      @default(1) @map("current_version")
+  createdById    Int?     @map("created_by")
+  createdBy      User?    @relation(fields: [createdById], references: [id])
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  versions    PedidoVersion[]
+  attachments PedidoAttachment[]
+  facturas    Factura[]
+
+  @@map("pedidos")
+}
+
+model PedidoVersion {
+  id            Int          @id @default(autoincrement())
+  pedidoId      Int          @map("pedido_id")
+  pedido        Pedido       @relation(fields: [pedidoId], references: [id])
+  versionNumber Int          @map("version_number")
+  status        PedidoStatus
+  notes         String?
+  createdById   Int?         @map("created_by")
+  createdBy     User?        @relation(fields: [createdById], references: [id])
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  items PedidoVersionItem[]
+
+  @@unique([pedidoId, versionNumber])
+  @@map("pedido_versions")
+}
+
+model PedidoVersionItem {
+  id              Int           @id @default(autoincrement())
+  pedidoVersionId Int           @map("pedido_version_id")
+  pedidoVersion   PedidoVersion @relation(fields: [pedidoVersionId], references: [id])
+  productId       Int           @map("product_id")
+  product         Product       @relation(fields: [productId], references: [id])
+  quantity        Decimal       @db.Decimal(12, 2)
+  unitPrice       Decimal       @map("unit_price") @db.Decimal(12, 2)
+  measure         String?
+
+  @@map("pedido_version_items")
+}
+
+/// Adjuntos del pedido (PDF, Excel, fichas técnicas, planos, fotos).
+/// Se guardan en disco bajo server/uploads/pedidos/ (ver routes/pedidos.ts);
+/// acá solo queda el metadato para listarlos/descargarlos.
+model PedidoAttachment {
+  id           Int      @id @default(autoincrement())
+  pedidoId     Int      @map("pedido_id")
+  pedido       Pedido   @relation(fields: [pedidoId], references: [id])
+  storedName   String   @map("stored_name")
+  originalName String   @map("original_name")
+  mimeType     String   @map("mime_type")
+  sizeBytes    Int      @map("size_bytes")
+  uploadedById Int?     @map("uploaded_by")
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("pedido_attachments")
+}
+
+/// Factura de venta. Puede nacer de un Pedido (copiando sus ítems) o crearse
+/// suelta (cliente + ítems directo) — ambos caminos quedan habilitados.
+/// `status` se recalcula solo según los pagos registrados (ver routes/facturas.ts),
+/// excepto "anulada" que es una acción manual.
+model Factura {
+  id            Int           @id @default(autoincrement())
+  invoiceNumber String        @unique @map("invoice_number")
+  clientId      Int           @map("client_id")
+  client        Client        @relation(fields: [clientId], references: [id])
+  pedidoId      Int?          @map("pedido_id")
+  pedido        Pedido?       @relation(fields: [pedidoId], references: [id])
+  status        FacturaStatus @default(emitida)
+  notes         String?
+  createdById   Int?          @map("created_by")
+  createdBy     User?         @relation(fields: [createdById], references: [id])
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  items    FacturaItem[]
+  payments Payment[]
+
+  @@map("facturas")
+}
+
+model FacturaItem {
+  id         Int     @id @default(autoincrement())
+  facturaId  Int     @map("factura_id")
+  factura    Factura @relation(fields: [facturaId], references: [id])
+  productId  Int     @map("product_id")
+  product    Product @relation(fields: [productId], references: [id])
+  quantity   Decimal @db.Decimal(12, 2)
+  unitPrice  Decimal @map("unit_price") @db.Decimal(12, 2)
+  measure    String?
+
+  @@map("factura_items")
+}
+
+/// Un pago (abono) contra una factura. Varios pagos pueden acumularse hasta
+/// cubrir el total — el saldo pendiente de "Cartera" sale de sumar estos
+/// montos y restárselos al total facturado (ver clients.ts /:id/cartera).
+model Payment {
+  id          Int           @id @default(autoincrement())
+  facturaId   Int           @map("factura_id")
+  factura     Factura       @relation(fields: [facturaId], references: [id])
+  amount      Decimal       @db.Decimal(12, 2)
+  method      PaymentMethod
+  paidAt      DateTime      @default(now()) @map("paid_at")
+  notes       String?
+  createdById Int?          @map("created_by")
+  createdBy   User?         @relation(fields: [createdById], references: [id])
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  @@map("payments")
+}
+
+/// Token de un solo uso para "olvidé mi contraseña". Se guarda hasheado
+/// (igual que la contraseña) para que un dump de la base no alcance para
+/// resetear cuentas ajenas — el valor plano solo existe en el link del email.
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("password_reset_tokens")
 }

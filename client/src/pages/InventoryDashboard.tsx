@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { api } from "../api/client";
 
 const CATEGORIES = [
@@ -38,8 +39,11 @@ export default function InventoryDashboard() {
       </div>
 
       {alerts && alerts.length > 0 && (
-        <div className="bg-amber-50 border border-amber-300 text-amber-800 rounded px-4 py-2 text-sm">
-          ⚠ {alerts.length} producto(s) bajo stock mínimo: {alerts.map((a: any) => a.name).join(", ")}
+        <div className="bg-amber-50 border border-amber-300 text-amber-800 rounded px-4 py-2 text-sm flex items-start gap-2">
+          <TriangleAlert size={16} strokeWidth={2} className="flex-shrink-0 mt-0.5" />
+          <span>
+            {alerts.length} producto(s) bajo stock mínimo: {alerts.map((a: any) => a.name).join(", ")}
+          </span>
         </div>
       )}
 
