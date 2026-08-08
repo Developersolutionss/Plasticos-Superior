@@ -191,7 +191,8 @@
 }
 .nav-item .caret {
   margin-left: auto;
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
   color: var(--sb-text-dim);
   transition: transform 0.2s;
 }

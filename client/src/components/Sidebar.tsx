@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { Menu, Wrench, Zap } from "lucide-react";
+import { ChevronRight, Menu, Wrench, Zap } from "lucide-react";
 import "./Sidebar.css";
 import NavIcon from "./NavIcon";
 import { navSections, type NavChoice, type NavEntry, type NavLeaf } from "./navConfig";
@@ -84,7 +84,9 @@ function NavSection({ entry }: { entry: NavEntry }) {
           <NavIcon name={entry.icon} />
         </span>
         <span className="hidden-when-collapsed">{entry.label}</span>
-        <span className="caret">▶</span>
+        <span className="caret">
+          <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
+        </span>
       </button>
       <div className={`submenu ${open ? "open" : ""}`}>
         {entry.children?.map((child) => (
