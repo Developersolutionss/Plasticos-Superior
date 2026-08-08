@@ -588,3 +588,13 @@ model PasswordResetToken {
 
   @@map("password_reset_tokens")
 }
+
+/// Clave/valor para estado interno de la app. Se usa para recordar cuándo se
+/// hizo el último reseteo semanal del contador de visitas de clientes
+/// (filtro "Frecuentes"), ver server/src/services/frecuentesReset.ts.
+model AppMeta {
+  key   String @id
+  value String
+
+  @@map("app_meta")
+}

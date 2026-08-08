@@ -204,6 +204,7 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 
 ### `Clients.tsx`
 - Listado maestro–detalle del CRM con **búsqueda** (substring; la búsqueda fuzzy queda pendiente) y **filtros** ABC / Antigüedad (`createdAt`) / Frecuentes (`viewCount`), toggles de **vista en lista o cajas** (con avatar del cliente y fallback de iniciales).
+- El contador de **Frecuentes** se **reinicia cada semana por ranking** (ver `server/src/services/frecuentesReset.ts`): en vez de crecer sin límite o volver a cero, se redistribuye — el cliente más visitado conserva el valor más alto y el menos visitado 0 (p. ej. 4 clientes → 3, 2, 1, 0). El scheduler corre al arrancar el servidor y luego cada hora (`app_meta.frecuentes:lastResetAt`).
 - Al seleccionar un cliente se registra la visita (`api.recordClientVisit`, actualización optimista del cache) y se muestra la ficha con pestañas: contactos, direcciones, historial, cartera y **editar/eliminar**. 
 - Pestaña "Editar/Eliminar": botón "Editar datos / foto" abre `ClienteForm` en modal reutilizable, y zona de peligro con confirmación para **eliminar** el cliente (`api.deleteClient` → soft delete, `active: false`).
 

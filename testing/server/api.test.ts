@@ -15,6 +15,7 @@ import { productionRouter } from "../../server/src/routes/production";
 import { dispatchesRouter } from "../../server/src/routes/dispatches";
 import { whatsappWebhookRouter } from "../../server/src/routes/whatsappWebhook";
 import { prisma } from "../../server/src/prisma";
+import { computeRedistribution } from "../../server/src/services/frecuentesReset";
 
 let server: Server;
 let baseUrl = "";
@@ -390,5 +391,35 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
     // Ya no aparece en el listado (solo clientes activos).
     const list = (await (await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() })).json()) as { id: number }[];
     assert.ok(!list.some((c) => c.id === clientId));
+  });
+});
+
+describe("frecuentes · redistribución semanal por ranking", () => {
+  it("asigna el valor más alto al más visitado y 0 al menos visitado", () => {
+    const next = computeRedistribution([
+      { id: 1, viewCount: 50 },
+      { id: 2, viewCount: 37 },
+      { id: 3, viewCount: 12 },
+      { id: 4, viewCount: 2 },
+    ]);
+    assert.deepEqual(
+      next.sort((a, b) => a.id - b.id).map((c) => c.viewCount),
+      [3, 2, 1, 0]
+    );
+  });
+
+  it("desempata por visitas más recientes", () => {
+    const next = computeRedistribution([
+      { id: 1, viewCount: 10, lastViewedAt: "2026-08-01T00:00:00Z" },
+      { id: 2, viewCount: 10, lastViewedAt: "2026-08-07T00:00:00Z" },
+    ]);
+    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
+    assert.equal(byId[2], 1, "el visto más recientemente gana el tie");
+    assert.equal(byId[1], 0);
+  });
+
+  it("con un solo cliente queda en 0", () => {
+    const next = computeRedistribution([{ id: 1, viewCount: 999 }]);
+    assert.deepEqual(next, [{ id: 1, viewCount: 0 }]);
   });
 });
