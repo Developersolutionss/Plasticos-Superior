@@ -15,7 +15,7 @@ import { productionRouter } from "../../server/src/routes/production";
 import { dispatchesRouter } from "../../server/src/routes/dispatches";
 import { whatsappWebhookRouter } from "../../server/src/routes/whatsappWebhook";
 import { prisma } from "../../server/src/prisma";
-import { computeRedistribution, nextStreak } from "../../server/src/services/frecuentesReset";
+import { computeRedistribution, nextStreak, liveBoostValue } from "../../server/src/services/frecuentesReset";
 
 let server: Server;
 let baseUrl = "";
@@ -329,6 +329,21 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
     assert.ok(body.lastViewedAt);
   });
 
+  it("POST /:id/visit con racha en el umbral hace boost en vivo a máximo+1", async () => {
+    // Forzar una racha que está a un día del umbral (4 < 5) con la última
+    // visita ayer: la siguiente visita debe cruzar el umbral y subir el
+    // viewCount al máximo actual + 1 (no solo +1).
+    const ayer = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await prisma.client.update({ where: { id: clientId }, data: { visitStreak: 4, lastViewedAt: ayer, viewCount: 0 } });
+    const antes = await prisma.client.aggregate({ _max: { viewCount: true } });
+
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/visit`, { method: "POST", headers: authHeaders() });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { viewCount: number; visitStreak: number };
+    assert.equal(body.visitStreak, 5, "la visita de hoy cierra la racha en el umbral");
+    assert.equal(body.viewCount, (antes._max.viewCount ?? 0) + 1, "el boost sube al máximo + 1");
+  });
+
   it("GET /contacts devuelve contactos con empresa relacionada", async () => {
     const res = await fetch(`${baseUrl}/api/clients/contacts`, { headers: authHeaders() });
     assert.equal(res.status, 200);
@@ -426,7 +441,7 @@ describe("frecuentes · redistribución semanal por ranking", () => {
   it("un cliente con racha supera al mas visitado aunque tenga poco conteo", () => {
     const next = computeRedistribution([
       { id: 1, viewCount: 50, streak: 0 },
-      { id: 2, viewCount: 2, streak: 3 },
+      { id: 2, viewCount: 2, streak: 5 },
     ]);
     const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
     assert.equal(byId[2], 1, "el de racha sube arriba del ranking");
@@ -436,15 +451,28 @@ describe("frecuentes · redistribución semanal por ranking", () => {
   it("varios de racha se ordenan por la racha mas larga primero", () => {
     const next = computeRedistribution([
       { id: 1, viewCount: 50, streak: 0 },
-      { id: 2, viewCount: 9, streak: 3 },
-      { id: 3, viewCount: 5, streak: 5 },
-      { id: 4, viewCount: 0, streak: 4 },
+      { id: 2, viewCount: 9, streak: 5 },
+      { id: 3, viewCount: 5, streak: 7 },
+      { id: 4, viewCount: 0, streak: 6 },
     ]);
     const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
-    assert.equal(byId[3], 3, "racha 5 -> el primero");
-    assert.equal(byId[4], 2, "racha 4 -> segundo");
-    assert.equal(byId[2], 1, "racha 3 -> tercero");
+    assert.equal(byId[3], 3, "racha 7 -> el primero");
+    assert.equal(byId[4], 2, "racha 6 -> segundo");
+    assert.equal(byId[2], 1, "racha 5 -> tercero");
     assert.equal(byId[1], 0, "sin racha, aunque tenga 50 visitas -> ultimo");
+  });
+
+  it("por debajo del umbral NO hay boost", () => {
+    const next = computeRedistribution([{ id: 1, viewCount: 50, streak: 4 }, { id: 2, viewCount: 30, streak: 0 }]);
+    const byId: Record<number, number> = Object.fromEntries(next.map((c) => [c.id, c.viewCount]));
+    assert.equal(byId[1], 1, "racha 4 < umbral 5 -> orden normal por conteo");
+    assert.equal(byId[2], 0);
+  });
+
+  it("liveBoostValue iguala el maximo y suma uno", () => {
+    assert.equal(liveBoostValue(10), 11);
+    assert.equal(liveBoostValue(null), 1);
+    assert.equal(liveBoostValue(0), 1);
   });
 
   it("nextStreak: crece al dia siguiente, se mantiene el mismo dia y reinicia tras un hueco", () => {

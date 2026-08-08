@@ -5,7 +5,7 @@ import fs from "fs";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
-import { nextStreak } from "../services/frecuentesReset";
+import { nextStreak, liveBoostValue, CONSECUTIVE_DAYS_BOOST } from "../services/frecuentesReset";
 
 export const clientsRouter = Router();
 clientsRouter.use(requireAuth);
@@ -127,12 +127,23 @@ clientsRouter.post("/:id/visit", requireVentas, async (req, res) => {
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
 
+  const streak = nextStreak(client.visitStreak, client.lastViewedAt);
+
+  // Contador vivo: +1 normal, pero al cruzar la racha umbral el cliente sube
+  // al tope del ranking al instante (max actual + 1), sin esperar el reset.
+  const newCount =
+    streak >= CONSECUTIVE_DAYS_BOOST
+      ? await prisma.client
+          .aggregate({ _max: { viewCount: true } })
+          .then((r) => liveBoostValue(r._max.viewCount))
+      : undefined;
+
   const updated = await prisma.client.update({
     where: { id: clientId },
     data: {
-      viewCount: { increment: 1 },
+      ...(newCount === undefined ? { viewCount: { increment: 1 } } : { viewCount: newCount }),
       lastViewedAt: new Date(),
-      visitStreak: nextStreak(client.visitStreak, client.lastViewedAt),
+      visitStreak: streak,
     },
   });
   res.json({ viewCount: updated.viewCount, lastViewedAt: updated.lastViewedAt, visitStreak: updated.visitStreak });

@@ -3,31 +3,40 @@ import { prisma } from "../prisma";
 /**
  * Reset semanal del contador de visitas de clientes (filtro "Frecuentes").
  *
- * En vez de dejar los contadores crecer sin límite y volverlos a cero (perdiendo
- * toda la señal), cada semana se redistribuye el elo por ranking: el cliente
- * más visitado pasa a tener el valor más alto y el menos visitado 0.
+ * El contador (`viewCount`) es un contador vivo: se incrementa con cada visita
+ * y el boost por racha (ver `CONSECUTIVE_DAYS_BOOST`) se aplica en el momento,
+ * igualando el máximo actual + 1 para subir al cliente arriba del ranking sin
+ * esperar ninguna fecha.
+ *
+ * El reset semanal es solo una PURGA: redistribuye los valores por ranking para
+ * que los números no crezcan sin límite (en vez de volverlos a cero, el cliente
+ * más visitado conserva el valor más alto y el menos visitado 0).
  *
  *   antes:  a=50, b=37, c=12, d=2
  *   luego:  a=3,  b=2,  c=1,  d=0
  *
- * Además, un cliente con una racha de días seguidos de visita
- * (`visitStreak`, ver `CONSECUTIVE_DAYS_BOOST`) salta arriba del ranking,
- * aunque sea nuevo y tenga un conteo acumulado bajo: así no queda pegado
- * abajo del todo durante su semana de actividad.
- *
- * Así los números se mantienen chicos (acotados por la cantidad de clientes),
- * el orden relativo se conserva y nunca se disparan por el uso.
+ * La purga NO toca el resto del sistema: las visitas siguen contando igual en
+ * vivo después de ella.
  */
 
 const RESET_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const RESET_CHECK_MS = 60 * 60 * 1000;
 const META_KEY_LAST_RESET = "frecuentes:lastResetAt";
 
-/** Umbral de racha (días seguidos con visita) para saltar arriba del ranking. */
-export const CONSECUTIVE_DAYS_BOOST = 3;
+/** Umbral de racha (días seguidos con visita) para el boost. */
+export const CONSECUTIVE_DAYS_BOOST = 5;
 
 function isHot(streak?: number | null): boolean {
   return (streak ?? 0) >= CONSECUTIVE_DAYS_BOOST;
+}
+
+/**
+ * Valor para el boost en vivo: el cliente que cruza el umbral de racha iguala
+ * el máximo actual y suma uno, para quedar arriba del ranking "Frecuentes"
+ * al instante (sin esperar al reset semanal).
+ */
+export function liveBoostValue(currentMax?: number | null): number {
+  return (currentMax ?? 0) + 1;
 }
 
 /**
