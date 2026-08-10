@@ -1,17 +1,15 @@
 import { Router } from "express";
 import { z } from "zod";
-import type { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
+import type { TxClient } from "../services/stockService";
 
 export const facturasRouter = Router();
 facturasRouter.use(requireAuth);
 
 const requireVentas = requireRole(...ROLES.VENTAS);
 facturasRouter.use(requireVentas);
-
-type TxClient = Prisma.TransactionClient;
 
 /** Recalcula el estado de una factura según lo que se haya pagado hasta ahora. */
 async function recalculateStatus(tx: TxClient, facturaId: number) {

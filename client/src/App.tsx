@@ -13,6 +13,7 @@ import OrdenesProduccion from "./pages/OrdenesProduccion";
 import Planeacion from "./pages/Planeacion";
 import Calidad from "./pages/Calidad";
 import Trazabilidad from "./pages/Trazabilidad";
+import Auditoria from "./pages/Auditoria";
 import EstacionProduccion from "./pages/EstacionProduccion";
 import Cotizaciones from "./pages/Cotizaciones";
 import Pedidos from "./pages/Pedidos";
@@ -137,6 +138,14 @@ export default function App() {
           element={
             <RequireRole roles={[...PRODUCCION_GESTION, ...CALIDAD, ...AUDITORIA]}>
               <Trazabilidad />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="auditoria"
+          element={
+            <RequireRole roles={AUDITORIA}>
+              <Auditoria />
             </RequireRole>
           }
         />

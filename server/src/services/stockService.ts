@@ -1,7 +1,9 @@
-import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 
-type TxClient = Prisma.TransactionClient;
+// `prisma` está envuelto en `$extends` (auditExtension.ts), así que el tipo
+// del cliente de transacción ya no es el `Prisma.TransactionClient` genérico
+// — se deriva del propio `$transaction` extendido para que sea compatible.
+export type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 /**
  * Registra un movimiento de inventario y recalcula el stock desnormalizado

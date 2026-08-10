@@ -140,7 +140,7 @@ export const navSections: NavEntry[] = [
     icon: "scroll-text",
     label: "Auditoría",
     roles: AUDITORIA,
-    children: [{ id: "auditoria-bitacora", label: "Bitácora de inventario", disabled: true }],
+    children: [{ id: "auditoria-bitacora", label: "Bitácora de auditoría", to: "/auditoria" }],
   },
   {
     id: "configuracion",

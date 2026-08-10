@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import type { UserRole } from "../generated/prisma/client";
+import { auditContext } from "../services/auditContext";
 
 export interface AuthPayload {
   userId: number;
@@ -25,7 +26,13 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET as string) as AuthPayload;
     req.user = payload;
-    next();
+    // La extensión de Prisma (auditExtension.ts) no tiene acceso a `req`,
+    // así que quién/desde-dónde se propaga acá via AsyncLocalStorage para
+    // toda la cadena async que sigue.
+    auditContext.run(
+      { userId: payload.userId, ipAddress: req.ip, userAgent: req.headers["user-agent"] },
+      next
+    );
   } catch {
     return res.status(401).json({ error: "Token inválido o expirado" });
   }

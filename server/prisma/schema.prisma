@@ -174,6 +174,7 @@ model User {
   facturas             Factura[]
   payments             Payment[]
   qualityChecks        QualityCheck[]
+  auditLogs            AuditLog[]
 
   @@map("users")
 }
@@ -380,6 +381,34 @@ model ImportLog {
   createdAt     DateTime     @default(now()) @map("created_at")
 
   @@map("import_logs")
+}
+
+enum AuditAction {
+  create
+  update
+  delete
+}
+
+/// Auditoría forense genérica: registra create/update/delete sobre las
+/// tablas críticas (ver AUDITED_MODELS en server/src/services/
+/// auditExtension.ts) con el estado antes/después y quién lo hizo desde
+/// dónde. La escribe automáticamente la extensión de Prisma en prisma.ts,
+/// no se crea a mano desde ningún router.
+model AuditLog {
+  id        Int         @id @default(autoincrement())
+  tableName String      @map("table_name")
+  recordId  Int?        @map("record_id")
+  action    AuditAction
+  before    Json?
+  after     Json?
+  userId    Int?        @map("user_id")
+  user      User?       @relation(fields: [userId], references: [id])
+  ipAddress String?     @map("ip_address")
+  userAgent String?     @map("user_agent")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@index([tableName, recordId])
+  @@map("audit_logs")
 }
 
 /// Orden de Producción (OP): la unidad de trabajo que se mueve por las

@@ -1,10 +1,9 @@
 import "dotenv/config";
-import { PrismaClient } from "../src/generated/prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
-
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
-const prisma = new PrismaClient({ adapter });
+// Usa el mismo cliente auditado que la app (../src/prisma.ts) en vez de uno
+// propio, para que los Client que crea este seed generen entradas reales de
+// auditoría — así el módulo de Auditoría no queda vacío en la primera corrida.
+import { prisma } from "../src/prisma";
 
 async function main() {
   const passwordHash = await bcrypt.hash("password123", 10);

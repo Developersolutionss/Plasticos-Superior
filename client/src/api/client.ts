@@ -248,4 +248,14 @@ export const api = {
     facturaId: number,
     data: { amount: number; method: "efectivo" | "transferencia" | "cheque" | "tarjeta" | "otro"; paidAt?: string; notes?: string }
   ) => request<any>(`/facturas/${facturaId}/payments`, { method: "POST", body: JSON.stringify(data) }),
+
+  getAuditLog: (params?: { tableName?: string; recordId?: number; page?: number; pageSize?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.tableName) qs.set("tableName", params.tableName);
+    if (params?.recordId) qs.set("recordId", String(params.recordId));
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.pageSize) qs.set("pageSize", String(params.pageSize));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<{ items: any[]; total: number; page: number; pageSize: number }>(`/audit-log${suffix}`);
+  },
 };
