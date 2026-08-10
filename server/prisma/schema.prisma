@@ -79,6 +79,7 @@ enum ImportSource {
 enum ProductionOrderStatus {
   pendiente
   en_proceso
+  pendiente_calidad
   detenida
   finalizada
   cancelada
@@ -89,6 +90,11 @@ enum ProductionStation {
   impresion
   sellado
   precorte
+}
+
+enum QualityResult {
+  aprobado
+  rechazado
 }
 
 enum InteractionType {
@@ -167,6 +173,7 @@ model User {
   pedidoAttachments    PedidoAttachment[]
   facturas             Factura[]
   payments             Payment[]
+  qualityChecks        QualityCheck[]
 
   @@map("users")
 }
@@ -394,9 +401,27 @@ model ProductionOrder {
   createdBy           User?                 @relation(fields: [createdById], references: [id])
   createdAt           DateTime              @default(now()) @map("created_at")
 
-  stages ProductionStageLog[]
+  stages       ProductionStageLog[]
+  qualityCheck QualityCheck?
 
   @@map("production_orders")
+}
+
+/// Control de calidad de una OP: se registra una sola vez, después del paso
+/// de precorte y antes de que la OP se finalice. Si es "rechazado", la OP
+/// queda "detenida" y no se genera la entrada de inventario (ver
+/// productionOrders.ts, endpoint POST /:id/quality-check).
+model QualityCheck {
+  id                Int             @id @default(autoincrement())
+  productionOrderId Int             @unique @map("production_order_id")
+  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  result            QualityResult
+  observations      String?
+  createdById       Int?            @map("created_by")
+  createdBy         User?           @relation(fields: [createdById], references: [id])
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  @@map("quality_checks")
 }
 
 /// Registro de paso de una OP por una estación de planta. Los 4 tipos de

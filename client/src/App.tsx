@@ -11,6 +11,7 @@ import Contactos from "./pages/Contactos";
 import NuevoCliente from "./pages/NuevoCliente";
 import OrdenesProduccion from "./pages/OrdenesProduccion";
 import Planeacion from "./pages/Planeacion";
+import Calidad from "./pages/Calidad";
 import EstacionProduccion from "./pages/EstacionProduccion";
 import Cotizaciones from "./pages/Cotizaciones";
 import Pedidos from "./pages/Pedidos";
@@ -26,6 +27,7 @@ import {
   OP_EXTRUSION,
   OP_IMPRESION,
   OP_SELLADO,
+  CALIDAD,
 } from "./components/navConfig";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -117,6 +119,14 @@ export default function App() {
           element={
             <RequireRole roles={PRODUCCION_GESTION}>
               <Planeacion />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="calidad"
+          element={
+            <RequireRole roles={CALIDAD}>
+              <Calidad />
             </RequireRole>
           }
         />

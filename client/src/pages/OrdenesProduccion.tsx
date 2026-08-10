@@ -6,6 +6,7 @@ import { api } from "../api/client";
 const STATUS_LABELS: Record<string, string> = {
   pendiente: "Pendiente",
   en_proceso: "En proceso",
+  pendiente_calidad: "Pendiente de calidad",
   detenida: "Detenida",
   finalizada: "Finalizada",
   cancelada: "Cancelada",
@@ -14,6 +15,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_COLORS: Record<string, string> = {
   pendiente: "bg-slate-100 text-slate-700",
   en_proceso: "bg-sky-100 text-sky-700",
+  pendiente_calidad: "bg-purple-100 text-purple-700",
   detenida: "bg-amber-100 text-amber-700",
   finalizada: "bg-emerald-100 text-emerald-700",
   cancelada: "bg-red-100 text-red-700",

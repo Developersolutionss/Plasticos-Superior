@@ -119,6 +119,35 @@ async function main() {
     }
   }
 
+  // OP demo ya con su paso de precorte cargado y en pendiente_calidad, para
+  // que la cola del módulo de Calidad no esté vacía al entrar. orderNumber
+  // fijo (mismo criterio que PED-SEED-PLANEACION) para poder chequear
+  // existencia sin pisar la numeración real OP-00001, OP-00002... de la app.
+  if (bulto) {
+    const existingSeedOp = await prisma.productionOrder.findUnique({ where: { orderNumber: "OP-SEED-CALIDAD" } });
+    if (!existingSeedOp) {
+      await prisma.productionOrder.create({
+        data: {
+          orderNumber: "OP-SEED-CALIDAD",
+          productId: bulto.id,
+          quantityPlanned: 30,
+          measure: bulto.measure,
+          status: "pendiente_calidad",
+          stages: {
+            create: {
+              station: "precorte",
+              machine: "Cortadora 1",
+              operatorName: "Operario Demo",
+              startTime: new Date(),
+              kilosProduced: 30,
+              notes: "Paso de precorte demo para probar el módulo de Calidad",
+            },
+          },
+        },
+      });
+    }
+  }
+
   console.log(
     "Seed completado. Usuarios (password123 para todos): admin@empresa.com (super_admin), " +
       "administrador@empresa.com (admin), produccion@empresa.com (gerente_produccion), " +

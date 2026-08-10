@@ -168,6 +168,8 @@ export const api = {
       notes?: string;
     }
   ) => request<any>(`/production-orders/${productionOrderId}/stages`, { method: "POST", body: JSON.stringify(data) }),
+  submitQualityCheck: (id: number, data: { result: "aprobado" | "rechazado"; observations?: string }) =>
+    request<any>(`/production-orders/${id}/quality-check`, { method: "POST", body: JSON.stringify(data) }),
 
   getCotizaciones: (clientId?: number) =>
     request<any[]>(`/cotizaciones${clientId ? `?clientId=${clientId}` : ""}`),

@@ -11,7 +11,11 @@ productionOrdersRouter.use(requireAuth);
 
 const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
 const requireOperarios = requireRole(...ROLES.OPERARIOS);
-productionOrdersRouter.use(requireOperarios);
+const requireCalidad = requireRole(...ROLES.CALIDAD);
+// Calidad necesita GET / (para ver la cola ?status=pendiente_calidad) y
+// GET /:id/stages (para revisar el detalle del precorte al decidir), por
+// eso se admite acá a nivel de router además de en su endpoint propio.
+productionOrdersRouter.use(requireRole(...ROLES.OPERARIOS, ...ROLES.CALIDAD));
 
 productionOrdersRouter.get("/", async (req, res) => {
   const status = req.query.status as string | undefined;
@@ -132,7 +136,7 @@ productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requirePro
 });
 
 const updateStatusSchema = z.object({
-  status: z.enum(["pendiente", "en_proceso", "detenida", "finalizada", "cancelada"]),
+  status: z.enum(["pendiente", "en_proceso", "pendiente_calidad", "detenida", "finalizada", "cancelada"]),
 });
 
 productionOrdersRouter.patch("/:id/status", requireProduccionGestion, async (req, res) => {
@@ -172,8 +176,9 @@ productionOrdersRouter.get("/:id/stages", async (req, res) => {
 
 /**
  * Registra el paso de una OP por una estación. Cuando la estación es
- * "precorte" (último paso del proceso), además genera automáticamente la
- * entrada de inventario del producto terminado y marca la OP finalizada.
+ * "precorte" (último paso del proceso), la OP queda "pendiente_calidad" en
+ * vez de finalizarse: recién se genera la entrada de inventario y se
+ * finaliza cuando Calidad la aprueba (ver POST /:id/quality-check).
  */
 productionOrdersRouter.post("/:id/stages", requireOperarios, async (req, res) => {
   const productionOrderId = Number(req.params.id);
@@ -211,16 +216,7 @@ productionOrdersRouter.post("/:id/stages", requireOperarios, async (req, res) =>
     });
 
     if (parsed.data.station === "precorte") {
-      await applyMovement(tx, {
-        productId: order.productId,
-        quantity: parsed.data.kilosProduced,
-        movementType: "entrada_produccion",
-        referenceType: "manual_adjustment",
-        referenceId: created.id,
-        createdById: req.user!.userId,
-      });
-
-      await tx.productionOrder.update({ where: { id: productionOrderId }, data: { status: "finalizada" } });
+      await tx.productionOrder.update({ where: { id: productionOrderId }, data: { status: "pendiente_calidad" } });
     } else if (order.status === "pendiente") {
       await tx.productionOrder.update({ where: { id: productionOrderId }, data: { status: "en_proceso" } });
     }
@@ -229,4 +225,68 @@ productionOrdersRouter.post("/:id/stages", requireOperarios, async (req, res) =>
   });
 
   res.status(201).json(stage);
+});
+
+const qualityCheckSchema = z.object({
+  result: z.enum(["aprobado", "rechazado"]),
+  observations: z.string().optional(),
+});
+
+/**
+ * Aprueba o rechaza el lote de una OP que ya pasó por precorte. Si se
+ * aprueba, recién ahí se genera la entrada de inventario (con el kilaje
+ * registrado en el paso de precorte) y la OP queda finalizada; si se
+ * rechaza, la OP queda "detenida" sin mover stock.
+ */
+productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, res) => {
+  const productionOrderId = Number(req.params.id);
+  const parsed = qualityCheckSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const order = await prisma.productionOrder.findUnique({
+    where: { id: productionOrderId },
+    include: { qualityCheck: true },
+  });
+  if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  if (order.status !== "pendiente_calidad") {
+    return res.status(400).json({ error: "Esta OP no está pendiente de control de calidad" });
+  }
+  if (order.qualityCheck) {
+    return res.status(400).json({ error: "Esta OP ya tiene un control de calidad registrado" });
+  }
+
+  const check = await prisma.$transaction(async (tx) => {
+    const created = await tx.qualityCheck.create({
+      data: {
+        productionOrderId,
+        result: parsed.data.result,
+        observations: parsed.data.observations,
+        createdById: req.user!.userId,
+      },
+    });
+
+    if (parsed.data.result === "aprobado") {
+      const precorteStage = await tx.productionStageLog.findFirst({
+        where: { productionOrderId, station: "precorte" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (precorteStage) {
+        await applyMovement(tx, {
+          productId: order.productId,
+          quantity: Number(precorteStage.kilosProduced),
+          movementType: "entrada_produccion",
+          referenceType: "manual_adjustment",
+          referenceId: created.id,
+          createdById: req.user!.userId,
+        });
+      }
+      await tx.productionOrder.update({ where: { id: productionOrderId }, data: { status: "finalizada" } });
+    } else {
+      await tx.productionOrder.update({ where: { id: productionOrderId }, data: { status: "detenida" } });
+    }
+
+    return created;
+  });
+
+  res.status(201).json(check);
 });

@@ -27,7 +27,7 @@ export const OPERARIOS: UserRole[] = [...PRODUCCION_GESTION, "operario_extrusion
 export const OP_EXTRUSION: UserRole[] = [...PRODUCCION_GESTION, "operario_extrusion"];
 export const OP_IMPRESION: UserRole[] = [...PRODUCCION_GESTION, "operario_impresion"];
 export const OP_SELLADO: UserRole[] = [...PRODUCCION_GESTION, "operario_sellado_precorte"];
-const CALIDAD: UserRole[] = [...ADMIN, "calidad"];
+export const CALIDAD: UserRole[] = [...ADMIN, "calidad"];
 const AUDITORIA: UserRole[] = [...ADMIN, "auditor"];
 const INVENTARIO: UserRole[] = [...ADMIN, "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"];
 const TODOS: UserRole[] = [
@@ -111,7 +111,7 @@ export const navSections: NavEntry[] = [
       { id: "produccion-precorte", label: "Precorte", to: "/produccion/estacion/precorte", roles: OP_SELLADO },
     ],
   },
-  { id: "calidad", icon: "badge-check", label: "Calidad", disabled: true, roles: CALIDAD },
+  { id: "calidad", icon: "badge-check", label: "Calidad", to: "/calidad", roles: CALIDAD },
   { id: "trazabilidad", icon: "link", label: "Trazabilidad", disabled: true, roles: AUDITORIA },
   {
     id: "inventario",
