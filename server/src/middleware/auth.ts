@@ -60,6 +60,7 @@ export const ROLES = {
     "operario_sellado_precorte",
   ] as UserRole[],
   CALIDAD: ["super_admin", "admin", "calidad"] as UserRole[],
+  AUDITORIA: ["super_admin", "admin", "auditor"] as UserRole[],
 };
 
 /**

@@ -13,9 +13,10 @@ const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
 const requireOperarios = requireRole(...ROLES.OPERARIOS);
 const requireCalidad = requireRole(...ROLES.CALIDAD);
 // Calidad necesita GET / (para ver la cola ?status=pendiente_calidad) y
-// GET /:id/stages (para revisar el detalle del precorte al decidir), por
-// eso se admite acá a nivel de router además de en su endpoint propio.
-productionOrdersRouter.use(requireRole(...ROLES.OPERARIOS, ...ROLES.CALIDAD));
+// GET /:id/stages (para revisar el detalle del precorte al decidir);
+// Auditoría necesita GET /:id (Trazabilidad) — por eso ambos se admiten
+// acá a nivel de router, además de en sus endpoints propios de mutación.
+productionOrdersRouter.use(requireRole(...ROLES.OPERARIOS, ...ROLES.CALIDAD, ...ROLES.AUDITORIA));
 
 productionOrdersRouter.get("/", async (req, res) => {
   const status = req.query.status as string | undefined;
@@ -64,6 +65,32 @@ productionOrdersRouter.get("/pending-planning", requireProduccionGestion, async 
   });
 
   res.json(pending);
+});
+
+/**
+ * Detalle completo de una OP para Trazabilidad: sus pasos por estación, el
+ * resultado de Calidad (si ya se registró) y el pedido/cliente de origen
+ * (si vino de Planeación en vez de crearse manualmente).
+ */
+productionOrdersRouter.get("/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
+
+  const order = await prisma.productionOrder.findUnique({
+    where: { id },
+    include: {
+      product: true,
+      stages: { orderBy: { createdAt: "asc" } },
+      qualityCheck: { include: { createdBy: { select: { name: true } } } },
+      pedidoVersionItem: {
+        include: { pedidoVersion: { include: { pedido: { include: { client: true } } } } },
+      },
+      createdBy: { select: { name: true } },
+    },
+  });
+  if (!order) return res.status(404).json({ error: "OP no encontrada" });
+
+  res.json(order);
 });
 
 const createOrderSchema = z.object({

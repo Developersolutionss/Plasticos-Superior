@@ -144,6 +144,7 @@ export const api = {
 
   getProductionOrders: (status?: string) =>
     request<any[]>(`/production-orders${status ? `?status=${status}` : ""}`),
+  getProductionOrder: (id: number) => request<any>(`/production-orders/${id}`),
   createProductionOrder: (data: { productId: number; quantityPlanned: number; measure?: string; notes?: string }) =>
     request<any>("/production-orders", { method: "POST", body: JSON.stringify(data) }),
   getPendingPlanning: () => request<any[]>("/production-orders/pending-planning"),
