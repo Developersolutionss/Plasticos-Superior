@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import QRCode from "qrcode";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { getStockByCategory } from "../services/stockService";
@@ -27,6 +28,42 @@ warehouseRouter.post("/locations", async (req, res) => {
 
   const location = await prisma.warehouseLocation.create({ data: parsed.data });
   res.status(201).json(location);
+});
+
+/** QR imprimible: al escanearlo (cámara normal, sin hardware especial) abre
+ * la página de stock en tiempo real de esa ubicación. Mismo patrón que el
+ * QR de 2FA en services/totp.ts (QRCode.toDataURL). */
+warehouseRouter.get("/locations/:id/qr", async (req, res) => {
+  const id = Number(req.params.id);
+  const location = await prisma.warehouseLocation.findUnique({ where: { id } });
+  if (!location) return res.status(404).json({ error: "Ubicación no encontrada" });
+
+  const url = `${process.env.FRONTEND_URL}/almacen/ubicacion/${location.code}`;
+  const dataUrl = await QRCode.toDataURL(url);
+  res.json({ dataUrl, url });
+});
+
+/** Lo que consume la página a la que apunta el QR de arriba. */
+warehouseRouter.get("/locations/by-code/:code", async (req, res) => {
+  const location = await prisma.warehouseLocation.findUnique({ where: { code: req.params.code } });
+  if (!location) return res.status(404).json({ error: "Ubicación no encontrada" });
+
+  const stock = await prisma.stockLocation.findMany({
+    where: { locationId: location.id },
+    include: { product: true },
+    orderBy: { product: { name: "asc" } },
+  });
+
+  res.json({
+    location: { code: location.code, label: location.label },
+    items: stock.map((row) => ({
+      productId: row.productId,
+      sku: row.product.sku,
+      name: row.product.name,
+      unit: row.product.unit,
+      quantity: Number(row.quantity),
+    })),
+  });
 });
 
 /**

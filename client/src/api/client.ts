@@ -265,4 +265,7 @@ export const api = {
   getWarehouseStock: () => request<any[]>("/warehouse/stock"),
   assignWarehouseStock: (data: { productId: number; toLocationId: number; quantity: number; fromLocationId?: number }) =>
     request<any>("/warehouse/assign", { method: "POST", body: JSON.stringify(data) }),
+  getWarehouseLocationQr: (id: number) => request<{ dataUrl: string; url: string }>(`/warehouse/locations/${id}/qr`),
+  getWarehouseLocationByCode: (code: string) =>
+    request<{ location: { code: string; label: string }; items: any[] }>(`/warehouse/locations/by-code/${code}`),
 };
