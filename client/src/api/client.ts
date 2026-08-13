@@ -68,6 +68,10 @@ export const api = {
   ) => request<any>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(data) }),
   deactivateProduct: (productId: number) => request<any>(`/products/${productId}`, { method: "DELETE" }),
   reactivateProduct: (productId: number) => request<any>(`/products/${productId}/reactivate`, { method: "POST" }),
+  getProductLabel: (productId: number) =>
+    request<{ sku: string; name: string; category: string; measure: string | null; unit: string; qrDataUrl: string }>(
+      `/products/${productId}/label`
+    ),
 
   getUsers: () => request<any[]>("/users"),
   createUser: (data: { name: string; email: string; password: string; role: string }) =>
@@ -304,6 +308,10 @@ export const api = {
   assignWarehouseStock: (data: { productId: number; toLocationId: number; quantity: number; fromLocationId?: number }) =>
     request<any>("/warehouse/assign", { method: "POST", body: JSON.stringify(data) }),
   getWarehouseLocationQr: (id: number) => request<{ dataUrl: string; url: string }>(`/warehouse/locations/${id}/qr`),
+  /** Resuelve el token del QR de ubicación (ya escaneado con la cámara) a un
+   * locationId, para autocompletar el AssignForm de Almacén. */
+  getWarehouseLocationByToken: (token: string) =>
+    request<{ id: number; code: string; label: string }>(`/warehouse/locations/by-token/${token}`),
   /** Sin auth (la ruta del token es pública) — igual pasa por `request()`,
    * el Authorization que agrega si hay sesión no molesta al backend. */
   getPublicLocation: (token: string) =>

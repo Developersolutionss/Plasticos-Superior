@@ -56,6 +56,19 @@ warehouseRouter.get("/locations/:id/qr", async (req, res) => {
   res.json({ dataUrl, url });
 });
 
+/** Resuelve el token del QR de ubicación (ya impreso/pegado en el estante)
+ * a un `locationId` usable dentro de la sesión autenticada — para el
+ * escaneo de "ubicación" en Almacén, sin tener que reimprimir ningún QR:
+ * reusa el mismo `publicToken` del endpoint público (publicLocation.ts). */
+warehouseRouter.get("/locations/by-token/:token", async (req, res) => {
+  const location = await prisma.warehouseLocation.findUnique({
+    where: { publicToken: req.params.token },
+    select: { id: true, code: true, label: true },
+  });
+  if (!location) return res.status(404).json({ error: "Ubicación no encontrada" });
+  res.json(location);
+});
+
 /**
  * Stock total (de InventoryStock) por producto, cruzado con sus
  * StockLocation. `unassigned` es lo que todavía no tiene ubicación

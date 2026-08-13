@@ -1,9 +1,59 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Pencil, Plus } from "lucide-react";
+import { Pencil, Plus, Tag } from "lucide-react";
 import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ProductoForm from "../components/ProductoForm";
+
+/** Arma un HTML autocontenido (con su propio @media print) en una ventana
+ * nueva e imprime — evita tocar el layout/CSS de la app principal, patrón
+ * estándar para "imprimir solo esto" en una SPA. */
+function printLabels(labels: { sku: string; name: string; qrDataUrl: string }[]) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  const cards = labels
+    .map(
+      (l) => `
+        <div class="label">
+          <img src="${l.qrDataUrl}" alt="QR ${l.sku}" />
+          <div class="text">
+            <p class="sku">${l.sku}</p>
+            <p class="name">${l.name}</p>
+          </div>
+        </div>`
+    )
+    .join("");
+
+  win.document.write(`<!DOCTYPE html>
+    <html>
+      <head>
+        <title>Etiquetas</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: sans-serif; margin: 0; padding: 8mm; }
+          .grid { display: flex; flex-wrap: wrap; gap: 4mm; }
+          .label {
+            width: 6cm; height: 4cm;
+            border: 1px dashed #999; border-radius: 3mm;
+            padding: 3mm; display: flex; align-items: center; gap: 3mm;
+            page-break-inside: avoid;
+          }
+          .label img { width: 2.6cm; height: 2.6cm; flex-shrink: 0; }
+          .label .text { overflow: hidden; }
+          .label .sku { font-weight: bold; font-size: 12pt; margin: 0 0 2mm; }
+          .label .name { font-size: 9pt; margin: 0; color: #333; }
+          @media print { body { padding: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="grid">${cards}</div>
+      </body>
+    </html>`);
+  win.document.close();
+  win.focus();
+  win.print();
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
   bultos: "Bultos",
@@ -22,6 +72,8 @@ export default function Productos() {
   const [creating, setCreating] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [deactivatingId, setDeactivatingId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [printing, setPrinting] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: products, isLoading } = useQuery({ queryKey: ["allProducts"], queryFn: api.getAllProducts });
@@ -37,6 +89,30 @@ export default function Productos() {
     queryClient.invalidateQueries({ queryKey: ["allProducts"] });
   }
 
+  function toggleSelected(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (!products) return;
+    setSelectedIds((prev) => (prev.size === products.length ? new Set() : new Set(products.map((p: any) => p.id))));
+  }
+
+  async function handlePrintLabels() {
+    setPrinting(true);
+    try {
+      const labels = await Promise.all([...selectedIds].map((id) => api.getProductLabel(id)));
+      printLabels(labels);
+    } finally {
+      setPrinting(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -44,12 +120,24 @@ export default function Productos() {
           <h1 className="text-xl font-semibold text-slate-800">Productos</h1>
           <p className="text-sm text-slate-500">Catálogo de productos del inventario</p>
         </div>
-        <button
-          onClick={() => setCreating(true)}
-          className="bg-slate-800 text-white text-sm px-4 py-2 rounded inline-flex items-center gap-1.5 hover:bg-slate-700"
-        >
-          <Plus size={16} strokeWidth={2} aria-hidden="true" /> Nuevo producto
-        </button>
+        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handlePrintLabels}
+              disabled={printing}
+              className="border border-slate-300 text-slate-700 text-sm px-4 py-2 rounded inline-flex items-center gap-1.5 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <Tag size={16} strokeWidth={2} aria-hidden="true" />
+              {printing ? "Generando..." : `Imprimir etiquetas (${selectedIds.size})`}
+            </button>
+          )}
+          <button
+            onClick={() => setCreating(true)}
+            className="bg-slate-800 text-white text-sm px-4 py-2 rounded inline-flex items-center gap-1.5 hover:bg-slate-700"
+          >
+            <Plus size={16} strokeWidth={2} aria-hidden="true" /> Nuevo producto
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -61,6 +149,13 @@ export default function Productos() {
             <table className="hidden md:table w-full text-sm">
               <thead className="bg-slate-50 text-left text-slate-500">
                 <tr>
+                  <th className="p-3 w-8">
+                    <input
+                      type="checkbox"
+                      checked={products.length > 0 && selectedIds.size === products.length}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
                   <th className="p-3">SKU</th>
                   <th className="p-3">Nombre</th>
                   <th className="p-3">Categoría</th>
@@ -74,6 +169,9 @@ export default function Productos() {
               <tbody>
                 {products.map((p: any) => (
                   <tr key={p.id} className="border-t border-slate-100">
+                    <td className="p-3">
+                      <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelected(p.id)} />
+                    </td>
                     <td className="p-3 text-slate-500">{p.sku}</td>
                     <td className="p-3 font-medium text-slate-800">{p.name}</td>
                     <td className="p-3 text-slate-600">{CATEGORY_LABELS[p.category] ?? p.category}</td>
@@ -130,9 +228,12 @@ export default function Productos() {
               {products.map((p: any) => (
                 <div key={p.id} className="p-4 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium text-slate-800">
-                      {p.name} <span className="text-slate-400 font-normal">({p.sku})</span>
-                    </p>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelected(p.id)} />
+                      <p className="font-medium text-slate-800">
+                        {p.name} <span className="text-slate-400 font-normal">({p.sku})</span>
+                      </p>
+                    </label>
                     {p.active ? (
                       <span className="text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full shrink-0">Activo</span>
                     ) : (

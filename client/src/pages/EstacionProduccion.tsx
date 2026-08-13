@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, ReactNode, useState } from "react";
 import { useParams } from "react-router-dom";
-import { CircleCheck, CircleAlert, History } from "lucide-react";
+import { CircleCheck, CircleAlert, History, ScanLine } from "lucide-react";
 import { api } from "../api/client";
+import BarcodeScanner from "../components/BarcodeScanner";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -82,10 +83,22 @@ export default function EstacionProduccion() {
   const [details, setDetails] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: orders } = useQuery({ queryKey: ["productionOrders"], queryFn: () => api.getProductionOrders() });
   const openOrders = orders?.filter((o: any) => o.status !== "finalizada" && o.status !== "cancelada") ?? [];
+
+  function handleScannedOrder(orderNumber: string) {
+    setScanning(false);
+    const match = openOrders.find((o: any) => o.orderNumber === orderNumber);
+    if (!match) {
+      setError(`No se encontró ninguna OP abierta con número "${orderNumber}".`);
+      return;
+    }
+    setError(null);
+    setForm((f) => ({ ...f, productionOrderId: String(match.id) }));
+  }
 
   const { data: stages } = useQuery({
     queryKey: ["productionOrderStages", form.productionOrderId],
@@ -160,18 +173,28 @@ export default function EstacionProduccion() {
         <div className="p-5 space-y-5">
           <section className="space-y-3">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Orden de producción</h2>
-            <select
-              className={inputClass}
-              value={form.productionOrderId}
-              onChange={(e) => setForm({ ...form, productionOrderId: e.target.value })}
-            >
-              <option value="">Orden de producción (OP)...</option>
-              {openOrders.map((o: any) => (
-                <option key={o.id} value={o.id}>
-                  {o.orderNumber} — {o.product.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                className={inputClass}
+                value={form.productionOrderId}
+                onChange={(e) => setForm({ ...form, productionOrderId: e.target.value })}
+              >
+                <option value="">Orden de producción (OP)...</option>
+                {openOrders.map((o: any) => (
+                  <option key={o.id} value={o.id}>
+                    {o.orderNumber} — {o.product.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="shrink-0 border border-slate-300 rounded-md px-3 text-slate-600 hover:bg-slate-50"
+                title="Escanear OP"
+                onClick={() => setScanning(true)}
+              >
+                <ScanLine size={16} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
           </section>
 
           <section className="space-y-3 border-t border-slate-100 pt-5">
@@ -330,6 +353,10 @@ export default function EstacionProduccion() {
             {stationStages.length === 0 && <p className="text-slate-500 px-5 py-4">Sin registros todavía.</p>}
           </ul>
         </div>
+      )}
+
+      {scanning && (
+        <BarcodeScanner title="Escanear OP" onDetected={handleScannedOrder} onClose={() => setScanning(false)} />
       )}
     </div>
   );

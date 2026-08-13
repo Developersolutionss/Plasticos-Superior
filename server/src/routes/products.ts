@@ -1,4 +1,5 @@
 import { Router } from "express";
+import QRCode from "qrcode";
 import { z } from "zod";
 import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
@@ -16,6 +17,28 @@ const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
 productsRouter.get("/", async (_req, res) => {
   const products = await prisma.product.findMany({ orderBy: { name: "asc" } });
   res.json(products);
+});
+
+/** Etiqueta térmica imprimible: QR con el SKU (mismo formato que el QR de
+ * ubicaciones de Almacén, así el mismo lector de cámara sirve para ambos). */
+productsRouter.get("/:id/label", async (req, res) => {
+  const productId = Number(req.params.id);
+  if (!Number.isInteger(productId) || productId <= 0) {
+    return res.status(400).json({ error: "ID de producto inválido" });
+  }
+
+  const product = await prisma.product.findUnique({ where: { id: productId } });
+  if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+
+  const qrDataUrl = await QRCode.toDataURL(product.sku);
+  res.json({
+    sku: product.sku,
+    name: product.name,
+    category: product.category,
+    measure: product.measure,
+    unit: product.unit,
+    qrDataUrl,
+  });
 });
 
 const productSchema = z.object({

@@ -1,7 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, ReactNode, useState } from "react";
-import { ChevronDown, ChevronRight, CircleAlert, MapPin, QrCode, X } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleAlert, MapPin, QrCode, ScanLine, X } from "lucide-react";
 import { api } from "../api/client";
+import BarcodeScanner from "../components/BarcodeScanner";
+
+/** El QR de ubicación codifica una URL pública (.../qr/:token) — acá se
+ * extrae el token, tanto si se escaneó esa URL completa como si (por las
+ * dudas) se escaneó un token suelto. */
+function extractLocationToken(scanned: string): string {
+  const parts = scanned.split("/").filter(Boolean);
+  return parts[parts.length - 1];
+}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -21,10 +30,23 @@ export default function Almacen() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [expandedProductId, setExpandedProductId] = useState<number | null>(null);
   const [qrLocationId, setQrLocationId] = useState<number | null>(null);
+  const [scanningProduct, setScanningProduct] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data: locations } = useQuery({ queryKey: ["warehouseLocations"], queryFn: api.getWarehouseLocations });
   const { data: stock, isLoading } = useQuery({ queryKey: ["warehouseStock"], queryFn: api.getWarehouseStock });
+
+  function handleScannedProduct(sku: string) {
+    setScanningProduct(false);
+    const match = stock?.find((p: any) => p.sku === sku);
+    if (!match) {
+      setScanError(`No se encontró ningún producto con SKU "${sku}".`);
+      return;
+    }
+    setScanError(null);
+    setExpandedProductId(match.productId);
+  }
 
   async function handleCreateLocation(e: FormEvent) {
     e.preventDefault();
@@ -104,9 +126,20 @@ export default function Almacen() {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100">
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stock por producto</h2>
+          <button
+            type="button"
+            className="text-slate-600 text-xs border border-slate-300 rounded-md px-2.5 py-1.5 inline-flex items-center gap-1.5 hover:bg-slate-50"
+            onClick={() => {
+              setScanError(null);
+              setScanningProduct(true);
+            }}
+          >
+            <ScanLine size={14} strokeWidth={2} aria-hidden="true" /> Escanear producto
+          </button>
         </div>
+        {scanError && <p className="px-5 pt-3 text-red-600 text-xs">{scanError}</p>}
         {isLoading && <p className="p-4 text-center text-slate-500 text-sm">Cargando...</p>}
         {!isLoading && stock?.length === 0 && <p className="p-4 text-center text-slate-500 text-sm">No hay productos.</p>}
 
@@ -150,6 +183,9 @@ export default function Almacen() {
       </div>
 
       {qrLocationId !== null && <QrModal locationId={qrLocationId} onClose={() => setQrLocationId(null)} />}
+      {scanningProduct && (
+        <BarcodeScanner title="Escanear producto" onDetected={handleScannedProduct} onClose={() => setScanningProduct(false)} />
+      )}
     </div>
   );
 }
@@ -196,7 +232,19 @@ function AssignForm({ product, locations }: { product: any; locations: any[] }) 
   const [fromLocationId, setFromLocationId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [scanningLocation, setScanningLocation] = useState(false);
   const queryClient = useQueryClient();
+
+  async function handleScannedLocation(scanned: string) {
+    setScanningLocation(false);
+    try {
+      const location = await api.getWarehouseLocationByToken(extractLocationToken(scanned));
+      setError(null);
+      setToLocationId(String(location.id));
+    } catch {
+      setError("No se pudo reconocer el QR escaneado como una ubicación válida.");
+    }
+  }
 
   async function handleAssign(e: FormEvent) {
     e.preventDefault();
@@ -252,14 +300,24 @@ function AssignForm({ product, locations }: { product: any; locations: any[] }) 
             </select>
           </Field>
           <Field label="Hacia">
-            <select className={inputClass} value={toLocationId} onChange={(e) => setToLocationId(e.target.value)}>
-              <option value="">Elegir...</option>
-              {locations.map((loc: any) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.code}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-1.5">
+              <select className={inputClass} value={toLocationId} onChange={(e) => setToLocationId(e.target.value)}>
+                <option value="">Elegir...</option>
+                {locations.map((loc: any) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.code}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="shrink-0 border border-slate-300 rounded-md px-2.5 text-slate-600 hover:bg-slate-50"
+                title="Escanear QR de la ubicación"
+                onClick={() => setScanningLocation(true)}
+              >
+                <ScanLine size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
           </Field>
           <Field label="Cantidad">
             <input
@@ -279,6 +337,14 @@ function AssignForm({ product, locations }: { product: any; locations: any[] }) 
           </button>
         </div>
       </form>
+
+      {scanningLocation && (
+        <BarcodeScanner
+          title="Escanear QR de ubicación"
+          onDetected={handleScannedLocation}
+          onClose={() => setScanningLocation(false)}
+        />
+      )}
     </div>
   );
 }

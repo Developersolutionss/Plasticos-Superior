@@ -1,12 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { ScanLine } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { VENTAS } from "../components/navConfig";
+import BarcodeScanner from "../components/BarcodeScanner";
 
 export default function Dispatches() {
   const [clientId, setClientId] = useState<string>("");
   const [status, setStatus] = useState<string>("pendiente");
+  const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
@@ -28,9 +32,33 @@ export default function Dispatches() {
     queryClient.invalidateQueries({ queryKey: ["alerts"] });
   }
 
+  async function handleScanned(sku: string) {
+    setScanning(false);
+    const match = dispatches
+      ?.flatMap((d: any) => d.items.map((item: any) => ({ dispatch: d, item })))
+      .find(({ item }: any) => item.quantityDispatched == null && item.product.sku === sku);
+
+    if (!match) {
+      setScanMessage(`No se encontró ningún ítem pendiente con SKU "${sku}".`);
+      return;
+    }
+    setScanMessage(null);
+    await markDispatched(match.dispatch.id, match.item.id, Number(match.item.quantityRequested));
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="bg-slate-800 text-white text-sm px-3 py-2 rounded inline-flex items-center gap-1.5 hover:bg-slate-700"
+          onClick={() => {
+            setScanMessage(null);
+            setScanning(true);
+          }}
+        >
+          <ScanLine size={16} strokeWidth={2} aria-hidden="true" /> Escanear
+        </button>
         {canReadClients && (
           <select className="border rounded px-3 py-2" value={clientId} onChange={(e) => setClientId(e.target.value)}>
             <option value="">Todos los clientes</option>
@@ -49,6 +77,7 @@ export default function Dispatches() {
         </select>
       </div>
 
+      {scanMessage && <p className="text-red-600 text-sm">{scanMessage}</p>}
       {isLoading && <p className="text-slate-500">Cargando...</p>}
 
       <div className="space-y-3">
@@ -85,6 +114,10 @@ export default function Dispatches() {
         ))}
         {dispatches?.length === 0 && <p className="text-slate-500">No hay despachos para este filtro.</p>}
       </div>
+
+      {scanning && (
+        <BarcodeScanner title="Escanear producto" onDetected={handleScanned} onClose={() => setScanning(false)} />
+      )}
     </div>
   );
 }
