@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { ChevronRight, Menu, Wrench, Zap } from "lucide-react";
+import { ChevronRight, Menu, Wrench, X, Zap } from "lucide-react";
 import "./Sidebar.css";
 import NavIcon from "./NavIcon";
 import { filterNavSections, type NavChoice, type NavEntry, type NavLeaf } from "./navConfig";
@@ -98,19 +98,39 @@ function NavSection({ entry }: { entry: NavEntry }) {
   );
 }
 
-export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+export default function Sidebar({
+  collapsed,
+  onToggle,
+  mobileOpen,
+  onCloseMobile,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
+}) {
   const { atajos } = useShortcuts();
   const [showConfig, setShowConfig] = useState(false);
   const { user } = useAuth();
   const navSections = user ? filterNavSections(user.role) : [];
 
   return (
-    <aside className="sidebar">
+    <>
+      {mobileOpen && <div className="sidebar-backdrop md:hidden" onClick={onCloseMobile} />}
+      <aside className={`sidebar ${mobileOpen ? "mobile-open" : ""}`}>
       <div className="sidebar-header">
         <div className="sidebar-logo">P</div>
         <span className="sidebar-brand hidden-when-collapsed">Plásticos Superior</span>
-        <button className="sidebar-collapse-btn" type="button" onClick={onToggle} title="Colapsar menú">
+        <button
+          className="sidebar-collapse-btn hidden md:inline-flex"
+          type="button"
+          onClick={onToggle}
+          title="Colapsar menú"
+        >
           <Menu size={18} strokeWidth={2} aria-hidden="true" />
+        </button>
+        <button className="sidebar-collapse-btn md:hidden" type="button" onClick={onCloseMobile} title="Cerrar menú">
+          <X size={18} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
 
@@ -151,6 +171,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
       </div>
 
       {showConfig && <ShortcutsConfig onClose={() => setShowConfig(false)} />}
-    </aside>
+      </aside>
+    </>
   );
 }

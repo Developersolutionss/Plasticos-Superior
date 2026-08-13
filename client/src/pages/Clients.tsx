@@ -373,12 +373,12 @@ export default function Clients() {
 
               {error && <p className="text-red-600 text-sm">{error}</p>}
 
-              <div className="flex gap-1 border-b">
+              <div className="flex gap-1 border-b overflow-x-auto">
                 {TABS.map((t) => (
                   <button
                     key={t.key}
                     onClick={() => setActiveTab(t.key)}
-                    className={`px-3 py-2 text-sm border-b-2 -mb-px ${
+                    className={`px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap ${
                       activeTab === t.key ? "border-slate-800 font-medium text-slate-800" : "border-transparent text-slate-500"
                     }`}
                   >
@@ -413,7 +413,7 @@ export default function Clients() {
 
                   <form onSubmit={handleCreateContact} className="border-t pt-4 space-y-2">
                     <p className="text-sm font-medium text-slate-700">Agregar contacto</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <input
                         className="border rounded px-3 py-2 text-sm"
                         placeholder="Nombre"
@@ -482,7 +482,7 @@ export default function Clients() {
 
                   <form onSubmit={handleCreateAddress} className="border-t pt-4 space-y-2">
                     <p className="text-sm font-medium text-slate-700">Agregar dirección</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <input
                         className="border rounded px-3 py-2 text-sm"
                         placeholder="Etiqueta (ej. Bodega Principal)"
@@ -574,7 +574,7 @@ export default function Clients() {
 
               {activeTab === "cartera" && (
                 <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4 max-w-md">
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4 max-w-md">
                     <div className="border rounded-lg p-3">
                       <p className="text-xs uppercase tracking-wide text-slate-400">Límite de crédito</p>
                       <p className="text-lg font-semibold">${Number(cartera?.creditLimit ?? 0).toLocaleString("es-CO")}</p>

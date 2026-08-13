@@ -47,47 +47,66 @@ export default function InventoryDashboard() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-100 text-left">
-            <tr>
-              <th className="p-3">SKU</th>
-              <th className="p-3">Producto</th>
-              <th className="p-3">Medida</th>
-              <th className="p-3">Stock actual</th>
-              <th className="p-3">Mínimo</th>
-              <th className="p-3">Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={6} className="p-4 text-center text-slate-500">
-                  Cargando...
-                </td>
-              </tr>
-            )}
-            {stock?.map((p: any) => (
-              <tr key={p.id} className="border-t">
-                <td className="p-3">{p.sku}</td>
-                <td className="p-3">{p.name}</td>
-                <td className="p-3">{p.measure ?? "-"}</td>
-                <td className="p-3">
-                  {p.currentStock} {p.unit}
-                </td>
-                <td className="p-3">{p.minStock}</td>
-                <td className="p-3">
+      {isLoading && <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Cargando...</div>}
+
+      {!isLoading && stock && (
+        <>
+          <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 text-left">
+                <tr>
+                  <th className="p-3">SKU</th>
+                  <th className="p-3">Producto</th>
+                  <th className="p-3">Medida</th>
+                  <th className="p-3">Stock actual</th>
+                  <th className="p-3">Mínimo</th>
+                  <th className="p-3">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stock.map((p: any) => (
+                  <tr key={p.id} className="border-t">
+                    <td className="p-3">{p.sku}</td>
+                    <td className="p-3">{p.name}</td>
+                    <td className="p-3">{p.measure ?? "-"}</td>
+                    <td className="p-3">
+                      {p.currentStock} {p.unit}
+                    </td>
+                    <td className="p-3">{p.minStock}</td>
+                    <td className="p-3">
+                      {p.belowMinimum ? (
+                        <span className="text-amber-700 font-medium">Bajo mínimo</span>
+                      ) : (
+                        <span className="text-emerald-700">OK</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden bg-white rounded-lg shadow divide-y divide-slate-100">
+            {stock.map((p: any) => (
+              <div key={p.id} className="p-4 space-y-1">
+                <div className="flex items-center justify-between">
+                  <p className="font-medium text-slate-800">
+                    {p.name} <span className="text-slate-400 font-normal">({p.sku})</span>
+                  </p>
                   {p.belowMinimum ? (
-                    <span className="text-amber-700 font-medium">Bajo mínimo</span>
+                    <span className="text-amber-700 font-medium text-xs shrink-0">Bajo mínimo</span>
                   ) : (
-                    <span className="text-emerald-700">OK</span>
+                    <span className="text-emerald-700 text-xs shrink-0">OK</span>
                   )}
-                </td>
-              </tr>
+                </div>
+                <p className="text-sm text-slate-500">
+                  {p.measure ?? "-"} · Stock: {p.currentStock} {p.unit} · Mínimo: {p.minStock}
+                </p>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -34,6 +34,62 @@ export default function Calidad() {
     return precorte?.kilosProduced;
   }
 
+  function Actions({ order, align }: { order: any; align: "end" | "stretch" }) {
+    if (rejectingId === order.id) {
+      return (
+        <div className={`flex flex-col gap-2 ${align === "end" ? "items-end" : ""}`}>
+          <textarea
+            className="border rounded px-2 py-1 text-xs w-full sm:w-56"
+            placeholder="Motivo del rechazo (opcional)"
+            value={observations}
+            onChange={(e) => setObservations(e.target.value)}
+            rows={2}
+          />
+          <div className="flex gap-2">
+            <button
+              className="text-slate-500 hover:text-slate-700 text-xs px-2 py-1"
+              type="button"
+              onClick={() => {
+                setRejectingId(null);
+                setObservations("");
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
+              type="button"
+              disabled={submittingId === order.id}
+              onClick={() => handleSubmit(order.id, "rechazado")}
+            >
+              Confirmar rechazo
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className={`flex gap-2 ${align === "end" ? "justify-end" : ""}`}>
+        <button
+          className="border border-red-300 text-red-700 hover:bg-red-50 text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 flex-1 sm:flex-none"
+          type="button"
+          disabled={submittingId === order.id}
+          onClick={() => setRejectingId(order.id)}
+        >
+          Rechazar
+        </button>
+        <button
+          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 flex-1 sm:flex-none"
+          type="button"
+          disabled={submittingId === order.id}
+          onClick={() => handleSubmit(order.id, "aprobado")}
+        >
+          {submittingId === order.id ? "Guardando..." : "Aprobar"}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -43,97 +99,60 @@ export default function Calidad() {
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
 
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-100 text-left">
-            <tr>
-              <th className="p-3">OP</th>
-              <th className="p-3">Producto</th>
-              <th className="p-3">Cant. planificada</th>
-              <th className="p-3">Kg en precorte</th>
-              <th className="p-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={5} className="p-4 text-center text-slate-500">
-                  Cargando...
-                </td>
-              </tr>
-            )}
-            {pending?.map((order: any) => (
-              <tr key={order.id} className="border-t align-top">
-                <td className="p-3 font-medium">{order.orderNumber}</td>
-                <td className="p-3">{order.product.name}</td>
-                <td className="p-3">
-                  {order.quantityPlanned} {order.product.unit}
-                </td>
-                <td className="p-3">{precorteKg(order) ?? "—"}</td>
-                <td className="p-3">
-                  {rejectingId === order.id ? (
-                    <div className="flex flex-col gap-2 items-end">
-                      <textarea
-                        className="border rounded px-2 py-1 text-xs w-56"
-                        placeholder="Motivo del rechazo (opcional)"
-                        value={observations}
-                        onChange={(e) => setObservations(e.target.value)}
-                        rows={2}
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          className="text-slate-500 hover:text-slate-700 text-xs px-2 py-1"
-                          type="button"
-                          onClick={() => {
-                            setRejectingId(null);
-                            setObservations("");
-                          }}
-                        >
-                          Cancelar
-                        </button>
-                        <button
-                          className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
-                          type="button"
-                          disabled={submittingId === order.id}
-                          onClick={() => handleSubmit(order.id, "rechazado")}
-                        >
-                          Confirmar rechazo
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        className="border border-red-300 text-red-700 hover:bg-red-50 text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
-                        type="button"
-                        disabled={submittingId === order.id}
-                        onClick={() => setRejectingId(order.id)}
-                      >
-                        Rechazar
-                      </button>
-                      <button
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
-                        type="button"
-                        disabled={submittingId === order.id}
-                        onClick={() => handleSubmit(order.id, "aprobado")}
-                      >
-                        {submittingId === order.id ? "Guardando..." : "Aprobar"}
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
+      {isLoading && <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Cargando...</div>}
+      {!isLoading && pending?.length === 0 && (
+        <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">
+          No hay órdenes pendientes de control de calidad.
+        </div>
+      )}
+
+      {!isLoading && pending && pending.length > 0 && (
+        <>
+          <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 text-left">
+                <tr>
+                  <th className="p-3">OP</th>
+                  <th className="p-3">Producto</th>
+                  <th className="p-3">Cant. planificada</th>
+                  <th className="p-3">Kg en precorte</th>
+                  <th className="p-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {pending.map((order: any) => (
+                  <tr key={order.id} className="border-t align-top">
+                    <td className="p-3 font-medium">{order.orderNumber}</td>
+                    <td className="p-3">{order.product.name}</td>
+                    <td className="p-3">
+                      {order.quantityPlanned} {order.product.unit}
+                    </td>
+                    <td className="p-3">{precorteKg(order) ?? "—"}</td>
+                    <td className="p-3">
+                      <Actions order={order} align="end" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden bg-white rounded-lg shadow divide-y divide-slate-100">
+            {pending.map((order: any) => (
+              <div key={order.id} className="p-4 space-y-3">
+                <div>
+                  <p className="font-medium text-slate-800">{order.orderNumber}</p>
+                  <p className="text-sm text-slate-600">{order.product.name}</p>
+                  <p className="text-sm text-slate-500">
+                    Planificado: {order.quantityPlanned} {order.product.unit} · Precorte: {precorteKg(order) ?? "—"}
+                  </p>
+                </div>
+                <Actions order={order} align="stretch" />
+              </div>
             ))}
-            {pending?.length === 0 && (
-              <tr>
-                <td colSpan={5} className="p-4 text-center text-slate-500">
-                  No hay órdenes pendientes de control de calidad.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

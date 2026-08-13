@@ -53,7 +53,7 @@ export default function ProductionUpload() {
             {preview.filename}: {preview.totalRows} filas · {preview.validRows} válidas · {preview.invalidRows} con
             error
           </p>
-          <div className="overflow-x-auto max-h-80 overflow-y-auto">
+          <div className="hidden sm:block overflow-x-auto max-h-80 overflow-y-auto">
             <table className="w-full text-xs">
               <thead className="bg-slate-100 text-left">
                 <tr>
@@ -78,6 +78,23 @@ export default function ProductionUpload() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="sm:hidden max-h-80 overflow-y-auto divide-y border rounded">
+            {preview.rows.map((r) => (
+              <div key={r.rowNumber} className={`p-2.5 text-xs space-y-0.5 ${r.error ? "bg-red-50" : ""}`}>
+                <div className="flex items-center justify-between">
+                  <p className="font-medium">
+                    Fila {r.rowNumber} — {r.sku}
+                  </p>
+                  <p>{r.kilos} kg</p>
+                </div>
+                <p className="text-slate-500">
+                  {r.operatorName} · {r.clientName ?? "-"}
+                </p>
+                {r.error && <p className="text-red-600">{r.error}</p>}
+              </div>
+            ))}
           </div>
           <div className="flex gap-2">
             <button

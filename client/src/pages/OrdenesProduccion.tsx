@@ -120,60 +120,86 @@ export default function OrdenesProduccion() {
         </button>
       </form>
 
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-100 text-left">
-            <tr>
-              <th className="p-3">OP</th>
-              <th className="p-3">Producto</th>
-              <th className="p-3">Cant. planificada</th>
-              <th className="p-3">Avance</th>
-              <th className="p-3">Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={5} className="p-4 text-center text-slate-500">
-                  Cargando...
-                </td>
-              </tr>
-            )}
-            {orders?.map((o: any) => (
-              <tr key={o.id} className="border-t">
-                <td className="p-3 font-medium">{o.orderNumber}</td>
-                <td className="p-3">{o.product.name}</td>
-                <td className="p-3">
+      {isLoading && <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Cargando...</div>}
+
+      {!isLoading && orders?.length === 0 && (
+        <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">
+          Todavía no hay órdenes de producción.
+        </div>
+      )}
+
+      {!isLoading && orders && orders.length > 0 && (
+        <>
+          <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 text-left">
+                <tr>
+                  <th className="p-3">OP</th>
+                  <th className="p-3">Producto</th>
+                  <th className="p-3">Cant. planificada</th>
+                  <th className="p-3">Avance</th>
+                  <th className="p-3">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map((o: any) => (
+                  <tr key={o.id} className="border-t">
+                    <td className="p-3 font-medium">{o.orderNumber}</td>
+                    <td className="p-3">{o.product.name}</td>
+                    <td className="p-3">
+                      {o.quantityPlanned} {o.product.unit}
+                    </td>
+                    <td className="p-3" title="Extrusión · Impresión · Sellado · Precorte">
+                      <StationsCompleted order={o} />
+                    </td>
+                    <td className="p-3">
+                      <select
+                        className={`text-xs rounded-full px-2 py-1 border-0 ${STATUS_COLORS[o.status]}`}
+                        value={o.status}
+                        onChange={(e) => handleStatusChange(o.id, e.target.value)}
+                      >
+                        {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden bg-white rounded-lg shadow divide-y divide-slate-100">
+            {orders.map((o: any) => (
+              <div key={o.id} className="p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="font-medium text-slate-800">{o.orderNumber}</p>
+                  <span title="Extrusión · Impresión · Sellado · Precorte">
+                    <StationsCompleted order={o} />
+                  </span>
+                </div>
+                <p className="text-sm text-slate-600">{o.product.name}</p>
+                <p className="text-sm text-slate-500">
                   {o.quantityPlanned} {o.product.unit}
-                </td>
-                <td className="p-3" title="Extrusión · Impresión · Sellado · Precorte">
-                  <StationsCompleted order={o} />
-                </td>
-                <td className="p-3">
-                  <select
-                    className={`text-xs rounded-full px-2 py-1 border-0 ${STATUS_COLORS[o.status]}`}
-                    value={o.status}
-                    onChange={(e) => handleStatusChange(o.id, e.target.value)}
-                  >
-                    {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-              </tr>
+                </p>
+                <select
+                  className={`w-full text-xs rounded-full px-2 py-1.5 border-0 ${STATUS_COLORS[o.status]}`}
+                  value={o.status}
+                  onChange={(e) => handleStatusChange(o.id, e.target.value)}
+                >
+                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             ))}
-            {orders?.length === 0 && (
-              <tr>
-                <td colSpan={5} className="p-4 text-center text-slate-500">
-                  Todavía no hay órdenes de producción.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -30,7 +30,7 @@ export default function Dispatches() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         {canReadClients && (
           <select className="border rounded px-3 py-2" value={clientId} onChange={(e) => setClientId(e.target.value)}>
             <option value="">Todos los clientes</option>
@@ -54,7 +54,7 @@ export default function Dispatches() {
       <div className="space-y-3">
         {dispatches?.map((d: any) => (
           <div key={d.id} className="bg-white rounded-lg shadow p-4">
-            <div className="flex justify-between items-center mb-2">
+            <div className="flex flex-wrap justify-between items-center gap-1 mb-2">
               <span className="font-medium">
                 Pedido #{d.id} - {d.client.name}
               </span>
@@ -62,7 +62,10 @@ export default function Dispatches() {
             </div>
             <ul className="space-y-2">
               {d.items.map((item: any) => (
-                <li key={item.id} className="flex items-center justify-between text-sm border-t pt-2">
+                <li
+                  key={item.id}
+                  className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-2"
+                >
                   <span>
                     {item.product.name} — solicitado: {item.quantityRequested} {item.product.unit}
                     {item.quantityDispatched != null && ` · despachado: ${item.quantityDispatched}`}

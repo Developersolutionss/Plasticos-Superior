@@ -187,62 +187,89 @@ export default function Cotizaciones() {
         </button>
       </form>
 
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-100 text-left">
-            <tr>
-              <th className="p-3">Cotización</th>
-              <th className="p-3">Cliente</th>
-              <th className="p-3">Total</th>
-              <th className="p-3">Válida hasta</th>
-              <th className="p-3">Estado</th>
-              <th className="p-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={6} className="p-4 text-center text-slate-500">
-                  Cargando...
-                </td>
-              </tr>
-            )}
-            {cotizaciones?.map((c: any) => (
-              <tr key={c.id} className="border-t">
-                <td className="p-3 font-medium">{c.quoteNumber}</td>
-                <td className="p-3">{c.client.name}</td>
-                <td className="p-3">${total(c).toLocaleString("es-CO")}</td>
-                <td className="p-3">{c.validUntil ? new Date(c.validUntil).toLocaleDateString() : "-"}</td>
-                <td className="p-3">
-                  <select
-                    className="text-xs rounded-full px-2 py-1 border bg-slate-50"
-                    value={c.status}
-                    onChange={(e) => handleStatusChange(c.id, e.target.value)}
-                  >
-                    {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="p-3">
-                  <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-xs hover:underline">
-                    Convertir en pedido
-                  </button>
-                </td>
-              </tr>
+      {isLoading && <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Cargando...</div>}
+      {!isLoading && cotizaciones?.length === 0 && (
+        <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Todavía no hay cotizaciones.</div>
+      )}
+
+      {!isLoading && cotizaciones && cotizaciones.length > 0 && (
+        <>
+          <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 text-left">
+                <tr>
+                  <th className="p-3">Cotización</th>
+                  <th className="p-3">Cliente</th>
+                  <th className="p-3">Total</th>
+                  <th className="p-3">Válida hasta</th>
+                  <th className="p-3">Estado</th>
+                  <th className="p-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {cotizaciones.map((c: any) => (
+                  <tr key={c.id} className="border-t">
+                    <td className="p-3 font-medium">{c.quoteNumber}</td>
+                    <td className="p-3">{c.client.name}</td>
+                    <td className="p-3">${total(c).toLocaleString("es-CO")}</td>
+                    <td className="p-3">{c.validUntil ? new Date(c.validUntil).toLocaleDateString() : "-"}</td>
+                    <td className="p-3">
+                      <select
+                        className="text-xs rounded-full px-2 py-1 border bg-slate-50"
+                        value={c.status}
+                        onChange={(e) => handleStatusChange(c.id, e.target.value)}
+                      >
+                        {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="p-3">
+                      <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-xs hover:underline">
+                        Convertir en pedido
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden bg-white rounded-lg shadow divide-y divide-slate-100">
+            {cotizaciones.map((c: any) => (
+              <div key={c.id} className="p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="font-medium text-slate-800">{c.quoteNumber}</p>
+                  <p className="font-medium text-slate-800">${total(c).toLocaleString("es-CO")}</p>
+                </div>
+                <p className="text-sm text-slate-600">{c.client.name}</p>
+                <p className="text-sm text-slate-500">
+                  Válida hasta: {c.validUntil ? new Date(c.validUntil).toLocaleDateString() : "-"}
+                </p>
+                <select
+                  className="w-full text-xs rounded-full px-2 py-1.5 border bg-slate-50"
+                  value={c.status}
+                  onChange={(e) => handleStatusChange(c.id, e.target.value)}
+                >
+                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => handleConvert(c.id)}
+                  className="text-sky-700 text-sm hover:underline"
+                >
+                  Convertir en pedido
+                </button>
+              </div>
             ))}
-            {cotizaciones?.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-4 text-center text-slate-500">
-                  Todavía no hay cotizaciones.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

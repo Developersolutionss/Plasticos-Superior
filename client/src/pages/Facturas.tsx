@@ -136,7 +136,7 @@ export default function Facturas() {
           </select>
           <div className="space-y-2">
             {items.map((item, i) => (
-              <div key={i} className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2">
+              <div key={i} className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_auto] gap-2">
                 <select
                   className="border rounded px-2 py-2 text-sm"
                   value={item.productId}
@@ -221,7 +221,7 @@ export default function Facturas() {
 
         {selectedFactura && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold">
                 {selectedFactura.invoiceNumber} — {selectedFactura.client.name}
               </h2>
@@ -234,7 +234,7 @@ export default function Facturas() {
             {error && <p className="text-red-600 text-sm">{error}</p>}
             {message && <p className="text-emerald-700 text-sm">{message}</p>}
 
-            <table className="w-full text-sm">
+            <table className="hidden sm:table w-full text-sm">
               <thead className="bg-slate-100 text-left">
                 <tr>
                   <th className="p-2">Producto</th>
@@ -254,6 +254,17 @@ export default function Facturas() {
                 ))}
               </tbody>
             </table>
+            <div className="sm:hidden divide-y border rounded">
+              {selectedFactura.items.map((it: any) => (
+                <div key={it.id} className="p-2.5 text-sm space-y-0.5">
+                  <p className="font-medium">{it.product.name}</p>
+                  <p className="text-slate-500">
+                    {it.quantity} × ${Number(it.unitPrice).toLocaleString("es-CO")} = $
+                    {(Number(it.quantity) * Number(it.unitPrice)).toLocaleString("es-CO")}
+                  </p>
+                </div>
+              ))}
+            </div>
 
             {(() => {
               const t = total(selectedFactura.items);

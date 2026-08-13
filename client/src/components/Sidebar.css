@@ -510,3 +510,45 @@
 .sc-btn-primary:hover {
   background: #0284c7;
 }
+
+/* Por debajo de 768px (breakpoint `md` de Tailwind) el sidebar deja de ser
+   una columna del grid y pasa a un cajón deslizable a pantalla completa,
+   controlado por Layout.tsx (mobileOpen/onCloseMobile). El comportamiento
+   de arriba (grid 240px/64px, colapsar) sigue intacto en desktop. */
+@media (max-width: 767px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .app-shell.collapsed {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 260px;
+    max-width: 85vw;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+  /* En móvil el sidebar siempre muestra las etiquetas, aunque `collapsed`
+     esté activo en desktop — no tiene sentido un cajón angosto de solo
+     íconos en pantalla completa. */
+  .app-shell.collapsed .sidebar .hidden-when-collapsed {
+    display: inline;
+  }
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 30;
+  }
+  .app-content {
+    padding: 14px;
+  }
+}

@@ -284,7 +284,7 @@ export default function Pedidos() {
 
         {selectedPedido && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold">
                 {selectedPedido.orderNumber} — {selectedPedido.client.name}
               </h2>
@@ -301,7 +301,7 @@ export default function Pedidos() {
             {error && <p className="text-red-600 text-sm">{error}</p>}
             {message && <p className="text-emerald-700 text-sm">{message}</p>}
 
-            <div className="flex gap-1 border-b">
+            <div className="flex gap-1 border-b overflow-x-auto">
               {[
                 { key: "actual", label: "Versión actual" },
                 { key: "versiones", label: "Historial de versiones" },
@@ -310,7 +310,7 @@ export default function Pedidos() {
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key as any)}
-                  className={`px-3 py-2 text-sm border-b-2 -mb-px ${
+                  className={`px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap ${
                     tab === t.key ? "border-slate-800 font-medium text-slate-800" : "border-transparent text-slate-500"
                   }`}
                 >
@@ -325,7 +325,7 @@ export default function Pedidos() {
                   Versión <strong>v{latestVersion.versionNumber}</strong> · Estado:{" "}
                   <strong>{STATUS_LABELS[latestVersion.status]}</strong>
                 </p>
-                <table className="w-full text-sm">
+                <table className="hidden sm:table w-full text-sm">
                   <thead className="bg-slate-100 text-left">
                     <tr>
                       <th className="p-2">Producto</th>
@@ -345,6 +345,17 @@ export default function Pedidos() {
                     ))}
                   </tbody>
                 </table>
+                <div className="sm:hidden divide-y border rounded">
+                  {latestVersion.items.map((it: any) => (
+                    <div key={it.id} className="p-2.5 text-sm space-y-0.5">
+                      <p className="font-medium">{it.product.name}</p>
+                      <p className="text-slate-500">
+                        {it.quantity} × ${Number(it.unitPrice).toLocaleString("es-CO")} = $
+                        {(Number(it.quantity) * Number(it.unitPrice)).toLocaleString("es-CO")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
                 <p className="text-right font-medium">Total: ${total(latestVersion.items).toLocaleString("es-CO")}</p>
                 {latestVersion.notes && <p className="text-sm text-slate-600">Notas: {latestVersion.notes}</p>}
                 <button onClick={startEditing} className="bg-slate-800 text-white text-sm px-4 py-2 rounded">
