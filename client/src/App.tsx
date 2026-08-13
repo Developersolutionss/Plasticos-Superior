@@ -20,6 +20,7 @@ import Usuarios from "./pages/Usuarios";
 import Movimientos from "./pages/Movimientos";
 import UbicacionDetalle from "./pages/UbicacionDetalle";
 import DashboardEjecutivo from "./pages/DashboardEjecutivo";
+import DashboardIndicadores from "./pages/DashboardIndicadores";
 import Exportaciones from "./pages/Exportaciones";
 import EstacionProduccion from "./pages/EstacionProduccion";
 import Cotizaciones from "./pages/Cotizaciones";
@@ -187,6 +188,14 @@ export default function App() {
           element={
             <RequireRole roles={ADMIN}>
               <DashboardEjecutivo />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="dashboard-indicadores"
+          element={
+            <RequireRole roles={ADMIN}>
+              <DashboardIndicadores />
             </RequireRole>
           }
         />

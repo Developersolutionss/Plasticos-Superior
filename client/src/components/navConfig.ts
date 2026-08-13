@@ -79,7 +79,7 @@ export const navSections: NavEntry[] = [
     roles: TODOS,
     children: [
       { id: "dashboard-resumen", label: "Resumen general", to: "/dashboard-ejecutivo", roles: ADMIN },
-      { id: "dashboard-indicadores", label: "Indicadores", disabled: true },
+      { id: "dashboard-indicadores", label: "Indicadores", to: "/dashboard-indicadores", roles: ADMIN },
     ],
   },
   {

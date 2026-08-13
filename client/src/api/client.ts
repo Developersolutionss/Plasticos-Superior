@@ -321,6 +321,13 @@ export const api = {
       topClientesSaldo: { clientId: number; name: string; saldo: number }[];
     }>("/dashboard/resumen"),
 
+  getDashboardIndicadores: () =>
+    request<{
+      topProductosDespachados: { productId: number; sku: string; name: string; unit: string; total: number }[];
+      calidad: { aprobadas: number; rechazadas: number; pctAprobacion: number | null };
+      tiempoPromedioProduccionHoras: number | null;
+    }>("/dashboard/indicadores"),
+
   /** Mismo patrón crudo que downloadPedidoAttachment (fetch + blob + <a
    * download>) — el .xlsx generado no es JSON, no pasa por request(). */
   downloadExport: async (resource: "inventario" | "pedidos" | "facturas" | "clientes") => {

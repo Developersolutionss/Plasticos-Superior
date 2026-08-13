@@ -92,3 +92,61 @@ dashboardRouter.get("/resumen", async (_req, res) => {
     topClientesSaldo,
   });
 });
+
+/**
+ * Indicadores adicionales (top productos despachados, tasa de aprobación de
+ * calidad, tiempo promedio de producción), todos sobre los últimos 30 días
+ * y sin necesitar campos nuevos en el schema.
+ */
+dashboardRouter.get("/indicadores", async (_req, res) => {
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+
+  const [dispatchItems, qualityChecks] = await Promise.all([
+    prisma.dispatchItem.findMany({
+      where: { dispatch: { status: "despachado", createdAt: { gte: since } } },
+      include: { product: { select: { id: true, sku: true, name: true, unit: true } } },
+    }),
+    prisma.qualityCheck.findMany({
+      where: { createdAt: { gte: since } },
+      include: { productionOrder: { include: { stages: { select: { startTime: true } } } } },
+    }),
+  ]);
+
+  const porProducto = new Map<number, { sku: string; name: string; unit: string; total: number }>();
+  for (const item of dispatchItems) {
+    const cantidad = Number(item.quantityDispatched ?? 0);
+    const prev = porProducto.get(item.productId);
+    porProducto.set(item.productId, {
+      sku: item.product.sku,
+      name: item.product.name,
+      unit: item.product.unit,
+      total: (prev?.total ?? 0) + cantidad,
+    });
+  }
+  const topProductosDespachados = [...porProducto.entries()]
+    .map(([productId, v]) => ({ productId, ...v }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+
+  const aprobadas = qualityChecks.filter((q) => q.result === "aprobado").length;
+  const rechazadas = qualityChecks.filter((q) => q.result === "rechazado").length;
+  const totalChecks = aprobadas + rechazadas;
+  const pctAprobacion = totalChecks > 0 ? (aprobadas / totalChecks) * 100 : null;
+
+  const duracionesHoras: number[] = [];
+  for (const q of qualityChecks) {
+    const starts = q.productionOrder.stages.map((s) => s.startTime.getTime());
+    if (starts.length === 0) continue;
+    const inicio = Math.min(...starts);
+    duracionesHoras.push((q.createdAt.getTime() - inicio) / (1000 * 60 * 60));
+  }
+  const tiempoPromedioProduccionHoras =
+    duracionesHoras.length > 0 ? duracionesHoras.reduce((a, b) => a + b, 0) / duracionesHoras.length : null;
+
+  res.json({
+    topProductosDespachados,
+    calidad: { aprobadas, rechazadas, pctAprobacion },
+    tiempoPromedioProduccionHoras,
+  });
+});
