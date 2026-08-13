@@ -270,4 +270,32 @@ export const api = {
    * el Authorization que agrega si hay sesión no molesta al backend. */
   getPublicLocation: (token: string) =>
     request<{ location: { code: string; label: string }; items: any[] }>(`/public/locations/${token}`),
+
+  getDashboardResumen: () =>
+    request<{
+      ventasDelMes: number;
+      carteraPendiente: number;
+      facturasConSaldo: number;
+      opsEnCurso: number;
+      pedidosEnProduccion: number;
+      cotizacionesAbiertas: number;
+      topClientesSaldo: { clientId: number; name: string; saldo: number }[];
+    }>("/dashboard/resumen"),
+
+  /** Mismo patrón crudo que downloadPedidoAttachment (fetch + blob + <a
+   * download>) — el .xlsx generado no es JSON, no pasa por request(). */
+  downloadExport: async (resource: "inventario" | "pedidos" | "facturas" | "clientes") => {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/export/${resource}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${resource}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };

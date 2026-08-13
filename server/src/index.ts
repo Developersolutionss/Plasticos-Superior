@@ -15,6 +15,8 @@ import { whatsappWebhookRouter } from "./routes/whatsappWebhook";
 import { auditLogRouter } from "./routes/auditLog";
 import { warehouseRouter } from "./routes/warehouse";
 import { publicLocationRouter } from "./routes/publicLocation";
+import { dashboardRouter } from "./routes/dashboard";
+import { exportRouter } from "./routes/export";
 import { scheduleFrecuentesReset } from "./services/frecuentesReset";
 
 const app = express();
@@ -43,6 +45,8 @@ app.use("/api/audit-log", auditLogRouter);
 app.use("/api/warehouse", warehouseRouter);
 // A propósito sin requireAuth — ver publicLocation.ts.
 app.use("/api/public/locations", publicLocationRouter);
+app.use("/api/dashboard", dashboardRouter);
+app.use("/api/export", exportRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
 
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;

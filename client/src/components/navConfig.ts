@@ -78,7 +78,7 @@ export const navSections: NavEntry[] = [
     label: "Dashboard",
     roles: TODOS,
     children: [
-      { id: "dashboard-resumen", label: "Resumen general", disabled: true },
+      { id: "dashboard-resumen", label: "Resumen general", to: "/dashboard-ejecutivo", roles: ADMIN },
       { id: "dashboard-indicadores", label: "Indicadores", disabled: true },
     ],
   },
@@ -133,7 +133,7 @@ export const navSections: NavEntry[] = [
   { id: "almacen", icon: "warehouse", label: "Almacén / WMS", to: "/almacen", roles: ALMACEN },
   { id: "etiquetas", icon: "tag", label: "Etiquetas térmicas", disabled: true, roles: ALMACEN },
   { id: "escaneo", icon: "scan-line", label: "Escaneo QR / Cód. barras", disabled: true, roles: ALMACEN },
-  { id: "exportaciones", icon: "download", label: "Exportaciones", disabled: true, roles: ADMIN },
+  { id: "exportaciones", icon: "download", label: "Exportaciones", to: "/exportaciones", roles: ADMIN },
   { id: "notificaciones", icon: "bell", label: "Notificaciones", disabled: true, roles: TODOS },
   {
     id: "auditoria",
