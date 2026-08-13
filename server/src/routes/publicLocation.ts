@@ -2,12 +2,14 @@ import { Router } from "express";
 import { prisma } from "../prisma";
 
 /**
- * Única ruta de todo el backend pensada a propósito para ser pública —
- * sin requireAuth. Es lo que consume la página a la que apunta el QR
- * impreso de una ubicación (ver warehouse.ts GET /locations/:id/qr):
- * cualquiera con el link exacto ve el stock de ESA ubicación en tiempo
- * real, sin login y sin poder navegar a ninguna otra parte de la app.
- * El `token` (no el `code`, corto y adivinable) es la única credencial.
+ * Una de las pocas rutas del backend pensada a propósito para ser pública
+ * — sin requireAuth (la otra es whatsappWebhook.ts, que verifica el
+ * hub.verify_token de Meta en su lugar). Es lo que consume la página a la
+ * que apunta el QR impreso de una ubicación (ver warehouse.ts GET
+ * /locations/:id/qr): cualquiera con el link exacto ve el stock de ESA
+ * ubicación en tiempo real, sin login y sin poder navegar a ninguna otra
+ * parte de la app. El `token` (no el `code`, corto y adivinable) es la
+ * única credencial.
  */
 export const publicLocationRouter = Router();
 
