@@ -9,6 +9,9 @@ export const warehouseRouter = Router();
 warehouseRouter.use(requireAuth);
 warehouseRouter.use(requireRole(...ROLES.ALMACEN));
 
+// Mismo fallback que auth.ts para el link de reseteo de contraseña.
+const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:5173";
+
 warehouseRouter.get("/locations", async (_req, res) => {
   const locations = await prisma.warehouseLocation.findMany({ orderBy: { code: "asc" } });
   res.json(locations);
@@ -38,7 +41,7 @@ warehouseRouter.get("/locations/:id/qr", async (req, res) => {
   const location = await prisma.warehouseLocation.findUnique({ where: { id } });
   if (!location) return res.status(404).json({ error: "Ubicación no encontrada" });
 
-  const url = `${process.env.FRONTEND_URL}/almacen/ubicacion/${location.code}`;
+  const url = `${FRONTEND_URL}/almacen/ubicacion/${location.code}`;
   const dataUrl = await QRCode.toDataURL(url);
   res.json({ dataUrl, url });
 });
