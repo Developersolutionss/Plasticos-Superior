@@ -189,6 +189,7 @@ model Product {
   unit      ProductUnit
   minStock  Decimal         @default(0) @map("min_stock") @db.Decimal(12, 2)
   unitPrice Decimal         @default(0) @map("unit_price") @db.Decimal(12, 2)
+  active    Boolean         @default(true)
   createdAt DateTime        @default(now()) @map("created_at")
 
   productionEntries  ProductionEntry[]

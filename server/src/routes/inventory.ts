@@ -17,6 +17,6 @@ inventoryRouter.get("/alerts", async (_req, res) => {
 });
 
 inventoryRouter.get("/products", async (_req, res) => {
-  const products = await prisma.product.findMany({ orderBy: { name: "asc" } });
+  const products = await prisma.product.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   res.json(products);
 });

@@ -49,6 +49,25 @@ export const api = {
   getAlerts: () => request<any[]>("/inventory/alerts"),
   getProducts: () => request<any[]>("/inventory/products"),
 
+  /** Catálogo completo (incluye inactivos) para la pantalla de gestión de
+   * Productos — distinto de getProducts(), que es el selector filtrado a
+   * activos usado como dropdown en Cotizaciones/Facturas/OPs/Pedidos. */
+  getAllProducts: () => request<any[]>("/products"),
+  createProduct: (data: {
+    sku: string;
+    name: string;
+    category: string;
+    measure?: string;
+    unit: string;
+    minStock: number;
+    unitPrice: number;
+  }) => request<any>("/products", { method: "POST", body: JSON.stringify(data) }),
+  updateProduct: (
+    productId: number,
+    data: Partial<{ sku: string; name: string; category: string; measure?: string; unit: string; minStock: number; unitPrice: number }>
+  ) => request<any>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deactivateProduct: (productId: number) => request<any>(`/products/${productId}`, { method: "DELETE" }),
+
   getClients: () => request<any[]>("/clients"),
   createClient: (name: string) => request<any>("/clients", { method: "POST", body: JSON.stringify({ name }) }),
   updateClient: (clientId: number, data: { name?: string; contactInfo?: Record<string, unknown>; creditLimit?: number }) =>

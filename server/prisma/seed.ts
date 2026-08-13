@@ -41,7 +41,7 @@ async function main() {
   for (const product of products) {
     await prisma.product.upsert({
       where: { sku: product.sku },
-      update: { unitPrice: product.unitPrice },
+      update: { unitPrice: product.unitPrice, active: true },
       create: product as any,
     });
   }
