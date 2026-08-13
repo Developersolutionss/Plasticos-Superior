@@ -38,7 +38,7 @@ El avance real frente al plan se detalla a continuación.
 | # | Módulo | Estado |
 |---|---|---|
 | 1 | Autenticación | ✅ Implementado (matriz de 11 roles, bloqueo por intentos, 2FA/TOTP, recuperación de contraseña) |
-| 2 | Auditoría | 🟡 Parcial (bitácora de movimientos de inventario + registro de importaciones) |
+| 2 | Auditoría | ✅ Implementado (bitácora forense de create/update/delete en tablas críticas con diff antes/después, usuario, IP y user-agent) |
 | 3 | CRM de clientes | ✅ Implementado (clientes con avatar y ranking "Frecuentes" en vivo, contactos y direcciones, historial de interacciones, cartera y límite de crédito; pantalla global de contactos; búsqueda y filtros por frecuencia) |
 | 4 | Pedidos | ✅ Implementado (pedidos versionados v1..vn, adjuntos, duplicar) |
 | — | Cotizaciones | ✅ Implementado (cotizaciones con estado y conversión a pedido) |
@@ -53,14 +53,14 @@ El avance real frente al plan se detalla a continuación.
 | 7 | Extrusión | ✅ Implementado (registro de etapa en `production_stage_logs`) |
 | 8 | Impresión | ✅ Implementado (registro de etapa) |
 | 9 | Sellado | ✅ Implementado (registro de etapa) |
-| 10 | Precorte | ✅ Implementado (registro de etapa + genera entrada de inventario al finalizar) |
-| 11 | Trazabilidad básica | ❌ Pendiente |
+| 10 | Precorte | ✅ Implementado (registro de etapa; deja la OP `pendiente_calidad` — la entrada de inventario la genera Calidad al aprobar) |
+| 11 | Trazabilidad básica | ✅ Implementado (historial completo de la OP: pasos por estación, resultado de Calidad y pedido/cliente de origen) |
 
 ### Fase 3 (semanas 17-20)
 
 | # | Módulo | Estado |
 |---|---|---|
-| 12 | Calidad | ❌ Pendiente |
+| 12 | Calidad | ✅ Implementado (control de calidad por lote: aprueba y genera la entrada de inventario, o rechaza y deja la OP `detenida`) |
 | 13 | Inventario | ✅ Implementado (stock por producto, categorías, alertas de mínimo) |
 | 14 | Despachos | ✅ Implementado (crear despacho y marcar items → descuenta stock) |
 | 15 | Almacén / WMS | ❌ Pendiente |
@@ -80,9 +80,9 @@ El avance real frente al plan se detalla a continuación.
 
 | Estado | Cantidad |
 |---|---|
-| ✅ Implementado | 13 |
-| 🟡 Parcial | 2 |
-| ❌ Pendiente | 8 |
+| ✅ Implementado | 16 |
+| 🟡 Parcial | 1 |
+| ❌ Pendiente | 6 |
 
 ## Stack
 
