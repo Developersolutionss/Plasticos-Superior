@@ -12,14 +12,22 @@ dashboardRouter.use(requireRole(...ROLES.ADMIN));
  * esa lógica ya en producción — es la misma cuenta "total - pagado" de
  * siempre, repetirla acá es más simple que refactorizar los otros routers.
  */
+function monthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 dashboardRouter.get("/resumen", async (_req, res) => {
   const startOfMonth = new Date();
   startOfMonth.setDate(1);
   startOfMonth.setHours(0, 0, 0, 0);
 
-  const [facturasDelMes, todasLasFacturas, opsEnCurso, pedidosEnProduccion, cotizacionesAbiertas] = await Promise.all([
+  const monthsBack = 5;
+  const chartStart = new Date(startOfMonth);
+  chartStart.setMonth(chartStart.getMonth() - monthsBack);
+
+  const [facturasUltimos6Meses, todasLasFacturas, opsEnCurso, pedidosEnProduccion, cotizacionesAbiertas] = await Promise.all([
     prisma.factura.findMany({
-      where: { status: { not: "anulada" }, createdAt: { gte: startOfMonth } },
+      where: { status: { not: "anulada" }, createdAt: { gte: chartStart } },
       include: { items: true },
     }),
     prisma.factura.findMany({
@@ -31,10 +39,24 @@ dashboardRouter.get("/resumen", async (_req, res) => {
     prisma.cotizacion.count({ where: { status: { in: ["borrador", "enviada"] } } }),
   ]);
 
-  const ventasDelMes = facturasDelMes.reduce(
-    (sum, f) => sum + f.items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0),
-    0
-  );
+  const ventasPorMes = new Map<string, number>();
+  for (const f of facturasUltimos6Meses) {
+    const total = f.items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
+    const key = monthKey(f.createdAt);
+    ventasPorMes.set(key, (ventasPorMes.get(key) ?? 0) + total);
+  }
+
+  const ventasUltimos6Meses: { mes: string; total: number }[] = [];
+  for (let i = monthsBack; i >= 0; i--) {
+    const d = new Date(startOfMonth);
+    d.setMonth(d.getMonth() - i);
+    const key = monthKey(d);
+    ventasUltimos6Meses.push({ mes: key, total: ventasPorMes.get(key) ?? 0 });
+  }
+
+  const ventasDelMes = ventasUltimos6Meses[ventasUltimos6Meses.length - 1].total;
+  const ventasMesAnterior = ventasUltimos6Meses[ventasUltimos6Meses.length - 2]?.total ?? 0;
+  const cambioVentasPct = ventasMesAnterior > 0 ? ((ventasDelMes - ventasMesAnterior) / ventasMesAnterior) * 100 : null;
 
   const saldoPorCliente = new Map<number, { name: string; saldo: number }>();
   let carteraPendiente = 0;
@@ -59,6 +81,9 @@ dashboardRouter.get("/resumen", async (_req, res) => {
 
   res.json({
     ventasDelMes,
+    ventasMesAnterior,
+    cambioVentasPct,
+    ventasUltimos6Meses,
     carteraPendiente,
     facturasConSaldo,
     opsEnCurso,

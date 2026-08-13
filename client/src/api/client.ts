@@ -274,6 +274,9 @@ export const api = {
   getDashboardResumen: () =>
     request<{
       ventasDelMes: number;
+      ventasMesAnterior: number;
+      cambioVentasPct: number | null;
+      ventasUltimos6Meses: { mes: string; total: number }[];
       carteraPendiente: number;
       facturasConSaldo: number;
       opsEnCurso: number;
