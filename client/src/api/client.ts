@@ -285,6 +285,16 @@ export const api = {
     return request<{ items: any[]; total: number; page: number; pageSize: number }>(`/audit-log${suffix}`);
   },
 
+  getInventoryMovements: (params?: { productId?: number; movementType?: string; page?: number; pageSize?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.productId) qs.set("productId", String(params.productId));
+    if (params?.movementType) qs.set("movementType", params.movementType);
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.pageSize) qs.set("pageSize", String(params.pageSize));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<{ items: any[]; total: number; page: number; pageSize: number }>(`/inventory/movements${suffix}`);
+  },
+
   getWarehouseLocations: () => request<any[]>("/warehouse/locations"),
   createWarehouseLocation: (data: { code: string; label: string }) =>
     request<any>("/warehouse/locations", { method: "POST", body: JSON.stringify(data) }),
