@@ -33,7 +33,7 @@ authRouter.post("/login", async (req, res) => {
 
   const { email, password, totpToken } = parsed.data;
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return res.status(401).json({ error: "Credenciales inválidas" });
+  if (!user || !user.active) return res.status(401).json({ error: "Credenciales inválidas" });
 
   if (user.lockedUntil && user.lockedUntil > new Date()) {
     const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000);

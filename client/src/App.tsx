@@ -16,6 +16,7 @@ import Trazabilidad from "./pages/Trazabilidad";
 import Auditoria from "./pages/Auditoria";
 import Almacen from "./pages/Almacen";
 import Productos from "./pages/Productos";
+import Usuarios from "./pages/Usuarios";
 import UbicacionDetalle from "./pages/UbicacionDetalle";
 import DashboardEjecutivo from "./pages/DashboardEjecutivo";
 import Exportaciones from "./pages/Exportaciones";
@@ -233,6 +234,14 @@ export default function App() {
           element={
             <RequireRole roles={ADMIN}>
               <SecuritySettings />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="configuracion/usuarios"
+          element={
+            <RequireRole roles={ADMIN}>
+              <Usuarios />
             </RequireRole>
           }
         />

@@ -68,6 +68,13 @@ export const api = {
   ) => request<any>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(data) }),
   deactivateProduct: (productId: number) => request<any>(`/products/${productId}`, { method: "DELETE" }),
 
+  getUsers: () => request<any[]>("/users"),
+  createUser: (data: { name: string; email: string; password: string; role: string }) =>
+    request<any>("/users", { method: "POST", body: JSON.stringify(data) }),
+  updateUser: (userId: number, data: Partial<{ name: string; email: string; role: string; password: string }>) =>
+    request<any>(`/users/${userId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deactivateUser: (userId: number) => request<any>(`/users/${userId}`, { method: "DELETE" }),
+
   getClients: () => request<any[]>("/clients"),
   createClient: (name: string) => request<any>("/clients", { method: "POST", body: JSON.stringify({ name }) }),
   updateClient: (clientId: number, data: { name?: string; contactInfo?: Record<string, unknown>; creditLimit?: number }) =>

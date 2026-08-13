@@ -149,7 +149,7 @@ export const navSections: NavEntry[] = [
     roles: ADMIN,
     children: [
       { id: "configuracion-auth", label: "Autenticación", to: "/configuracion/autenticacion" },
-      { id: "configuracion-usuarios", label: "Usuarios y permisos", disabled: true },
+      { id: "configuracion-usuarios", label: "Usuarios y permisos", to: "/configuracion/usuarios" },
     ],
   },
 ];
