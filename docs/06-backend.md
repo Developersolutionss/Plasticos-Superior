@@ -10,14 +10,14 @@ server/
 │   ├── pedidos/           → adjuntos de pedidos (disco)
 │   └── clients/           → avatares de clientes (disco)
 ├── prisma/
-│   ├── schema.prisma      → fuente de verdad de la BD (25 modelos)
+│   ├── schema.prisma      → fuente de verdad de la BD (27 modelos)
 │   ├── seed.ts            → datos de ejemplo (npm run prisma:seed)
 │   └── migrations/        → SQL versionado (prisma migrate dev)
 └── src/
     ├── index.ts           → inicio de Express, monta los routers, arranca el cron de Frecuentes
-    ├── prisma.ts          → una única instancia de PrismaClient (adapter pg)
+    ├── prisma.ts          → una única instancia de PrismaClient (adapter pg), envuelta en withAudit
     ├── middleware/
-    │   └── auth.ts        → requireAuth (JWT) + requireRole + ROLES + OPERARIO_STATIONS
+    │   └── auth.ts        → requireAuth (JWT + contexto de auditoría) + requireRole + ROLES + OPERARIO_STATIONS
     ├── services/
     │   ├── stockService.ts   → applyMovement, getStockByCategory, getLowStockAlerts
     │   ├── importExcel.ts    → parseProductionFile (ExcelJS)
@@ -26,17 +26,20 @@ server/
     │   ├── totp.ts           → TOTP + QR (otplib / qrcode)
     │   ├── sequentialNumber.ts → withSequentialNumberRetry (reintenta la numeración)
     │   ├── frequency.ts      → motor de "Frecuentes": umbral, boost, reorden, redistribución
-    │   └── frecuentesReset.ts → purga semanal del ranking (cron en memoria)
+    │   ├── frecuentesReset.ts → purga semanal del ranking (cron en memoria)
+    │   ├── auditContext.ts   → AsyncLocalStorage: usuario/IP/user-agent de la petición actual
+    │   └── auditExtension.ts → withAudit: $extends que audita create/update/delete de tablas críticas
     ├── routes/
     │   ├── auth.ts            → login, me, forgot/reset-password, 2FA
     │   ├── clients.ts         → CRM: clientes, contactos, direcciones, interacciones, cartera, avatares, visitas
     │   ├── inventory.ts       → GET /api/inventory[/alerts[/products]]
     │   ├── production.ts      → alta manual + import Excel (preview/confirm)
-    │   ├── productionOrders.ts→ OPs + registro de etapa + cola de Planeación
+    │   ├── productionOrders.ts→ OPs + registro de etapa + cola de Planeación + control de calidad
     │   ├── dispatches.ts      → GET/POST despachos + marcar items
     │   ├── cotizaciones.ts    → cotizaciones + convertir a pedido
     │   ├── pedidos.ts         → pedidos versionados + adjuntos
     │   ├── facturas.ts        → facturas + abonos/pagos + anulación
+    │   ├── auditLog.ts        → GET /api/audit-log (bitácora forense)
     │   └── whatsappWebhook.ts → handshake + recepción de documentos (fase 2)
     └── generated/prisma/    → Prisma Client generado
 ```
@@ -69,6 +72,7 @@ app.use("/api/dispatches", dispatchesRouter);
 app.use("/api/cotizaciones", cotizacionesRouter);
 app.use("/api/pedidos", pedidosRouter);
 app.use("/api/facturas", facturasRouter);
+app.use("/api/audit-log", auditLogRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
 
 scheduleFrecuentesReset(); // purga semanal del ranking "Frecuentes"
@@ -152,8 +156,10 @@ export function requireAuth(req, res, next) {
 | `ROLES.ALMACEN` | `almacen_despachos` |
 | `ROLES.PRODUCCION_GESTION` | `gerente_produccion`, `planeacion` |
 | `ROLES.OPERARIOS` | `gerente_produccion`, `planeacion`, `operario_extrusion`, `operario_impresion`, `operario_sellado_precorte` |
+| `ROLES.CALIDAD` | `calidad` |
+| `ROLES.AUDITORIA` | `auditor` |
 
-Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `dispatches` usa `use(requireAlmacen)`; `production-orders` usa `use(requireOperarios)` y aplica `requireProduccionGestion` en crear/cambiar estado/Planeación.
+Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `dispatches` usa `use(requireAlmacen)`; `production-orders` usa `use(requireRole(...OPERARIOS, ...CALIDAD, ...AUDITORIA))` y aplica `requireProduccionGestion` en crear/cambiar estado/Planeación. El control de calidad (`POST /:id/quality-check`) exige `CALIDAD`; la bitácora (`/api/audit-log`) exige `AUDITORIA`.
 
 - `OPERARIO_STATIONS` mapea cada rol de operario a sus estaciones (`operario_extrusion → ["extrusion"]`, etc.). Se aplica en el POST de etapas: el operario solo registra su estación.
 
@@ -170,7 +176,7 @@ Varios routers aplican el rol con `router.use(...)` (protege también los `GET`)
 
 ```ts
 export async function applyMovement(
-  tx: Prisma.TransactionClient,
+  tx: TxClient,
   params: { productId; quantity; movementType; referenceType; referenceId?; productionEntryId?; createdById? }
 ) {
   await tx.inventoryMovement.create({ data: { ...params } });
@@ -181,6 +187,23 @@ export async function applyMovement(
   });
 }
 ```
+
+> `TxClient` se exporta desde `stockService.ts`. Se deriva de `prisma.$transaction` (no es el `Prisma.TransactionClient` genérico), porque `prisma` está envuelto en `$extends` y el tipo del cliente de transacción cambia. Los routers que necesitan el tipo lo importan de acá.
+
+### `services/auditExtension.ts` — `withAudit`
+
+**`withAudit(basePrisma)`** envuelve el `PrismaClient` con una extensión `$extends` que intercepta las mutaciones de las tablas críticas y escribe la bitácora:
+
+- Tablas auditadas: `Client`, `Dispatch`, `ProductionEntry`, `InventoryMovement`.
+- Operaciones auditadas: `create`, `update`, `delete`.
+- Cada entrada guarda `before`/`after` (JSON), el usuario, la IP y el user-agent.
+- Para `update`/`delete`, lee el estado previo con `basePrisma` antes de ejecutar la mutación. Para `delete`, el `after` es `NULL`.
+- Usa `basePrisma` (no el cliente extendido) para el `auditLog.create` interno: así esa escritura no se re-audita ni entra en recursión.
+- La extensión vive en `server/src/prisma.ts`: `export const prisma = withAudit(new PrismaClient({ adapter }))`. Los routers existentes no se tocan.
+
+### `services/auditContext.ts` — contexto de la petición
+
+La extensión no tiene acceso al `req` de Express. `requireAuth` guarda en un `AsyncLocalStorage` el contexto actual (`userId`, `ipAddress`, `userAgent`) apenas valida el token. Node lo propaga automáticamente por toda la cadena async de esa petición. Los requests que no pasan por `requireAuth` (p. ej. el webhook de WhatsApp o el seed) registran auditoría con `userId`/IP vacíos.
 
 **`getStockByCategory()`** — une `products` con su `stock`. Calcula `currentStock`, `minStock` y `belowMinimum`.
 
@@ -226,7 +249,8 @@ Use transacciones donde la operación debe ser atómica (todo o nada). Operacion
 
 - **Alta de producción** (`createProductionEntry`): crea `production_entry` + `applyMovement` de entrada.
 - **Despacho** (PATCH de item): actualiza item + `applyMovement` de salida + estado del despacho.
-- **Etapa de producción** (`POST /:id/stages`): crea la etapa; si la estación es `precorte`, además `applyMovement` + marca la OP finalizada.
+- **Etapa de producción** (`POST /:id/stages`): crea la etapa; si la estación es `precorte`, deja la OP `pendiente_calidad` (no mueve stock todavía).
+- **Control de calidad** (`POST /:id/quality-check`): crea el `quality_check`; si aprueba, `applyMovement` de entrada (con el kilaje del precorte) + marca la OP `finalizada`; si rechaza, deja la OP `detenida`.
 - **Contactos/direcciones principal**: desmarca el anterior + crea el nuevo.
 - **Numeración consecutiva** (`OP-`, `COT-`, `PED-`, `FAC-`): el `count()` y el `create` corren en la misma transacción, envuelta en `withSequentialNumberRetry`. Si dos requests calculan el mismo número y chocan contra el `@unique` (P2002), el servicio reintenta la transacción (hasta 3 veces); en el reintento el `count()` ya ve la fila del otro request.
 - **OP desde Planeación** (`POST /from-pedido-item/:id`): valida que el item no tenga OP, la crea con numeración y enlaza `pedidoVersionItemId`.
@@ -236,7 +260,7 @@ Use transacciones donde la operación debe ser atómica (todo o nada). Operacion
 
 ## Uso de `req.user`
 
-Los handlers que registran quién hizo la acción usan `req.user!.userId` como `createdById` (producción, despachos, etapas, cotizaciones, pedidos, facturas, pagos, interacciones, `import_logs`).
+Los handlers que registran quién hizo la acción usan `req.user!.userId` como `createdById` (producción, despachos, etapas, control de calidad, cotizaciones, pedidos, facturas, pagos, interacciones, `import_logs`).
 
 ## Scripts útiles
 

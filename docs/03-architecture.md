@@ -68,12 +68,14 @@ En **producción**, el servidor solo expone la API (no sirve el build del fronte
 3. Cada request protegido viaja con `Authorization: Bearer <token>`.
 4. El middleware `requireAuth` (`server/src/middleware/auth.ts`) verifica la firma. Expone `req.user`. Si el token falta o es inválido → `401`.
 
-El token define **quién es** el usuario. Después del login, las rutas sensibles aplican `requireRole(...)` con los grupos de `ROLES` (Ventas, Almacén, Producción, Operarios) de `server/src/middleware/auth.ts`:
+El token define **quién es** el usuario. Después del login, las rutas sensibles aplican `requireRole(...)` con los grupos de `ROLES` (Ventas, Almacén, Producción, Operarios, Calidad, Auditoría) de `server/src/middleware/auth.ts`:
 
 - `requireAuth` protege **todo** router, excepto `POST /api/auth/login`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password` y el webhook de WhatsApp.
 - `GET /health` y `/api/uploads` son **públicos**. El primero es el health check. El segundo sirve los archivos subidos (avatares de clientes y adjuntos de pedidos) para las etiquetas `<img>`.
 - `requireRole(...)` restringe una ruta concreta. Devuelve `403` si el rol no está en la lista.
 - `super_admin` y `admin` pertenecen a todos los grupos, así que siempre pasan.
+
+`requireAuth` además captura quién hace la petición (usuario, IP y user-agent) y lo propaga con `AsyncLocalStorage` (`server/src/services/auditContext.ts`). La extensión de Prisma de auditoría usa ese contexto al registrar cambios (ver "Configuración compartida").
 
 Ejemplo: `POST /api/cotizaciones` exige rol de ventas; `POST /api/production-orders/:id/stages` exige un rol de operario, y el operario solo registra su estación (mediante `OPERARIO_STATIONS`).
 
@@ -135,14 +137,17 @@ Configurado en `vite.config.ts` con `vite-plugin-pwa`:
 | `/api/cotizaciones` | `cotizacionesRouter` | `server/src/routes/cotizaciones.ts` |
 | `/api/pedidos` | `pedidosRouter` | `server/src/routes/pedidos.ts` |
 | `/api/facturas` | `facturasRouter` | `server/src/routes/facturas.ts` |
+| `/api/audit-log` | `auditLogRouter` | `server/src/routes/auditLog.ts` |
 | `/webhook/whatsapp` | `whatsappWebhookRouter` | `server/src/routes/whatsappWebhook.ts` |
 
 El router de clientes también expone sub-recursos: contactos (`GET/POST/DELETE /api/clients/:id/contacts`), direcciones (`.../addresses`), interacciones (`.../interactions`), cartera (`.../cartera`) y límite de crédito (`PATCH .../credit-limit`). No requieren montaje aparte en `index.ts`.
 
-Varios routers aplican el rol a nivel de **router completo** (no solo a la ruta sensible): `clients`, `cotizaciones`, `pedidos` y `facturas` exigen ventas; `dispatches` exige almacén; `production-orders` exige OPERARIOS. Ver [06 — Backend](06-backend.md).
+Varios routers aplican el rol a nivel de **router completo** (no solo a la ruta sensible): `clients`, `cotizaciones`, `pedidos` y `facturas` exigen ventas; `dispatches` exige almacén; `production-orders` exige OPERARIOS + CALIDAD + AUDITORIA (cada grupo accede a lo suyo dentro del router). Ver [06 — Backend](06-backend.md).
 
 Al iniciar, `index.ts` también arranca el cron de purga semanal de "Frecuentes" (`scheduleFrecuentesReset`).
 
 ## Configuración compartida (una sola instancia)
 
 `server/src/prisma.ts` exporta un único `PrismaClient`. Todos los routers y servicios lo importan. El proyecto no crea una conexión por archivo.
+
+El cliente se exporta **envuelto** en una extensión de Prisma (`withAudit`, `server/src/services/auditExtension.ts`). La extensión intercepta `create`/`update`/`delete` sobre las tablas críticas (Client, Dispatch, ProductionEntry, InventoryMovement) y escribe un `AuditLog` con el estado antes/después y quién lo hizo. El "quién/desde dónde" (usuario, IP, user-agent) llega por `AsyncLocalStorage`, capturado en `requireAuth`. Los routers existentes no se tocan: la extensión envuelve el cliente compartido, no cada endpoint. Ver [06 — Backend](06-backend.md).

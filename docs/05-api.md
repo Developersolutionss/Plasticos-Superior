@@ -148,9 +148,11 @@ curl -X POST http://localhost:4000/api/production/import/preview \
 | POST | `/api/production-orders` | `{ productId, quantityPlanned, measure?, notes? }` | Crea una OP con numeración `OP-00001` (gestión de producción) |
 | GET | `/api/production-orders/pending-planning` | — | **Cola de Planeación**: items de pedidos `aprobado`/`en_produccion` que aún no tienen OP. Devuelve `pedidoVersionItemId`, `pedidoId`, `pedidoOrderNumber`, `clientName`, `productId`, `productName`, `productSku`, `quantity`, `measure` |
 | POST | `/api/production-orders/from-pedido-item/:pedidoVersionItemId` | — | Genera la OP de un item de pedido (gestiona la cola). `404` si el item no existe; `400` si ya tiene OP. Crea la OP con `OP-00001`, `quantityPlanned = item.quantity` y enlaza `pedidoVersionItemId` |
-| PATCH | `/api/production-orders/:id/status` | `{ status }` | Cambia el estado (`pendiente` / `en_proceso` / `detenida` / `finalizada` / `cancelada`) |
+| PATCH | `/api/production-orders/:id/status` | `{ status }` | Cambia el estado (`pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada`) |
+| GET | `/api/production-orders/:id` | — | **Trazabilidad**: detalle completo de la OP (producto, pasos por estación, resultado de Calidad y pedido/cliente de origen si vino de Planeación). Solo lectura |
 | GET | `/api/production-orders/:id/stages` | — | Etapas registradas de la OP |
-| POST | `/api/production-orders/:id/stages` | `{ station, machine, operatorName, startTime, endTime?, kilosProduced, mermaKg?, downtimeMinutes?, downtimeReason?, details?, notes? }` | Registra el paso por estación. Un operario solo puede usar **su** estación (`OPERARIO_STATIONS`). Si la estación es `precorte`, genera la entrada de inventario y finaliza la OP |
+| POST | `/api/production-orders/:id/stages` | `{ station, machine, operatorName, startTime, endTime?, kilosProduced, mermaKg?, downtimeMinutes?, downtimeReason?, details?, notes? }` | Registra el paso por estación. Un operario solo puede usar **su** estación (`OPERARIO_STATIONS`). Si la estación es `precorte`, la OP queda `pendiente_calidad` (sin mover stock todavía) |
+| POST | `/api/production-orders/:id/quality-check` | `{ result: "aprobado" \| "rechazado", observations? }` | **Calidad**: aprueba o rechaza el lote de una OP en `pendiente_calidad`. Si aprueba, genera la entrada de inventario (con el kilaje del precorte) y finaliza la OP; si rechaza, la OP queda `detenida` sin tocar stock. `400` si la OP no está `pendiente_calidad` o ya tiene control registrado |
 
 ```bash
 curl -X POST http://localhost:4000/api/production-orders/1/stages \
@@ -209,6 +211,19 @@ curl -X PATCH http://localhost:4000/api/dispatches/1/items/2 \
 curl -X POST http://localhost:4000/api/facturas/1/payments \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
   -d '{"amount":50000,"method":"transferencia"}'
+```
+
+### Auditoría
+
+| Método | Ruta | Query | Descripción |
+|---|---|---|---|
+| GET | `/api/audit-log` | `?tableName=&recordId=&page=&pageSize=` (paginado) | Bitácora forense de cambios en tablas críticas. Filtra por tabla y/o registro. Devuelve `{ items, total, page, pageSize }`, por fecha desc. Rol auditoría |
+
+Los registros los escribe automáticamente la extensión de Prisma (`withAudit`) en cada `create`/`update`/`delete` sobre `Client`, `Dispatch`, `ProductionEntry` e `InventoryMovement`. Cada entrada guarda la tabla, el id del registro, la acción, el estado antes/después (JSON), el usuario y su IP/user-agent.
+
+```bash
+curl "http://localhost:4000/api/audit-log?tableName=Client&pageSize=20" \
+  -H "Authorization: Bearer <token>"
 ```
 
 ### WhatsApp Business API (fase 2)

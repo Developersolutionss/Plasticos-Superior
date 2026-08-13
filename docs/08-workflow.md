@@ -5,10 +5,12 @@
 El sistema conecta el negocio de punta a punta:
 
 ```
-Cotización ───► Pedido (v1) ──► [aprobado] ──► [Planeación] ──► Órdenes de Producción ──► Estaciones (precorte genera stock)
-                                                                                            │
-                                                                                            ▼
-                                                                        Inventario ─── Despacho (resta stock) ─── Factura ─── Pagos (cartera)
+Cotización ───► Pedido (v1) ──► [aprobado] ──► [Planeación] ──► Órdenes de Producción ──► Estaciones ──► Precorte ──► [Calidad aprueba] ──► Inventario
+                                                                                                                      │
+                                                                                                                      └──► [Calidad rechaza] ──► OP detenida (sin stock)
+                                                                                                                      │
+                                                                                                                      ▼
+                                                                                                  Inventario ─── Despacho (resta stock) ─── Factura ─── Pagos (cartera)
 ```
 
 ## El ciclo del stock
@@ -17,8 +19,8 @@ Este es el flujo central de inventario:
 
 ```
 ┌────────────────────┐     ┌──────────────────┐     ┌──────────────────────┐
-│  Producción         │     │  Inventario       │     │  Despacho            │
-│  (Excel / manual)   │ ──► │  inventory_stock  │ ──► │  (sale stock)        │
+│  Producción        │     │  Inventario      │     │  Despacho            │
+│  (Excel / manual)  │ ──► │  inventory_stock │ ──► │  (sale stock)        │
 └────────────────────┘     └──────────────────┘     └──────────────────────┘
    entrada_produccion          +kilos                  salida_despacho -kilos
 ```
@@ -60,11 +62,21 @@ Extrusión → Impresión → Sellado → Precorte
 - `POST /api/production-orders/:id/stages` registra el paso por una estación:
   - Crea el `production_stage_log` (máquina, operario, kilos, merma, tiempos, `details` JSON).
   - Si la OP está `pendiente`, pasa a `en_proceso`.
-  - **Cuando la estación es `precorte`** (la última), además:
-    1. Genera una **entrada de inventario** con `applyMovement` (producto terminado del OP).
-    2. Marca la OP como `finalizada`.
+  - **Cuando la estación es `precorte`** (la última), la OP queda `pendiente_calidad`. Todavía **no** genera inventario: recién se mueve el stock cuando Calidad aprueba el lote.
 - Un operario solo puede registrar **su** estación (definido por `OPERARIO_STATIONS`). Gestión de producción puede registrar cualquier estación.
-- Estados de OP: `pendiente` → `en_proceso` → `finalizada` (o `detenida` / `cancelada`, control evolutivo por `PATCH /status`).
+- Estados de OP: `pendiente` → `en_proceso` → `pendiente_calidad` → `finalizada` (o `detenida` / `cancelada`, control evolutivo por `PATCH /status`).
+
+### Control de calidad
+
+`POST /api/production-orders/:id/quality-check` decide el destino del lote:
+
+- **Aprobado**: se genera la entrada de inventario (`applyMovement` con el kilaje del precorte) y la OP pasa a `finalizada`.
+- **Rechazado**: la OP queda `detenida` sin mover stock (Producción decide qué hacer).
+- La OP debe estar `pendiente_calidad` y no tener aún un control registrado (una sola revisión por OP, `quality_checks.production_order_id` es único).
+
+### Trazabilidad
+
+`GET /api/production-orders/:id` reúne en una sola vista de solo lectura: los pasos por estación, el resultado del control de calidad y el pedido/cliente de origen (si la OP vino de Planeación). Disponible para gerencia de producción, Calidad y Auditoría.
 
 ### 4. El stock desnormalizado
 
@@ -76,6 +88,15 @@ Extrusión → Impresión → Sellado → Precorte
 La **bitácora** (`inventory_movements`) guarda cada movimiento individual (auditoría). El stock actual es el acumulado derivado.
 
 > Nota: las reglas de **ajuste** y **devolución** están definidas en los enums (`MovementType`). No hay endpoints que las usen todavía.
+
+## Auditoría forense
+
+Además de la bitácora de movimientos, hay una **auditoría forense** (`audit_logs`) que registra automáticamente cada `create`/`update`/`delete` sobre las tablas críticas:
+
+- Tablas auditadas: `Client`, `Dispatch`, `ProductionEntry`, `InventoryMovement`.
+- Cada entrada guarda la tabla, el id del registro, la acción, el estado **antes/después** (JSON) y quién lo hizo (usuario, IP, user-agent).
+- La escribe una extensión de Prisma (`withAudit`) que envuelve el cliente compartido. Ningún router la crea a mano.
+- Se consulta con `GET /api/audit-log` (rol auditoría), paginado y filtrable por tabla.
 
 ## Planeación: pedido a órdenes de producción
 
@@ -130,7 +151,7 @@ Reglas:
 
 `pendiente` → `en_transito` → `recibido` → `rechazado`.
 
-**Hoy**, las entradas en `production_entries` se crean directamente como `recibido` (por alta manual o importación). El **precorte** no crea una fila en `production_entries`: genera un movimiento de inventario de tipo `entrada_produccion` (con `referenceType: "manual_adjustment"` referenciando la etapa) y actualiza `inventory_stock`. Los estados intermedios (`pendiente`/`en_transito`) están definidos para la integración con WhatsApp (cuando el archivo llega sin confirmar). No se usan en el código actual.
+**Hoy**, las entradas en `production_entries` se crean directamente como `recibido` (por alta manual o importación). La OP terminada no crea una fila en `production_entries`: cuando Calidad aprueba el lote, genera un movimiento de inventario de tipo `entrada_produccion` (con `referenceType: "manual_adjustment"` referenciando el control de calidad) y actualiza `inventory_stock`. Los estados intermedios (`pendiente`/`en_transito`) están definidos para la integración con WhatsApp (cuando el archivo llega sin confirmar). No se usan en el código actual.
 
 ## Estados de despacho (`DispatchStatus`)
 
@@ -163,7 +184,8 @@ Toda operación que toca **dos o más tablas** usa `prisma.$transaction`. El sis
 Operaciones transaccionales actuales:
 
 - Alta de producción (entrada + movimiento + stock).
-- Registrar etapa de estación con precorte (etapa + entrada + stock + estado de la OP).
+- Registrar etapa de estación (etapa + estado de la OP). Si la estación es precorte, la OP pasa a `pendiente_calidad` (sin mover stock).
+- Control de calidad (quality_check +, si aprueba, entrada + stock + estado `finalizada` de la OP; si rechaza, estado `detenida`).
 - Marcar item despachado (item + movimiento + stock + estado del despacho).
 - Crear contacto/dirección principal (desmarcar el anterior + crear el nuevo).
 - Borrar un contacto principal (asignar el siguiente + borrar).
@@ -176,7 +198,7 @@ Operaciones transaccionales actuales:
 ## Notas de integridad
 
 - Los clientes se crean automáticamente desde el nombre en una entrada de producción si no existen.
-- `users`, `products`, `production_entries`, `dispatches` e `import_logs` guardan `created_by`/`created_at` para trazabilidad.
+- `users`, `products`, `production_entries`, `dispatches`, `quality_checks`, `audit_logs` e `import_logs` guardan `created_by`/`created_at` para trazabilidad.
 - `inventory_stock` es 1:1 con `products` (PK = `product_id`).
 - `client_contacts`, `client_addresses` y `client_interactions` cuelgan de `clients`.
 - La unicidad del contacto o dirección principal la garantiza la API (transacción), no un índice en la BD.

@@ -49,6 +49,9 @@ client/
         ├── OrdenesProduccion.tsx
         ├── EstacionProduccion.tsx
         ├── Planeacion.tsx    → cola de Planeación: items de pedidos sin OP + generar OP
+        ├── Calidad.tsx       → cola de OPs `pendiente_calidad`: aprobar o rechazar el lote
+        ├── Trazabilidad.tsx  → historial completo de una OP (estaciones, calidad, origen)
+        ├── Auditoria.tsx     → bitácora forense de tablas críticas (filtro + diff expandible)
         ├── Clients.tsx       → listado con búsqueda/filtros/vistas + ficha del cliente
         ├── NuevoCliente.tsx  → página dedicada "Crear cliente" (botón "+" del listado)
         ├── Contactos.tsx     → pantalla global de contactos
@@ -88,6 +91,9 @@ client/
     <Route path="produccion" element={<RequireRole roles={[...ALMACEN, ...PRODUCCION_GESTION]}><ProductionUpload /></RequireRole>} />
     <Route path="produccion/ordenes" element={<RequireRole roles={PRODUCCION_GESTION}><OrdenesProduccion /></RequireRole>} />
     <Route path="produccion/estacion/:station" element={<RequireStationRole><EstacionProduccion /></RequireStationRole>} />
+    <Route path="calidad" element={<RequireRole roles={CALIDAD}><Calidad /></RequireRole>} />
+    <Route path="trazabilidad" element={<RequireRole roles={[...PRODUCCION_GESTION, ...CALIDAD, ...AUDITORIA]}><Trazabilidad /></RequireRole>} />
+    <Route path="auditoria" element={<RequireRole roles={AUDITORIA}><Auditoria /></RequireRole>} />
     <Route path="planeacion" element={<RequireRole roles={PRODUCCION_GESTION}><Planeacion /></RequireRole>} />
     <Route path="clientes" element={<RequireRole roles={VENTAS}><Clients /></RequireRole>} />
     <Route path="clientes/nuevo" element={<RequireRole roles={VENTAS}><NuevoCliente /></RequireRole>} />
@@ -101,7 +107,7 @@ client/
 ```
 
 - `RequireAuth` redirige a `/login` si no hay usuario en sesión.
-- `RequireRole` muestra un mensaje de acceso denegado si el rol no pertenece al grupo. Los grupos (`VENTAS`, `ALMACEN`, `PRODUCCION_GESTION`, `OPERARIOS`, `ADMIN`, …) vienen de `navConfig.ts`.
+- `RequireRole` muestra un mensaje de acceso denegado si el rol no pertenece al grupo. Los grupos (`VENTAS`, `ALMACEN`, `PRODUCCION_GESTION`, `OPERARIOS`, `CALIDAD`, `AUDITORIA`, `ADMIN`, …) vienen de `navConfig.ts`.
 - `RequireStationRole` mapea la estación de la URL al grupo de operarios adecuado (`extrusion`→ extrusión, `impresion`→ impresión, `sellado`/`precorte`→ sellado-precorte).
 
 ## Menú lateral
@@ -243,6 +249,18 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 ### `Planeacion.tsx`
 - Cola de Planeación (`api.getPendingPlanning`). Tabla con pedido, cliente, producto (SKU), cantidad, medida y botón **"Generar OP"** por fila.
 - "Generar OP" llama a `api.createProductionOrderFromPedidoItem`. Tras el éxito invalida `["pendingPlanning"]` y `["productionOrders"]`.
+
+### `Calidad.tsx`
+- Cola de OPs `pendiente_calidad` (`api.getProductionOrders("pendiente_calidad")`). Muestra OP, producto, cantidad planificada y el kilaje del precorte.
+- Por fila: **Aprobar** (envía `api.submitQualityCheck(id, { result: "aprobado" })`) o **Rechazar** (pide motivo opcional antes de confirmar, `result: "rechazado"`). Tras el éxito invalida `["productionOrders"]`.
+
+### `Trazabilidad.tsx`
+- Selector de OP (`api.getProductionOrders`) + detalle de solo lectura (`api.getProductionOrder(id)`).
+- Muestra el producto y la cantidad planificada, el **origen** (pedido/cliente si vino de Planeación, o "Producción a stock"), la lista de pasos por estación y el **resultado de Calidad** (aprobado/rechazado con observaciones y quién lo registró).
+
+### `Auditoria.tsx`
+- Bitácora forense (`api.getAuditLog`) con filtro **por tabla** (Client, Dispatch, ProductionEntry, InventoryMovement) y paginado.
+- Cada fila expandible muestra el diff **antes/después** (JSON) y el user-agent. La columna Usuario sale del `include.user.name`.
 
 ### `Cotizaciones.tsx` / `Pedidos.tsx` / `Facturas.tsx`
 - Crear y listar cotizaciones con estado; pedidos versionados con adjuntos; facturas con abonos y anulación.

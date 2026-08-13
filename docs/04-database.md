@@ -187,10 +187,39 @@ app_meta 1 fila (clave/valor, sin FKs)
 | productId | Int | FK → products |
 | quantityPlanned | Decimal | `@map("quantity_planned")` |
 | measure | String? | hereda del producto si no se indica |
-| status | `ProductionOrderStatus` | `pendiente` / `en_proceso` / `detenida` / `finalizada` / `cancelada` |
+| status | `ProductionOrderStatus` | `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada` |
 | pedidoVersionItemId | Int? | `@unique` `@map("pedido_version_item_id")`. FK → pedido_version_items. Vínculo opcional con el item del pedido que originó la OP (módulo Planeación). `NULL` en las OPs manuales |
 | notes | String? | |
 | createdById | Int? | |
+| createdAt | DateTime | `@map("created_at")` |
+| qualityCheck | QualityCheck? | 1:1. Registra el control de calidad de la OP (una sola vez, tras precorte) |
+
+### `quality_checks`
+
+Control de calidad de una OP. Se registra **una sola vez**: después del paso de precorte y antes de que la OP se finalice.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| productionOrderId | Int | `@unique`. FK → production_orders |
+| result | `QualityResult` | `aprobado` (genera la entrada de inventario y finaliza la OP) / `rechazado` (la OP queda `detenida`, sin tocar stock) |
+| observations | String? | Motivo (normalmente del rechazo) |
+| createdById | Int? | FK → users |
+| createdAt | DateTime | `@map("created_at")` |
+
+### `audit_logs`
+
+Bitácora forense genérica: registra `create`/`update`/`delete` sobre las tablas críticas con el estado antes/después y quién lo hizo desde dónde. La escribe automáticamente la extensión de Prisma (`withAudit`), no se crea a mano desde ningún router.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| tableName | String | `@map("table_name")`. Modelo auditado (p. ej. `Client`, `Dispatch`) |
+| recordId | Int? | `@map("record_id")` |
+| action | `AuditAction` | `create` / `update` / `delete` |
+| before / after | Json? | Estado antes y después (diff). `before` es `NULL` en `create`; `after` es `NULL` en `delete` |
+| userId | Int? | FK → users |
+| ipAddress / userAgent | String? | Desde dónde se hizo |
 | createdAt | DateTime | `@map("created_at")` |
 
 ### `production_stage_logs`
@@ -318,8 +347,10 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `ReferenceType` | `production_entry`, `dispatch_item`, `manual_adjustment` |
 | `DispatchStatus` | `pendiente`, `en_proceso`, `despachado` |
 | `ImportSource` | `manual_upload`, `whatsapp_bot` |
-| `ProductionOrderStatus` | `pendiente`, `en_proceso`, `detenida`, `finalizada`, `cancelada` |
+| `ProductionOrderStatus` | `pendiente`, `en_proceso`, `pendiente_calidad`, `detenida`, `finalizada`, `cancelada` |
 | `ProductionStation` | `extrusion`, `impresion`, `sellado`, `precorte` |
+| `QualityResult` | `aprobado`, `rechazado` |
+| `AuditAction` | `create`, `update`, `delete` |
 | `InteractionType` | `llamada`, `email`, `reunion`, `nota` |
 | `CotizacionStatus` | `borrador`, `enviada`, `aceptada`, `rechazada`, `expirada` |
 | `PedidoStatus` | `borrador`, `pendiente`, `aprobado`, `en_produccion`, `despachado`, `cancelado` |
@@ -344,6 +375,8 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260808033850_add_client_visit_streak` | `clients`: `visit_streak` |
 | `20260808040000_rename_visit_streak_to_cycle_interactions` | Renombra `visit_streak` → `cycle_interactions` |
 | `20260808045144_add_contact_frequency` | `client_contacts`: `view_count`, `last_viewed_at`, `cycle_interactions` |
+| `20260809171233_add_quality_check` | Estado `pendiente_calidad`, tabla `quality_checks` y enum `QualityResult` |
+| `20260810020619_add_audit_log` | Tabla `audit_logs` y enum `AuditAction` |
 
 Para aplicar cambios nuevos:
 
@@ -361,6 +394,9 @@ npm run prisma:migrate    # crea una carpeta nueva con el SQL + regenera el clie
 - **6 productos** (SKUs `BUL-001`, `ROL-PL-001`, `ROL-F-001`, `MAN-001`, `TIR-001`, `CTL-001`) con precio de catálogo.
 - **2 clientes**: "Cliente ACME" (con límite de crédito `5.000.000`, bodega principal y 2 contactos) y "Distribuidora Norte".
 - **1 pedido de Planeación**: `PED-SEED-PLANEACION` (estado `aprobado`, 2 items de `BUL-001` y `ROL-PL-001`). Este pedido llena la cola de Planeación al entrar.
+- **1 OP demo de Calidad**: `OP-SEED-CALIDAD` (producto `BUL-001`, estado `pendiente_calidad`, con su paso de precorte cargado). Llena la cola de Calidad al entrar.
+
+El seed usa el mismo cliente auditado que la app. Así, los clientes que crea generan entradas reales en `audit_logs`, y el módulo de Auditoría no queda vacío en la primera corrida.
 
 ## Consultas útiles en psql
 

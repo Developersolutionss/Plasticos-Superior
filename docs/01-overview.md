@@ -11,7 +11,7 @@ En el flujo manual, Producción llena un reporte. El reporte es un archivo Excel
 El sistema digitaliza este flujo:
 
 - **Carga de producción**: manual o por importación del mismo Excel.
-- **Producción por orden de trabajo**: cada OP pasa por las cuatro estaciones (extrusión, impresión, sellado, precorte) y al finalizar genera inventario.
+- **Producción por orden de trabajo**: cada OP pasa por las cuatro estaciones (extrusión, impresión, sellado, precorte). Tras el precorte, Calidad aprueba o rechaza el lote. La aprobación genera la entrada de inventario.
 - **Inventario actualizado**: con alertas de stock mínimo.
 - **Despachos registrados**: descuentan el inventario automáticamente.
 - **Comercial**: cotizaciones, pedidos versionados y facturación con pagos (cartera).
@@ -43,11 +43,13 @@ El sistema digitaliza este flujo:
 | Comercial | ✅ Implementado | Cotizaciones (con estado), pedidos **versionados** con adjuntos, facturación y abonos |
 | Planeación | ✅ Implementado | Cola de items de pedidos aprobados/en producción sin OP. Genera la OP de cada item |
 | Órdenes de producción | ✅ Implementado | OP con numeración consecutiva y paso por las 4 estaciones |
-| Estaciones de planta | ✅ Implementado | Registro de etapa con kilos, merma y tiempos. El precorte genera la entrada de inventario |
+| Estaciones de planta | ✅ Implementado | Registro de etapa con kilos, merma y tiempos. El precorte deja la OP `pendiente_calidad`; la entrada de inventario la genera Calidad al aprobar |
+| Calidad | ✅ Implementado | Cola de OPs `pendiente_calidad`. Aprueba el lote (genera la entrada y finaliza la OP) o lo rechaza (la OP queda `detenida` sin tocar stock) |
+| Trazabilidad | ✅ Implementado | Historial completo de una OP: pasos por estación, resultado de Calidad y pedido/cliente de origen |
 | Inventario | ✅ Implementado | Stock por producto, stock mínimo, alertas, categorías. Movimientos como bitácora |
 | Producción | ✅ Implementado | Alta manual + importación Excel/CSV con preview y confirmación |
 | Despachos | ✅ Implementado | Crear despacho y marcar items como despachados (descuenta stock) |
-| Auditoría | 🟡 Parcial | Bitácora de movimientos de inventario + registro de importaciones |
+| Auditoría | ✅ Implementado | Bitácora forense de create/update/delete en tablas críticas (Client, Dispatch, ProductionEntry, InventoryMovement) con diff antes/después, usuario, IP y user-agent |
 | WhatsApp | 🔶 Fase 2 | Webhook implementado. Pendiente cuenta Meta aprobada y credenciales |
 
 ## Actores (roles)
@@ -64,10 +66,10 @@ La matriz completa tiene **11 roles** (`server/src/middleware/auth.ts` los agrup
 | `operario_sellado_precorte` | Registrar etapas de **Sellado y Precorte** |
 | `ventas_pedidos` | CRM, cotizaciones, pedidos, facturas y pagos |
 | `almacen_despachos` | Carga de producción (Excel/manual) y despachos |
-| `calidad` | Reservado (sin endpoints específicos hoy) |
-| `auditor` | Reservado (sin endpoints específicos hoy) |
+| `calidad` | Revisa la cola de OPs en `pendiente_calidad`: aprueba el lote o lo rechaza |
+| `auditor` | Consulta la bitácora de auditoría y la trazabilidad de las OPs |
 
-Los grupos reutilizables (`ROLES.VENTAS`, `ROLES.ALMACEN`, `ROLES.PRODUCCION_GESTION`, `ROLES.OPERARIOS`) restringen las rutas con `requireRole`. `super_admin` y `admin` siempre tienen acceso. Ver [06 — Backend](06-backend.md).
+Los grupos reutilizables (`ROLES.VENTAS`, `ROLES.ALMACEN`, `ROLES.PRODUCCION_GESTION`, `ROLES.OPERARIOS`, `ROLES.CALIDAD`, `ROLES.AUDITORIA`) restringen las rutas con `requireRole`. `super_admin` y `admin` siempre tienen acceso. Ver [06 — Backend](06-backend.md).
 
 El **frontend replica este control**: el menú lateral y las rutas de la SPA se filtran por rol (`filterNavSections` + `RequireRole`). Un rol solo ve y accede a sus módulos. Ver [07 — Frontend](07-frontend.md).
 
