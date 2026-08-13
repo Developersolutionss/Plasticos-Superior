@@ -70,6 +70,8 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      {/* Pública a propósito: el token es la credencial (ver publicLocation.ts). */}
+      <Route path="/qr/:token" element={<UbicacionDetalle />} />
       <Route
         path="/"
         element={
@@ -156,14 +158,6 @@ export default function App() {
           element={
             <RequireRole roles={ALMACEN}>
               <Almacen />
-            </RequireRole>
-          }
-        />
-        <Route
-          path="almacen/ubicacion/:code"
-          element={
-            <RequireRole roles={ALMACEN}>
-              <UbicacionDetalle />
             </RequireRole>
           }
         />

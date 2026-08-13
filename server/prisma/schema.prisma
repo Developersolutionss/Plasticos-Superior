@@ -349,7 +349,12 @@ model WarehouseLocation {
   id        Int      @id @default(autoincrement())
   code      String   @unique
   label     String
-  createdAt DateTime @default(now()) @map("created_at")
+  /// Token aleatorio (32 hex) que codifica el QR imprimible de esta
+  /// ubicación. Es la única "credencial" de /api/public/locations/:token —
+  /// a propósito no es el `code` (corto y adivinable) para que ver el stock
+  /// de una ubicación requiera haber escaneado ese QR físico puntual.
+  publicToken String   @unique @map("public_token")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   stock StockLocation[]
 

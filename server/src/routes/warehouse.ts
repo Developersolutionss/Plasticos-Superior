@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import QRCode from "qrcode";
+import { randomBytes } from "crypto";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { getStockByCategory } from "../services/stockService";
@@ -13,7 +14,12 @@ warehouseRouter.use(requireRole(...ROLES.ALMACEN));
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:5173";
 
 warehouseRouter.get("/locations", async (_req, res) => {
-  const locations = await prisma.warehouseLocation.findMany({ orderBy: { code: "asc" } });
+  // Sin `publicToken`: no tiene por qué viajar en ningún otro lugar más
+  // que en la URL ya armada de /locations/:id/qr.
+  const locations = await prisma.warehouseLocation.findMany({
+    select: { id: true, code: true, label: true, createdAt: true },
+    orderBy: { code: "asc" },
+  });
   res.json(locations);
 });
 
@@ -29,44 +35,25 @@ warehouseRouter.post("/locations", async (req, res) => {
   const existing = await prisma.warehouseLocation.findUnique({ where: { code: parsed.data.code } });
   if (existing) return res.status(400).json({ error: "Ya existe una ubicación con ese código" });
 
-  const location = await prisma.warehouseLocation.create({ data: parsed.data });
+  const location = await prisma.warehouseLocation.create({
+    data: { ...parsed.data, publicToken: randomBytes(16).toString("hex") },
+    select: { id: true, code: true, label: true, createdAt: true },
+  });
   res.status(201).json(location);
 });
 
 /** QR imprimible: al escanearlo (cámara normal, sin hardware especial) abre
- * la página de stock en tiempo real de esa ubicación. Mismo patrón que el
- * QR de 2FA en services/totp.ts (QRCode.toDataURL). */
+ * sin login la página de stock en tiempo real de esa ubicación — el token
+ * (no el `code`, corto y adivinable) es la única "credencial" de ese link.
+ * Mismo patrón que el QR de 2FA en services/totp.ts (QRCode.toDataURL). */
 warehouseRouter.get("/locations/:id/qr", async (req, res) => {
   const id = Number(req.params.id);
   const location = await prisma.warehouseLocation.findUnique({ where: { id } });
   if (!location) return res.status(404).json({ error: "Ubicación no encontrada" });
 
-  const url = `${FRONTEND_URL}/almacen/ubicacion/${location.code}`;
+  const url = `${FRONTEND_URL}/qr/${location.publicToken}`;
   const dataUrl = await QRCode.toDataURL(url);
   res.json({ dataUrl, url });
-});
-
-/** Lo que consume la página a la que apunta el QR de arriba. */
-warehouseRouter.get("/locations/by-code/:code", async (req, res) => {
-  const location = await prisma.warehouseLocation.findUnique({ where: { code: req.params.code } });
-  if (!location) return res.status(404).json({ error: "Ubicación no encontrada" });
-
-  const stock = await prisma.stockLocation.findMany({
-    where: { locationId: location.id },
-    include: { product: true },
-    orderBy: { product: { name: "asc" } },
-  });
-
-  res.json({
-    location: { code: location.code, label: location.label },
-    items: stock.map((row) => ({
-      productId: row.productId,
-      sku: row.product.sku,
-      name: row.product.name,
-      unit: row.product.unit,
-      quantity: Number(row.quantity),
-    })),
-  });
 });
 
 /**

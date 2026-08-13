@@ -266,6 +266,8 @@ export const api = {
   assignWarehouseStock: (data: { productId: number; toLocationId: number; quantity: number; fromLocationId?: number }) =>
     request<any>("/warehouse/assign", { method: "POST", body: JSON.stringify(data) }),
   getWarehouseLocationQr: (id: number) => request<{ dataUrl: string; url: string }>(`/warehouse/locations/${id}/qr`),
-  getWarehouseLocationByCode: (code: string) =>
-    request<{ location: { code: string; label: string }; items: any[] }>(`/warehouse/locations/by-code/${code}`),
+  /** Sin auth (la ruta del token es pública) — igual pasa por `request()`,
+   * el Authorization que agrega si hay sesión no molesta al backend. */
+  getPublicLocation: (token: string) =>
+    request<{ location: { code: string; label: string }; items: any[] }>(`/public/locations/${token}`),
 };

@@ -1,5 +1,6 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "crypto";
 // Usa el mismo cliente auditado que la app (../src/prisma.ts) en vez de uno
 // propio, para que los Client que crea este seed generen entradas reales de
 // auditoría — así el módulo de Auditoría no queda vacío en la primera corrida.
@@ -156,7 +157,11 @@ async function main() {
     { code: "B-1", label: "Bodega B - Refrigerado" },
   ];
   for (const loc of demoLocations) {
-    await prisma.warehouseLocation.upsert({ where: { code: loc.code }, update: {}, create: loc });
+    await prisma.warehouseLocation.upsert({
+      where: { code: loc.code },
+      update: {},
+      create: { ...loc, publicToken: randomBytes(16).toString("hex") },
+    });
   }
   const a1 = await prisma.warehouseLocation.findUnique({ where: { code: "A-1" } });
   const a2 = await prisma.warehouseLocation.findUnique({ where: { code: "A-2" } });

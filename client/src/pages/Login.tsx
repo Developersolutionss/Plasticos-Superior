@@ -4,8 +4,8 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
 export default function Login() {
-  const [email, setEmail] = useState("despacho@empresa.com");
-  const [password, setPassword] = useState("password123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [totpToken, setTotpToken] = useState("");
   const [needs2fa, setNeeds2fa] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,8 +38,11 @@ export default function Login() {
         {!needs2fa && (
           <>
             <div>
-              <label className="block text-sm text-slate-600 mb-1">Email</label>
+              <label htmlFor="login-email" className="block text-sm text-slate-600 mb-1">
+                Email
+              </label>
               <input
+                id="login-email"
                 className="w-full border rounded px-3 py-2"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -47,8 +50,11 @@ export default function Login() {
               />
             </div>
             <div>
-              <label className="block text-sm text-slate-600 mb-1">Contraseña</label>
+              <label htmlFor="login-password" className="block text-sm text-slate-600 mb-1">
+                Contraseña
+              </label>
               <input
+                id="login-password"
                 className="w-full border rounded px-3 py-2"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

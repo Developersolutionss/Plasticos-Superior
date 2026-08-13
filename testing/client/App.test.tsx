@@ -55,16 +55,18 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Ingresar" })).toBeInTheDocument();
   });
 
-  it("renderiza la página de login con valores por defecto", () => {
+  it("renderiza la página de login con los campos vacíos", () => {
     renderApp("/login");
     expect(screen.getByText("Plásticos Superior")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("despacho@empresa.com")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("password123")).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toHaveValue("");
+    expect(screen.getByLabelText("Contraseña")).toHaveValue("");
   });
 
   it("inicia sesión y navega al layout con el usuario logueado", async () => {
     const user = userEvent.setup();
     renderApp("/login");
+    await user.type(screen.getByLabelText("Email"), "despacho@empresa.com");
+    await user.type(screen.getByLabelText("Contraseña"), "password123");
     await user.click(screen.getByRole("button", { name: "Ingresar" }));
     expect(await screen.findByRole("button", { name: "Salir" })).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
