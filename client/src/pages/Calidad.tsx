@@ -2,6 +2,84 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 
+/** Componente de nivel de módulo (no anidado en Calidad): si se define
+ * adentro, React crea una función nueva en cada render y remonta este
+ * subárbol cada vez que cambia `observations` — es decir, en cada tecla
+ * que se escribe en el motivo de rechazo, perdiendo el foco del textarea. */
+function Actions({
+  order,
+  align,
+  rejectingId,
+  submittingId,
+  observations,
+  setObservations,
+  setRejectingId,
+  handleSubmit,
+}: {
+  order: any;
+  align: "end" | "stretch";
+  rejectingId: number | null;
+  submittingId: number | null;
+  observations: string;
+  setObservations: (v: string) => void;
+  setRejectingId: (id: number | null) => void;
+  handleSubmit: (orderId: number, result: "aprobado" | "rechazado") => void;
+}) {
+  if (rejectingId === order.id) {
+    return (
+      <div className={`flex flex-col gap-2 ${align === "end" ? "items-end" : ""}`}>
+        <textarea
+          className="border rounded px-2 py-1 text-xs w-full sm:w-56"
+          placeholder="Motivo del rechazo (opcional)"
+          value={observations}
+          onChange={(e) => setObservations(e.target.value)}
+          rows={2}
+        />
+        <div className="flex gap-2">
+          <button
+            className="text-slate-500 hover:text-slate-700 text-xs px-2 py-1"
+            type="button"
+            onClick={() => {
+              setRejectingId(null);
+              setObservations("");
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
+            type="button"
+            disabled={submittingId === order.id}
+            onClick={() => handleSubmit(order.id, "rechazado")}
+          >
+            Confirmar rechazo
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className={`flex gap-2 ${align === "end" ? "justify-end" : ""}`}>
+      <button
+        className="border border-red-300 text-red-700 hover:bg-red-50 text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 flex-1 sm:flex-none"
+        type="button"
+        disabled={submittingId === order.id}
+        onClick={() => setRejectingId(order.id)}
+      >
+        Rechazar
+      </button>
+      <button
+        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 flex-1 sm:flex-none"
+        type="button"
+        disabled={submittingId === order.id}
+        onClick={() => handleSubmit(order.id, "aprobado")}
+      >
+        {submittingId === order.id ? "Guardando..." : "Aprobar"}
+      </button>
+    </div>
+  );
+}
+
 export default function Calidad() {
   const [error, setError] = useState<string | null>(null);
   const [submittingId, setSubmittingId] = useState<number | null>(null);
@@ -32,62 +110,6 @@ export default function Calidad() {
   function precorteKg(order: any) {
     const precorte = (order.stages ?? []).filter((s: any) => s.station === "precorte").at(-1);
     return precorte?.kilosProduced;
-  }
-
-  function Actions({ order, align }: { order: any; align: "end" | "stretch" }) {
-    if (rejectingId === order.id) {
-      return (
-        <div className={`flex flex-col gap-2 ${align === "end" ? "items-end" : ""}`}>
-          <textarea
-            className="border rounded px-2 py-1 text-xs w-full sm:w-56"
-            placeholder="Motivo del rechazo (opcional)"
-            value={observations}
-            onChange={(e) => setObservations(e.target.value)}
-            rows={2}
-          />
-          <div className="flex gap-2">
-            <button
-              className="text-slate-500 hover:text-slate-700 text-xs px-2 py-1"
-              type="button"
-              onClick={() => {
-                setRejectingId(null);
-                setObservations("");
-              }}
-            >
-              Cancelar
-            </button>
-            <button
-              className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
-              type="button"
-              disabled={submittingId === order.id}
-              onClick={() => handleSubmit(order.id, "rechazado")}
-            >
-              Confirmar rechazo
-            </button>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className={`flex gap-2 ${align === "end" ? "justify-end" : ""}`}>
-        <button
-          className="border border-red-300 text-red-700 hover:bg-red-50 text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 flex-1 sm:flex-none"
-          type="button"
-          disabled={submittingId === order.id}
-          onClick={() => setRejectingId(order.id)}
-        >
-          Rechazar
-        </button>
-        <button
-          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 flex-1 sm:flex-none"
-          type="button"
-          disabled={submittingId === order.id}
-          onClick={() => handleSubmit(order.id, "aprobado")}
-        >
-          {submittingId === order.id ? "Guardando..." : "Aprobar"}
-        </button>
-      </div>
-    );
   }
 
   return (
@@ -129,7 +151,16 @@ export default function Calidad() {
                     </td>
                     <td className="p-3">{precorteKg(order) ?? "—"}</td>
                     <td className="p-3">
-                      <Actions order={order} align="end" />
+                      <Actions
+                        order={order}
+                        align="end"
+                        rejectingId={rejectingId}
+                        submittingId={submittingId}
+                        observations={observations}
+                        setObservations={setObservations}
+                        setRejectingId={setRejectingId}
+                        handleSubmit={handleSubmit}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -147,7 +178,16 @@ export default function Calidad() {
                     Planificado: {order.quantityPlanned} {order.product.unit} · Precorte: {precorteKg(order) ?? "—"}
                   </p>
                 </div>
-                <Actions order={order} align="stretch" />
+                <Actions
+                  order={order}
+                  align="stretch"
+                  rejectingId={rejectingId}
+                  submittingId={submittingId}
+                  observations={observations}
+                  setObservations={setObservations}
+                  setRejectingId={setRejectingId}
+                  handleSubmit={handleSubmit}
+                />
               </div>
             ))}
           </div>
