@@ -40,6 +40,12 @@ export default function Usuarios() {
     }
   }
 
+  async function handleReactivate(id: number) {
+    setError(null);
+    await api.reactivateUser(id);
+    queryClient.invalidateQueries({ queryKey: ["users"] });
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -87,7 +93,7 @@ export default function Usuarios() {
                       )}
                     </td>
                     <td className="p-3">
-                      {u.active && (
+                      {u.active ? (
                         <div className="flex items-center gap-2">
                           <button
                             className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
@@ -114,6 +120,10 @@ export default function Usuarios() {
                             </button>
                           )}
                         </div>
+                      ) : (
+                        <button className="text-emerald-600 text-xs hover:underline" onClick={() => handleReactivate(u.id)}>
+                          Reactivar
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -134,7 +144,7 @@ export default function Usuarios() {
                   </div>
                   <p className="text-sm text-slate-500">{u.email}</p>
                   <p className="text-sm text-slate-600">{ROLE_LABELS[u.role] ?? u.role}</p>
-                  {u.active && (
+                  {u.active ? (
                     <div className="flex items-center gap-3 pt-1">
                       <button className="text-slate-600 text-xs hover:underline inline-flex items-center gap-1" onClick={() => setEditingUser(u)}>
                         <Pencil size={12} strokeWidth={2} /> Editar
@@ -153,6 +163,12 @@ export default function Usuarios() {
                           Desactivar
                         </button>
                       )}
+                    </div>
+                  ) : (
+                    <div className="pt-1">
+                      <button className="text-emerald-600 text-xs hover:underline" onClick={() => handleReactivate(u.id)}>
+                        Reactivar
+                      </button>
                     </div>
                   )}
                 </div>

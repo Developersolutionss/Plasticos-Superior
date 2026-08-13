@@ -5,6 +5,7 @@ import { randomBytes } from "crypto";
 // propio, para que los Client que crea este seed generen entradas reales de
 // auditoría — así el módulo de Auditoría no queda vacío en la primera corrida.
 import { prisma } from "../src/prisma";
+import { applyMovement } from "../src/services/stockService";
 
 async function main() {
   const passwordHash = await bcrypt.hash("password123", 10);
@@ -176,6 +177,98 @@ async function main() {
       update: {},
       create: { productId: rollo.id, locationId: a2.id, quantity: 20 },
     });
+  }
+
+  const adminUser = await prisma.user.findUnique({ where: { email: "admin@empresa.com" } });
+
+  // Movimiento de inventario demo (ajuste manual), para que el módulo de
+  // Movimientos no esté vacío al entrar. Idempotente: solo se crea si
+  // todavía no hay ningún movimiento registrado.
+  const existingMovements = await prisma.inventoryMovement.count();
+  if (existingMovements === 0 && bulto) {
+    await prisma.$transaction((tx) =>
+      applyMovement(tx, {
+        productId: bulto.id,
+        quantity: 20,
+        movementType: "ajuste",
+        referenceType: "manual_adjustment",
+        createdById: adminUser?.id,
+      })
+    );
+  }
+
+  // 2 OPs demo ya cerradas con su control de calidad (una aprobada, otra
+  // rechazada), para que el módulo de Indicadores no esté vacío al entrar.
+  // Idempotente por `orderNumber` fijo, mismo criterio que OP-SEED-CALIDAD.
+  if (bulto) {
+    const qualitySeedOps = [
+      { orderNumber: "OP-SEED-INDICADORES-1", result: "aprobado" as const },
+      { orderNumber: "OP-SEED-INDICADORES-2", result: "rechazado" as const },
+    ];
+    for (const seedOp of qualitySeedOps) {
+      const existing = await prisma.productionOrder.findUnique({ where: { orderNumber: seedOp.orderNumber } });
+      if (existing) continue;
+
+      const op = await prisma.productionOrder.create({
+        data: {
+          orderNumber: seedOp.orderNumber,
+          productId: bulto.id,
+          quantityPlanned: 15,
+          measure: bulto.measure,
+          status: seedOp.result === "aprobado" ? "finalizada" : "detenida",
+          stages: {
+            create: {
+              station: "precorte",
+              machine: "Cortadora 1",
+              operatorName: "Operario Demo",
+              startTime: new Date(Date.now() - 2 * 60 * 60 * 1000),
+              endTime: new Date(),
+              kilosProduced: 15,
+              notes: "Paso de precorte demo para probar el módulo de Indicadores",
+            },
+          },
+        },
+      });
+      await prisma.qualityCheck.create({
+        data: { productionOrderId: op.id, result: seedOp.result, observations: "Control de calidad demo" },
+      });
+    }
+  }
+
+  // Despacho demo ya completado, para que el ranking de "Top productos
+  // despachados" de Indicadores tenga datos. Idempotente por un marcador
+  // fijo en las notas del ítem (Dispatch no tiene un campo único propio).
+  const DISPATCH_SEED_MARKER = "Despacho demo (seed)";
+  if (acme && bulto) {
+    const existingSeedDispatchItem = await prisma.dispatchItem.findFirst({ where: { notes: DISPATCH_SEED_MARKER } });
+    if (!existingSeedDispatchItem) {
+      await prisma.dispatch.create({
+        data: {
+          clientId: acme.id,
+          status: "despachado",
+          dispatchedDate: new Date(),
+          items: {
+            create: [{ productId: bulto.id, quantityRequested: 12, quantityDispatched: 12, notes: DISPATCH_SEED_MARKER }],
+          },
+        },
+      });
+    }
+  }
+
+  // Notificación demo para el admin, para que la campana no esté vacía al
+  // entrar. Idempotente por `type` fijo.
+  if (adminUser) {
+    const existingSeedNotif = await prisma.notification.findFirst({ where: { userId: adminUser.id, type: "seed_demo" } });
+    if (!existingSeedNotif) {
+      await prisma.notification.create({
+        data: {
+          userId: adminUser.id,
+          type: "seed_demo",
+          message: "OP-SEED-CALIDAD está pendiente de revisión de calidad",
+          link: "/calidad",
+        },
+      });
+    }
   }
 
   console.log(

@@ -32,6 +32,11 @@ export default function Productos() {
     setDeactivatingId(null);
   }
 
+  async function handleReactivate(id: number) {
+    await api.reactivateProduct(id);
+    queryClient.invalidateQueries({ queryKey: ["allProducts"] });
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -83,7 +88,7 @@ export default function Productos() {
                       )}
                     </td>
                     <td className="p-3">
-                      {p.active && (
+                      {p.active ? (
                         <div className="flex items-center gap-2">
                           <button
                             className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
@@ -110,6 +115,10 @@ export default function Productos() {
                             </button>
                           )}
                         </div>
+                      ) : (
+                        <button className="text-emerald-600 text-xs hover:underline" onClick={() => handleReactivate(p.id)}>
+                          Reactivar
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -137,7 +146,7 @@ export default function Productos() {
                     </span>
                     <span>{formatCOP(Number(p.unitPrice))}</span>
                   </div>
-                  {p.active && (
+                  {p.active ? (
                     <div className="flex items-center gap-3 pt-1">
                       <button className="text-slate-600 text-xs hover:underline inline-flex items-center gap-1" onClick={() => setEditingProduct(p)}>
                         <Pencil size={12} strokeWidth={2} /> Editar
@@ -156,6 +165,12 @@ export default function Productos() {
                           Desactivar
                         </button>
                       )}
+                    </div>
+                  ) : (
+                    <div className="pt-1">
+                      <button className="text-emerald-600 text-xs hover:underline" onClick={() => handleReactivate(p.id)}>
+                        Reactivar
+                      </button>
                     </div>
                   )}
                 </div>

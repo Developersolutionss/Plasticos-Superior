@@ -104,7 +104,7 @@ dashboardRouter.get("/indicadores", async (_req, res) => {
 
   const [dispatchItems, qualityChecks] = await Promise.all([
     prisma.dispatchItem.findMany({
-      where: { dispatch: { status: "despachado", createdAt: { gte: since } } },
+      where: { dispatch: { status: "despachado", dispatchedDate: { gte: since } } },
       include: { product: { select: { id: true, sku: true, name: true, unit: true } } },
     }),
     prisma.qualityCheck.findMany({

@@ -24,10 +24,32 @@ inventoryRouter.get("/products", async (_req, res) => {
 /** Historial de movimientos de stock (log operativo de bodega) — más
  * restringido que "Existencias", que también consultan Ventas/Planeación. */
 inventoryRouter.get("/movements", requireRole(...ROLES.ALMACEN), async (req, res) => {
-  const productId = req.query.productId ? Number(req.query.productId) : undefined;
+  let productId: number | undefined;
+  if (req.query.productId !== undefined) {
+    productId = Number(req.query.productId);
+    if (!Number.isInteger(productId) || productId <= 0) {
+      return res.status(400).json({ error: "productId inválido" });
+    }
+  }
+
+  const MOVEMENT_TYPES = ["entrada_produccion", "salida_despacho", "ajuste", "devolucion"];
   const movementType = req.query.movementType as string | undefined;
-  const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
-  const pageSize = req.query.pageSize ? Math.min(200, Number(req.query.pageSize)) : 50;
+  if (movementType !== undefined && !MOVEMENT_TYPES.includes(movementType)) {
+    return res.status(400).json({ error: "movementType inválido" });
+  }
+
+  let page = 1;
+  if (req.query.page !== undefined) {
+    page = Number(req.query.page);
+    if (!Number.isInteger(page) || page < 1) return res.status(400).json({ error: "page inválido" });
+  }
+
+  let pageSize = 50;
+  if (req.query.pageSize !== undefined) {
+    pageSize = Number(req.query.pageSize);
+    if (!Number.isInteger(pageSize) || pageSize < 1) return res.status(400).json({ error: "pageSize inválido" });
+    pageSize = Math.min(200, pageSize);
+  }
 
   const where = { productId, movementType: movementType as any };
 

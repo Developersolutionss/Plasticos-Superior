@@ -67,6 +67,7 @@ export const api = {
     data: Partial<{ sku: string; name: string; category: string; measure?: string; unit: string; minStock: number; unitPrice: number }>
   ) => request<any>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(data) }),
   deactivateProduct: (productId: number) => request<any>(`/products/${productId}`, { method: "DELETE" }),
+  reactivateProduct: (productId: number) => request<any>(`/products/${productId}/reactivate`, { method: "POST" }),
 
   getUsers: () => request<any[]>("/users"),
   createUser: (data: { name: string; email: string; password: string; role: string }) =>
@@ -74,6 +75,7 @@ export const api = {
   updateUser: (userId: number, data: Partial<{ name: string; email: string; role: string; password: string }>) =>
     request<any>(`/users/${userId}`, { method: "PATCH", body: JSON.stringify(data) }),
   deactivateUser: (userId: number) => request<any>(`/users/${userId}`, { method: "DELETE" }),
+  reactivateUser: (userId: number) => request<any>(`/users/${userId}/reactivate`, { method: "POST" }),
 
   getClients: () => request<any[]>("/clients"),
   createClient: (name: string) => request<any>("/clients", { method: "POST", body: JSON.stringify({ name }) }),

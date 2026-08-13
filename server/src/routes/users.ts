@@ -121,3 +121,17 @@ usersRouter.delete("/:id", async (req, res) => {
   const updated = await prisma.user.update({ where: { id: userId }, data: { active: false }, select: USER_SELECT });
   res.json(updated);
 });
+
+/** Reactiva un usuario desactivado por error. */
+usersRouter.post("/:id/reactivate", async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({ error: "ID de usuario inválido" });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  const updated = await prisma.user.update({ where: { id: userId }, data: { active: true }, select: USER_SELECT });
+  res.json(updated);
+});

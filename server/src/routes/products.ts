@@ -86,3 +86,17 @@ productsRouter.delete("/:id", requireProduccionGestion, async (req, res) => {
   const updated = await prisma.product.update({ where: { id: productId }, data: { active: false } });
   res.json(updated);
 });
+
+/** Reactiva un producto desactivado por error. */
+productsRouter.post("/:id/reactivate", requireProduccionGestion, async (req, res) => {
+  const productId = Number(req.params.id);
+  if (!Number.isInteger(productId) || productId <= 0) {
+    return res.status(400).json({ error: "ID de producto inválido" });
+  }
+
+  const product = await prisma.product.findUnique({ where: { id: productId } });
+  if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+
+  const updated = await prisma.product.update({ where: { id: productId }, data: { active: true } });
+  res.json(updated);
+});
