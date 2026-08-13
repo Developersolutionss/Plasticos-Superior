@@ -14,6 +14,7 @@ import Planeacion from "./pages/Planeacion";
 import Calidad from "./pages/Calidad";
 import Trazabilidad from "./pages/Trazabilidad";
 import Auditoria from "./pages/Auditoria";
+import Almacen from "./pages/Almacen";
 import EstacionProduccion from "./pages/EstacionProduccion";
 import Cotizaciones from "./pages/Cotizaciones";
 import Pedidos from "./pages/Pedidos";
@@ -146,6 +147,14 @@ export default function App() {
           element={
             <RequireRole roles={AUDITORIA}>
               <Auditoria />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="almacen"
+          element={
+            <RequireRole roles={ALMACEN}>
+              <Almacen />
             </RequireRole>
           }
         />

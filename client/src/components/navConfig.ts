@@ -130,7 +130,7 @@ export const navSections: NavEntry[] = [
       { id: "inventario-movimientos", label: "Movimientos", disabled: true },
     ],
   },
-  { id: "almacen", icon: "warehouse", label: "Almacén / WMS", disabled: true, roles: ALMACEN },
+  { id: "almacen", icon: "warehouse", label: "Almacén / WMS", to: "/almacen", roles: ALMACEN },
   { id: "etiquetas", icon: "tag", label: "Etiquetas térmicas", disabled: true, roles: ALMACEN },
   { id: "escaneo", icon: "scan-line", label: "Escaneo QR / Cód. barras", disabled: true, roles: ALMACEN },
   { id: "exportaciones", icon: "download", label: "Exportaciones", disabled: true, roles: ADMIN },

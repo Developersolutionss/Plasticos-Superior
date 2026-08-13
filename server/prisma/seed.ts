@@ -147,6 +147,32 @@ async function main() {
     }
   }
 
+  // Ubicaciones demo de bodega + un poco de stock ya repartido entre ellas,
+  // para que el módulo de Almacén no esté vacío al entrar. Idempotente por
+  // `code` (único): si ya existen, no se tocan ni se duplica el stock.
+  const demoLocations = [
+    { code: "A-1", label: "Bodega A - Estante 1" },
+    { code: "A-2", label: "Bodega A - Estante 2" },
+    { code: "B-1", label: "Bodega B - Refrigerado" },
+  ];
+  for (const loc of demoLocations) {
+    await prisma.warehouseLocation.upsert({ where: { code: loc.code }, update: {}, create: loc });
+  }
+  const a1 = await prisma.warehouseLocation.findUnique({ where: { code: "A-1" } });
+  const a2 = await prisma.warehouseLocation.findUnique({ where: { code: "A-2" } });
+  if (a1 && a2 && bulto && rollo) {
+    await prisma.stockLocation.upsert({
+      where: { productId_locationId: { productId: bulto.id, locationId: a1.id } },
+      update: {},
+      create: { productId: bulto.id, locationId: a1.id, quantity: 30 },
+    });
+    await prisma.stockLocation.upsert({
+      where: { productId_locationId: { productId: rollo.id, locationId: a2.id } },
+      update: {},
+      create: { productId: rollo.id, locationId: a2.id, quantity: 20 },
+    });
+  }
+
   console.log(
     "Seed completado. Usuarios (password123 para todos): admin@empresa.com (super_admin), " +
       "administrador@empresa.com (admin), produccion@empresa.com (gerente_produccion), " +

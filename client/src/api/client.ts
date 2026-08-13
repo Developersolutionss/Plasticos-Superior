@@ -258,4 +258,11 @@ export const api = {
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<{ items: any[]; total: number; page: number; pageSize: number }>(`/audit-log${suffix}`);
   },
+
+  getWarehouseLocations: () => request<any[]>("/warehouse/locations"),
+  createWarehouseLocation: (data: { code: string; label: string }) =>
+    request<any>("/warehouse/locations", { method: "POST", body: JSON.stringify(data) }),
+  getWarehouseStock: () => request<any[]>("/warehouse/stock"),
+  assignWarehouseStock: (data: { productId: number; toLocationId: number; quantity: number; fromLocationId?: number }) =>
+    request<any>("/warehouse/assign", { method: "POST", body: JSON.stringify(data) }),
 };

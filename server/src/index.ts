@@ -13,6 +13,7 @@ import { pedidosRouter } from "./routes/pedidos";
 import { facturasRouter } from "./routes/facturas";
 import { whatsappWebhookRouter } from "./routes/whatsappWebhook";
 import { auditLogRouter } from "./routes/auditLog";
+import { warehouseRouter } from "./routes/warehouse";
 import { scheduleFrecuentesReset } from "./services/frecuentesReset";
 
 const app = express();
@@ -38,6 +39,7 @@ app.use("/api/cotizaciones", cotizacionesRouter);
 app.use("/api/pedidos", pedidosRouter);
 app.use("/api/facturas", facturasRouter);
 app.use("/api/audit-log", auditLogRouter);
+app.use("/api/warehouse", warehouseRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
 
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;

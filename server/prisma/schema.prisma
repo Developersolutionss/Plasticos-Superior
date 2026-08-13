@@ -175,6 +175,7 @@ model User {
   payments             Payment[]
   qualityChecks        QualityCheck[]
   auditLogs            AuditLog[]
+  warehouseStockUpdates StockLocation[]
 
   @@map("users")
 }
@@ -198,6 +199,7 @@ model Product {
   cotizacionItems    CotizacionItem[]
   pedidoVersionItems PedidoVersionItem[]
   facturaItems       FacturaItem[]
+  stockLocations     StockLocation[]
 
   @@map("products")
 }
@@ -338,6 +340,38 @@ model InventoryStock {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@map("inventory_stock")
+}
+
+/// Ubicación física de bodega (estante, rack, zona). El stock total de un
+/// producto sigue viviendo en InventoryStock; esto es la capa de "dónde
+/// está guardado", administrada a mano por Almacén (ver StockLocation).
+model WarehouseLocation {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  label     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  stock StockLocation[]
+
+  @@map("warehouse_locations")
+}
+
+/// Cuánto de un producto hay en una ubicación puntual. Un producto puede
+/// estar repartido en varias filas; la suma de todas sus filas puede ser
+/// menor al stock total de InventoryStock — la diferencia es "sin ubicar".
+model StockLocation {
+  id          Int               @id @default(autoincrement())
+  productId   Int               @map("product_id")
+  product     Product           @relation(fields: [productId], references: [id])
+  locationId  Int               @map("location_id")
+  location    WarehouseLocation @relation(fields: [locationId], references: [id])
+  quantity    Decimal           @default(0) @db.Decimal(12, 2)
+  updatedById Int?              @map("updated_by")
+  updatedBy   User?             @relation(fields: [updatedById], references: [id])
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  @@unique([productId, locationId])
+  @@map("stock_locations")
 }
 
 model Dispatch {
