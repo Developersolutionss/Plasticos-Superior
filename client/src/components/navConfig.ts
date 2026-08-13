@@ -134,7 +134,7 @@ export const navSections: NavEntry[] = [
   { id: "etiquetas", icon: "tag", label: "Etiquetas térmicas", disabled: true, roles: ALMACEN },
   { id: "escaneo", icon: "scan-line", label: "Escaneo QR / Cód. barras", disabled: true, roles: ALMACEN },
   { id: "exportaciones", icon: "download", label: "Exportaciones", to: "/exportaciones", roles: ADMIN },
-  { id: "notificaciones", icon: "bell", label: "Notificaciones", disabled: true, roles: TODOS },
+  { id: "notificaciones", icon: "bell", label: "Notificaciones", to: "/notificaciones", roles: TODOS },
   {
     id: "auditoria",
     icon: "scroll-text",

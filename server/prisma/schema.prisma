@@ -177,8 +177,26 @@ model User {
   qualityChecks        QualityCheck[]
   auditLogs            AuditLog[]
   warehouseStockUpdates StockLocation[]
+  notifications         Notification[]
 
   @@map("users")
+}
+
+/// Notificación in-app. `type` es texto libre (ej. "op_pendiente_calidad")
+/// para no tener que migrar el schema cada vez que se agrega un disparador
+/// nuevo — el frontend solo necesita mostrar `message`/`link`.
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, read])
+  @@map("notifications")
 }
 
 model Product {

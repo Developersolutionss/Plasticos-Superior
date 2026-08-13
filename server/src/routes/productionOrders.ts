@@ -5,6 +5,7 @@ import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
 import { applyMovement } from "../services/stockService";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
+import { notifyRoles } from "../services/notify";
 
 export const productionOrdersRouter = Router();
 productionOrdersRouter.use(requireAuth);
@@ -251,6 +252,14 @@ productionOrdersRouter.post("/:id/stages", requireOperarios, async (req, res) =>
     return created;
   });
 
+  if (parsed.data.station === "precorte") {
+    await notifyRoles(ROLES.CALIDAD, {
+      type: "op_pendiente_calidad",
+      message: `OP #${order.orderNumber} lista para revisión de calidad`,
+      link: "/calidad",
+    });
+  }
+
   res.status(201).json(stage);
 });
 
@@ -314,6 +323,14 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
 
     return created;
   });
+
+  if (parsed.data.result === "rechazado") {
+    await notifyRoles(ROLES.PRODUCCION_GESTION, {
+      type: "op_rechazada",
+      message: `OP #${order.orderNumber} fue rechazada en calidad`,
+      link: "/produccion/ordenes",
+    });
+  }
 
   res.status(201).json(check);
 });

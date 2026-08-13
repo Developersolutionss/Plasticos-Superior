@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { Menu } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import Sidebar from "./Sidebar";
+import NotificationBell from "./NotificationBell";
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -35,6 +36,7 @@ export default function Layout() {
             <Menu size={20} strokeWidth={2} aria-hidden="true" />
           </button>
           <div className="flex items-center gap-4">
+            <NotificationBell />
             <span className="text-sm text-slate-600">{user?.name}</span>
             <button onClick={logout} className="text-sm text-slate-500 underline">
               Salir

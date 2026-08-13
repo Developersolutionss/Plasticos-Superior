@@ -21,6 +21,7 @@ import Movimientos from "./pages/Movimientos";
 import UbicacionDetalle from "./pages/UbicacionDetalle";
 import DashboardEjecutivo from "./pages/DashboardEjecutivo";
 import DashboardIndicadores from "./pages/DashboardIndicadores";
+import Notificaciones from "./pages/Notificaciones";
 import Exportaciones from "./pages/Exportaciones";
 import EstacionProduccion from "./pages/EstacionProduccion";
 import Cotizaciones from "./pages/Cotizaciones";
@@ -87,6 +88,7 @@ export default function App() {
         }
       >
         <Route index element={<InventoryDashboard />} />
+        <Route path="notificaciones" element={<Notificaciones />} />
         <Route
           path="despachos"
           element={

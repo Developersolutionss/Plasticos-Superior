@@ -321,6 +321,11 @@ export const api = {
       topClientesSaldo: { clientId: number; name: string; saldo: number }[];
     }>("/dashboard/resumen"),
 
+  getNotifications: () => request<any[]>("/notifications"),
+  getUnreadNotificationCount: () => request<{ count: number }>("/notifications/unread-count"),
+  markNotificationRead: (id: number) => request<any>(`/notifications/${id}/read`, { method: "PATCH" }),
+  markAllNotificationsRead: () => request<{ ok: boolean }>("/notifications/read-all", { method: "PATCH" }),
+
   getDashboardIndicadores: () =>
     request<{
       topProductosDespachados: { productId: number; sku: string; name: string; unit: string; total: number }[];
