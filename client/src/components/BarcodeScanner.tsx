@@ -24,23 +24,37 @@ export default function BarcodeScanner({ title = "Escanear código", onDetected,
   useEffect(() => {
     const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID);
 
-    scanner
-      .start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: 250 },
-        (decodedText) => {
-          if (detectedRef.current) return;
-          detectedRef.current = true;
-          onDetectedRef.current(decodedText);
-        },
-        undefined
-      )
-      .catch(() => setError("No se pudo acceder a la cámara. Revisá los permisos del navegador."));
+    const startPromise = scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 250 },
+      (decodedText) => {
+        if (detectedRef.current) return;
+        detectedRef.current = true;
+        onDetectedRef.current(decodedText);
+      },
+      undefined
+    );
+    startPromise.catch(() => setError("No se pudo acceder a la cámara. Revisá los permisos del navegador."));
 
     return () => {
-      // stop() puede rechazar si el scanner nunca llegó a arrancar (ej. permiso
-      // denegado) — no importa, solo estamos liberando la cámara al cerrar.
-      scanner.stop().catch(() => {}).finally(() => scanner.clear());
+      // start() puede seguir esperando el permiso de cámara cuando el
+      // componente se desmonta (ej. el usuario cierra el modal tocando
+      // afuera antes de que la cámara termine de arrancar). Llamar stop()
+      // ANTES de que start() resuelva no rechaza la promesa — html5-qrcode
+      // tira una excepción SINCRÓNICA en ese caso, que un simple .catch()
+      // nunca atrapa, y la cámara queda prendida sin que nadie la libere.
+      // Por eso acá se espera a que start() termine (bien o mal) recién
+      // ahí se intenta stop()/clear(), con un try/catch de más por si
+      // igual llega a tirar sincrónico.
+      startPromise
+        .catch(() => {})
+        .finally(() => {
+          try {
+            scanner.stop().catch(() => {}).finally(() => scanner.clear());
+          } catch {
+            scanner.clear();
+          }
+        });
     };
   }, []);
 

@@ -5,6 +5,15 @@ import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ProductoForm from "../components/ProductoForm";
 
+/** El nombre/SKU del producto se interpolan en un HTML servido por
+ * `document.write` en una ventana con el mismo origen — sin escapar, un
+ * nombre de producto malicioso (creado por alguien con rol
+ * PRODUCCION_GESTION) podría correr JS con acceso al localStorage de la
+ * app principal (token de sesión) vía window.opener. */
+function escapeHtml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 /** Arma un HTML autocontenido (con su propio @media print) en una ventana
  * nueva e imprime — evita tocar el layout/CSS de la app principal, patrón
  * estándar para "imprimir solo esto" en una SPA. */
@@ -13,16 +22,18 @@ function printLabels(labels: { sku: string; name: string; qrDataUrl: string }[])
   if (!win) return;
 
   const cards = labels
-    .map(
-      (l) => `
+    .map((l) => {
+      const sku = escapeHtml(l.sku);
+      const name = escapeHtml(l.name);
+      return `
         <div class="label">
-          <img src="${l.qrDataUrl}" alt="QR ${l.sku}" />
+          <img src="${l.qrDataUrl}" alt="QR ${sku}" />
           <div class="text">
-            <p class="sku">${l.sku}</p>
-            <p class="name">${l.name}</p>
+            <p class="sku">${sku}</p>
+            <p class="name">${name}</p>
           </div>
-        </div>`
-    )
+        </div>`;
+    })
     .join("");
 
   win.document.write(`<!DOCTYPE html>
