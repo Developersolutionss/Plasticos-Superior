@@ -182,13 +182,13 @@ Métodos expuestos (`api.*`), agrupados por dominio:
 | Producción | `createProductionEntry(data)`, `previewImport(file)`, `confirmImport(filename, rows)`, `getProductionOrders(status?)`, `getProductionOrder(id)`, `createProductionOrder(data)`, `updateProductionOrderStatus(id, status)`, `getProductionOrderStages(id)`, `createProductionStageLog(id, data)`, `getPendingPlanning()`, `createProductionOrderFromPedidoItem(pedidoVersionItemId)` |
 | Calidad | `submitQualityCheck(id, { result, observations? })` |
 | Despachos | `getDispatches(params?)`, `createDispatch(clientId, items)`, `markItemDispatched(dispatchId, itemId, qty)` |
-| Comercial | `getCotizaciones(clientId?)`, `createCotizacion(data)`, `updateCotizacionStatus(id, status)`, `convertCotizacionToPedido(id)`, `getPedidos(params?)`, `createPedido(data)`, `getPedidoVersions(id)`, `updatePedido(id, data)`, `duplicatePedido(id)`, `getPedidoAttachments(id)`, `uploadPedidoAttachment(id, file)`, `downloadPedidoAttachment(pedidoId, attachmentId, filename)` (descarga como blob), `getFacturas(params?)`, `createFactura(data)`, `createFacturaFromPedido(pedidoId)`, `anularFactura(id)`, `getFacturaPayments(id)`, `createPayment(id, data)` |
+| Comercial | `getCotizaciones(clientId?)`, `createCotizacion(data)`, `updateCotizacionStatus(id, status)`, `convertCotizacionToPedido(id)`, `downloadCotizacionPdf(id, filename)` (descarga como blob), `getPedidos(params?)`, `createPedido(data)`, `getPedidoVersions(id)`, `updatePedido(id, data)`, `duplicatePedido(id)`, `getPedidoAttachments(id)`, `uploadPedidoAttachment(id, file)`, `downloadPedidoAttachment(pedidoId, attachmentId, filename)` (descarga como blob), `getFacturas(params?)`, `createFactura(data)` (acepta `dueDate?`), `createFacturaFromPedido(pedidoId)`, `anularFactura(id)`, `getFacturaPayments(id)`, `createPayment(id, data)`, `downloadFacturaPdf(id, filename)` (descarga como blob) |
 | Auditoría | `getAuditLog(params?: { tableName?, recordId?, page?, pageSize? })` |
 | Productos | `getAllProducts()`, `createProduct(data)`, `updateProduct(id, data)`, `deactivateProduct(id)`, `reactivateProduct(id)`, `getProductLabel(id)` (QR + SKU para la etiqueta) |
 | Usuarios | `getUsers()`, `createUser(data)`, `updateUser(id, data)`, `deactivateUser(id)`, `reactivateUser(id)` |
 | Almacén / WMS | `getWarehouseLocations()`, `createWarehouseLocation(data)`, `getWarehouseStock()`, `assignWarehouseStock(data)`, `getWarehouseLocationQr(id)`, `getWarehouseLocationByToken(token)`, `getPublicLocation(token)` (sin token de sesión — consume la ruta pública) |
 | Inventario (movimientos) | `getInventoryMovements(params?: { productId?, movementType?, page?, pageSize? })` |
-| Dashboard | `getDashboardResumen()`, `getDashboardIndicadores()` |
+| Dashboard | `getDashboardResumen()`, `getDashboardIndicadores(params?: { from?, to? })` |
 | Notificaciones | `getNotifications()`, `getUnreadNotificationCount()`, `markNotificationRead(id)`, `markAllNotificationsRead()` |
 | Exportaciones | `downloadExport(resource: "inventario" \| "pedidos" \| "facturas" \| "clientes")` (descarga como blob, mismo patrón que `downloadPedidoAttachment`) |
 
@@ -305,6 +305,9 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - **Pendiente**: reutilizar `ClientePicker` en otros módulos de selección de cliente (Pedidos, Facturas, Despachos).
 - El botón **"Cotizar"** de la ficha del cliente navega a `/clientes/cotizaciones` con el cliente preseleccionado (`location.state.clientId`).
 - El alta de cliente vive solo en el botón "+ Crear cliente" del listado (`/clientes/nuevo`).
+- Cada ítem de cotización/pedido/factura se edita dentro de su propia tarjeta (`border rounded p-2`, cantidad y precio en una fila con `flex-1`) en vez de una grilla de columnas fijas — así los inputs no se desbordan en pantallas angostas.
+- **Cotizaciones**: botón **"PDF"** / **"Descargar PDF"** por fila llama a `api.downloadCotizacionPdf(id, quoteNumber)`.
+- **Facturas**: el formulario de alta tiene un campo **"Vencimiento (opcional)"** (`dueDate`). La lista marca **"Vencida"** (`isVencida`, calculado en el cliente igual que en el backend) junto al estado; el detalle muestra "Vence: `fecha`" y, si aplica, "· Vencida" en rojo. Botón **"Descargar PDF"** en el encabezado del detalle llama a `api.downloadFacturaPdf(id, invoiceNumber)`.
 
 ### `SecuritySettings.tsx`
 - Activar/desactivar 2FA: `setup2fa` (QR) → `verify2fa` → estado activo.
@@ -328,12 +331,13 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - Historial paginado de `InventoryMovement` (`api.getInventoryMovements`), filtro por tipo de movimiento, paginación de 50, badges de color por tipo y signo (+/−) según sea entrada o salida.
 
 ### `DashboardEjecutivo.tsx`
-- KPIs (`api.getDashboardResumen`): ventas del mes con variación %, cartera pendiente, facturas con saldo, OPs en curso, pedidos en producción, cotizaciones abiertas.
+- KPIs (`api.getDashboardResumen`): ventas del mes con variación %, cartera pendiente, **cartera vencida** (resaltada en rojo si es mayor a 0), facturas con saldo, OPs en curso, pedidos en producción, cotizaciones abiertas.
 - Gráfico de barras de ventas de 6 meses (Recharts) y top 5 clientes con mayor saldo pendiente.
 
 ### `DashboardIndicadores.tsx`
-- Indicadores (`api.getDashboardIndicadores`): tasa de aprobación de calidad, checks aprobados/rechazados, tiempo promedio de producción en horas.
-- Gráfico de barras horizontal con el top 5 de productos despachados en los últimos 30 días.
+- Indicadores (`api.getDashboardIndicadores(range)`): tasa de aprobación de calidad, checks aprobados/rechazados, tiempo promedio de producción en horas.
+- Gráfico de barras horizontal con el top 5 de productos despachados en el rango.
+- **Rango de fechas configurable**: dos inputs `type="date"` ("Desde"/"Hasta") con estado borrador propio, más un botón **"Aplicar"** que recién ahí actualiza el `range` que dispara el refetch (`queryKey: ["dashboardIndicadores", range.from, range.to]`) — cambiar las fechas sin aplicar no dispara pedidos de más. Arranca con los últimos 30 días por defecto.
 
 ### `Notificaciones.tsx`
 - Lista completa de notificaciones del usuario (`api.getNotifications`). Botones para marcar una (`markNotificationRead`) o todas (`markAllNotificationsRead`) como leídas. Un clic navega al `link` de la notificación.

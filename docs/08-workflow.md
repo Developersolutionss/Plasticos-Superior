@@ -49,6 +49,7 @@ Cuando se marca un ítem como despachado (`PATCH /api/dispatches/:dispatchId/ite
 3. Recalcula los ítems pendientes del despacho:
    - Si **no quedan** pendientes → `status: "despachado"` y fija `dispatched_date`.
    - Si **quedan** → `status: "en_proceso"`.
+4. **Fuera** de la transacción, si ese `PATCH` fue el que recién dejó el despacho `despachado` (no si ya lo estaba), intenta avisarle al cliente por WhatsApp (`sendWhatsAppMessage`, al contacto principal o al primero con teléfono). Sin credenciales de Meta configuradas, o si el cliente no tiene teléfono, no pasa nada — no rompe el flujo de despacho. Un reintento sobre el mismo ítem ya despachado no reenvía el aviso.
 
 ### 3. Producción por Órdenes de Trabajo (OP)
 
@@ -146,13 +147,14 @@ Reglas:
 1. **Cotización**: `COT-00001`, con estado (`borrador → enviada → aceptada…`). Si un ítem no trae precio, toma el del catálogo.
 2. **Conversión**: `POST /cotizaciones/:id/convertir-a-pedido` copia los ítems a un **Pedido nuevo** (v1). La cotización queda enlazada (no se borra).
 3. **Pedido versionado**: cada edición relevante (`PATCH /pedidos/:id`) crea una **versión nueva completa** (v2, v3…) en vez de sobrescribir. El pedido guarda `current_version` y su estado aparte, para listarlo sin buscar la última versión.
-4. **Factura**: puede nacer de un **pedido** (`/desde-pedido/:id`, copia la última versión) o **suelta** (cliente + ítems directo). Numeración `FAC-00001`.
+4. **Factura**: puede nacer de un **pedido** (`/desde-pedido/:id`, copia la última versión) o **suelta** (cliente + ítems directo). Numeración `FAC-00001`. Ambos caminos aceptan un `dueDate` opcional (fecha de vencimiento).
 5. **Pagos**: se registran como abonos (`POST /facturas/:id/payments`). El estado de la factura se **recalcula solo** con cada abono:
    - pagado ≤ 0 → `emitida`
    - 0 < pagado < total → `pagada_parcial`
    - pagado ≥ total → `pagada`
    - `anulada` es una acción manual (`PATCH /facturas/:id/anular`).
-6. **Cartera** (`GET /clients/:id/cartera`): saldo pendiente = total facturado (no anulado) − pagos recibidos. El `creditLimit` es un tope manual editable.
+6. **Cartera** (`GET /clients/:id/cartera`): saldo pendiente = total facturado (no anulado) − pagos recibidos. El `creditLimit` es un tope manual editable. Cada factura pendiente se marca **`vencida`** si `dueDate` ya pasó y todavía tiene saldo — no es un campo guardado, se calcula en cada consulta (también en `GET /dashboard/resumen`, que suma esos saldos en `carteraVencida`).
+7. **PDF**: `GET /cotizaciones/:id/pdf` y `GET /facturas/:id/pdf` generan un PDF descargable (`services/pdfDocument.ts`, con `pdfkit`) listo para mandarle al cliente — mismos datos que se ven en pantalla, sin necesidad de capturas.
 
 ## Alertas de stock mínimo
 

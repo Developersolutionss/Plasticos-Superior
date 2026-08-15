@@ -335,11 +335,11 @@ El pedido es **versionado**: la identidad vive en `pedidos`. El contenido real d
 
 | Modelo | Campos clave |
 |---|---|
-| `facturas` | `invoiceNumber` (`FAC-00001`, `@unique`), `clientId`, `pedidoId?`, `status` (`emitida` / `pagada_parcial` / `pagada` / `anulada`), `notes`, `createdById` |
+| `facturas` | `invoiceNumber` (`FAC-00001`, `@unique`), `clientId`, `pedidoId?`, `status` (`emitida` / `pagada_parcial` / `pagada` / `anulada`), `notes`, `dueDate?` (`@map("due_date")`, fecha de vencimiento opcional), `createdById` |
 | `factura_items` | `facturaId`, `productId`, `quantity`, `unitPrice`, `measure` |
 | `payments` | `facturaId`, `amount`, `method` (`efectivo` / `transferencia` / `cheque` / `tarjeta` / `otro`), `paidAt`, `notes`, `createdById` |
 
-El estado de la factura se **recalcula solo** con cada abono (`emitida` → `pagada_parcial` → `pagada`). `anulada` es una acción manual.
+El estado de la factura se **recalcula solo** con cada abono (`emitida` → `pagada_parcial` → `pagada`). `anulada` es una acción manual. Una factura está **vencida** cuando `dueDate` ya pasó y todavía tiene saldo pendiente (`total − pagado > 0`); no es un campo de la tabla, se calcula en cada consulta (`GET /clients/:id/cartera`, `GET /dashboard/resumen`).
 
 ### `password_reset_tokens`
 
@@ -409,6 +409,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260813055010_add_product_active` | `products`: `active` (soft delete) |
 | `20260813063722_add_user_active` | `users`: `active` (soft delete, bloquea login) |
 | `20260813064611_add_notifications` | Tabla `notifications` |
+| `20260815045824_add_factura_due_date` | `facturas`: `due_date` (fecha de vencimiento opcional) |
 
 Para aplicar cambios nuevos:
 
