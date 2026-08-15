@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { applyMovement } from "../services/stockService";
+import { sendWhatsAppMessage } from "../services/whatsapp";
 
 export const dispatchesRouter = Router();
 dispatchesRouter.use(requireAuth);
@@ -65,6 +66,8 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
   const item = await prisma.dispatchItem.findFirst({ where: { id: itemId, dispatchId } });
   if (!item) return res.status(404).json({ error: "Item de despacho no encontrado" });
 
+  let dispatchCompleted = false;
+
   await prisma.$transaction(async (tx) => {
     await tx.dispatchItem.update({
       where: { id: itemId },
@@ -83,15 +86,30 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
     const remainingPending = await tx.dispatchItem.count({
       where: { dispatchId, quantityDispatched: null },
     });
+    dispatchCompleted = remainingPending === 0;
 
     await tx.dispatch.update({
       where: { id: dispatchId },
       data: {
-        status: remainingPending === 0 ? "despachado" : "en_proceso",
-        dispatchedDate: remainingPending === 0 ? new Date() : undefined,
+        status: dispatchCompleted ? "despachado" : "en_proceso",
+        dispatchedDate: dispatchCompleted ? new Date() : undefined,
       },
     });
   });
+
+  if (dispatchCompleted) {
+    const client = await prisma.client.findFirst({
+      where: { dispatches: { some: { id: dispatchId } } },
+      include: { contacts: true },
+    });
+    const phone = client?.contacts.find((c) => c.isPrimary)?.phone ?? client?.contacts[0]?.phone;
+    if (client && phone) {
+      await sendWhatsAppMessage(
+        phone,
+        `Hola ${client.name}, tu pedido fue despachado. ¡Gracias por tu compra! — Plásticos Superior S.A.S.`
+      );
+    }
+  }
 
   res.json({ ok: true });
 });
