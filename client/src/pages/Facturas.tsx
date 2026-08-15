@@ -144,7 +144,7 @@ export default function Facturas() {
             {items.map((item, i) => (
               <div key={i} className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_auto] gap-2">
                 <select
-                  className="border rounded px-2 py-2 text-sm"
+                  className="border rounded px-2 py-2 text-sm min-w-0"
                   value={item.productId}
                   onChange={(e) => updateItem(i, { productId: e.target.value, unitPrice: String(productPrice(e.target.value)) })}
                 >
@@ -156,14 +156,14 @@ export default function Facturas() {
                   ))}
                 </select>
                 <input
-                  className="border rounded px-2 py-2 text-sm"
+                  className="border rounded px-2 py-2 text-sm min-w-0"
                   placeholder="Cant."
                   type="number"
                   value={item.quantity}
                   onChange={(e) => updateItem(i, { quantity: e.target.value })}
                 />
                 <input
-                  className="border rounded px-2 py-2 text-sm"
+                  className="border rounded px-2 py-2 text-sm min-w-0"
                   placeholder="Precio"
                   type="number"
                   value={item.unitPrice}
