@@ -8,6 +8,7 @@ server/src/generated/
 *.tsbuildinfo
 docs/branch-flow.md
 docs/maindashboard.md
+CLAUDE.md
 .claude/settings.json
 .claude/settings.local.json
 .claude/worktrees/
