@@ -338,12 +338,17 @@ export const api = {
   markNotificationRead: (id: number) => request<any>(`/notifications/${id}/read`, { method: "PATCH" }),
   markAllNotificationsRead: () => request<{ ok: boolean }>("/notifications/read-all", { method: "PATCH" }),
 
-  getDashboardIndicadores: () =>
-    request<{
+  getDashboardIndicadores: (params?: { from?: string; to?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set("from", params.from);
+    if (params?.to) qs.set("to", params.to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<{
       topProductosDespachados: { productId: number; sku: string; name: string; unit: string; total: number }[];
       calidad: { aprobadas: number; rechazadas: number; pctAprobacion: number | null };
       tiempoPromedioProduccionHoras: number | null;
-    }>("/dashboard/indicadores"),
+    }>(`/dashboard/indicadores${suffix}`);
+  },
 
   /** Mismo patrón crudo que downloadPedidoAttachment (fetch + blob + <a
    * download>) — el .xlsx generado no es JSON, no pasa por request(). */

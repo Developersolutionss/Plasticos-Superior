@@ -99,20 +99,33 @@ dashboardRouter.get("/resumen", async (_req, res) => {
 
 /**
  * Indicadores adicionales (top productos despachados, tasa de aprobación de
- * calidad, tiempo promedio de producción), todos sobre los últimos 30 días
- * y sin necesitar campos nuevos en el schema.
+ * calidad, tiempo promedio de producción), sin necesitar campos nuevos en
+ * el schema. Rango configurable por querystring (`from`/`to`, YYYY-MM-DD);
+ * sin params, cae al comportamiento de siempre (últimos 30 días).
  */
-dashboardRouter.get("/indicadores", async (_req, res) => {
-  const since = new Date();
-  since.setDate(since.getDate() - 30);
+dashboardRouter.get("/indicadores", async (req, res) => {
+  const defaultSince = new Date();
+  defaultSince.setDate(defaultSince.getDate() - 30);
+  defaultSince.setHours(0, 0, 0, 0);
+
+  const fromParam = req.query.from as string | undefined;
+  const toParam = req.query.to as string | undefined;
+
+  const from = fromParam ? new Date(fromParam) : defaultSince;
+  const to = toParam ? new Date(toParam) : new Date();
+  // `new Date("YYYY-MM-DD")` parsea como medianoche UTC — hay que cerrar el
+  // día también en UTC (setUTCHours), no con setHours (hora local): en un
+  // huso con offset negativo (ej. America/Bogota, UTC-5) mezclar los dos
+  // corre el corte casi un día entero para atrás y deja afuera datos de hoy.
+  if (toParam) to.setUTCHours(23, 59, 59, 999);
 
   const [dispatchItems, qualityChecks] = await Promise.all([
     prisma.dispatchItem.findMany({
-      where: { dispatch: { status: "despachado", dispatchedDate: { gte: since } } },
+      where: { dispatch: { status: "despachado", dispatchedDate: { gte: from, lte: to } } },
       include: { product: { select: { id: true, sku: true, name: true, unit: true } } },
     }),
     prisma.qualityCheck.findMany({
-      where: { createdAt: { gte: since } },
+      where: { createdAt: { gte: from, lte: to } },
       include: { productionOrder: { include: { stages: { select: { startTime: true } } } } },
     }),
   ]);
