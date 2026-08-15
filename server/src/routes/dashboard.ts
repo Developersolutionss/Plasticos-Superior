@@ -103,6 +103,19 @@ dashboardRouter.get("/resumen", async (_req, res) => {
  * el schema. Rango configurable por querystring (`from`/`to`, YYYY-MM-DD);
  * sin params, cae al comportamiento de siempre (últimos 30 días).
  */
+/**
+ * Arma el límite de un día (inicio o fin) a partir de un "YYYY-MM-DD" en la
+ * hora LOCAL del servidor. `new Date("YYYY-MM-DD")` parsea como medianoche
+ * UTC — combinarlo con setHours/setUTCHours después queda mal en cualquier
+ * huso con offset != 0 (en America/Bogota, UTC-5, se pierden horas del día
+ * elegido). Parsear los componentes a mano y pasarlos al constructor local
+ * evita el problema para cualquier huso horario donde corra el servidor.
+ */
+function localDayBoundary(dateStr: string, end: boolean): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return end ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
 dashboardRouter.get("/indicadores", async (req, res) => {
   const defaultSince = new Date();
   defaultSince.setDate(defaultSince.getDate() - 30);
@@ -111,13 +124,8 @@ dashboardRouter.get("/indicadores", async (req, res) => {
   const fromParam = req.query.from as string | undefined;
   const toParam = req.query.to as string | undefined;
 
-  const from = fromParam ? new Date(fromParam) : defaultSince;
-  const to = toParam ? new Date(toParam) : new Date();
-  // `new Date("YYYY-MM-DD")` parsea como medianoche UTC — hay que cerrar el
-  // día también en UTC (setUTCHours), no con setHours (hora local): en un
-  // huso con offset negativo (ej. America/Bogota, UTC-5) mezclar los dos
-  // corre el corte casi un día entero para atrás y deja afuera datos de hoy.
-  if (toParam) to.setUTCHours(23, 59, 59, 999);
+  const from = fromParam ? localDayBoundary(fromParam, false) : defaultSince;
+  const to = toParam ? localDayBoundary(toParam, true) : new Date();
 
   const [dispatchItems, qualityChecks] = await Promise.all([
     prisma.dispatchItem.findMany({

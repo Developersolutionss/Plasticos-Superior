@@ -66,6 +66,12 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
   const item = await prisma.dispatchItem.findFirst({ where: { id: itemId, dispatchId } });
   if (!item) return res.status(404).json({ error: "Item de despacho no encontrado" });
 
+  // Se lee ANTES de la transacción para poder distinguir "recién se completó
+  // ahora" de "ya estaba despachado y esto es un doble click/reintento" —
+  // si no, dos requests casi simultáneas (o un reintento de red del último
+  // ítem) mandarían el WhatsApp de "despachado" dos o tres veces seguidas.
+  const dispatchBefore = await prisma.dispatch.findUnique({ where: { id: dispatchId }, select: { status: true } });
+
   let dispatchCompleted = false;
 
   await prisma.$transaction(async (tx) => {
@@ -97,16 +103,16 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
     });
   });
 
-  if (dispatchCompleted) {
-    const client = await prisma.client.findFirst({
-      where: { dispatches: { some: { id: dispatchId } } },
-      include: { contacts: true },
+  if (dispatchCompleted && dispatchBefore?.status !== "despachado") {
+    const dispatch = await prisma.dispatch.findUnique({
+      where: { id: dispatchId },
+      include: { client: { include: { contacts: true } } },
     });
-    const phone = client?.contacts.find((c) => c.isPrimary)?.phone ?? client?.contacts[0]?.phone;
-    if (client && phone) {
+    const phone = dispatch?.client.contacts.find((c) => c.isPrimary)?.phone ?? dispatch?.client.contacts[0]?.phone;
+    if (dispatch && phone) {
       await sendWhatsAppMessage(
         phone,
-        `Hola ${client.name}, tu pedido fue despachado. ¡Gracias por tu compra! — Plásticos Superior S.A.S.`
+        `Hola ${dispatch.client.name}, tu pedido fue despachado. ¡Gracias por tu compra! — Plásticos Superior S.A.S.`
       );
     }
   }

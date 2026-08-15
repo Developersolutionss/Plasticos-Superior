@@ -59,34 +59,57 @@ export function buildDocumentPdf(options: PdfDocumentOptions): PDFKit.PDFDocumen
 
   y += 10;
   const colX = { producto: 50, cantidad: 300, medida: 360, unitario: 420, subtotal: 490 };
-  doc
-    .rect(50, y, 495, 20)
-    .fill(BRAND);
-  doc
-    .fillColor("#ffffff")
-    .fontSize(9)
-    .text("Producto", colX.producto + 5, y + 6)
-    .text("Cantidad", colX.cantidad, y + 6)
-    .text("Medida", colX.medida, y + 6)
-    .text("Precio unit.", colX.unitario, y + 6)
-    .text("Subtotal", colX.subtotal, y + 6);
-  y += 20;
+  const PRODUCTO_WIDTH = colX.cantidad - colX.producto - 10;
+  const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
+
+  function drawTableHeader(atY: number) {
+    doc.rect(50, atY, 495, 20).fill(BRAND);
+    doc
+      .fillColor("#ffffff")
+      .fontSize(9)
+      .text("Producto", colX.producto + 5, atY + 6)
+      .text("Cantidad", colX.cantidad, atY + 6)
+      .text("Medida", colX.medida, atY + 6)
+      .text("Precio unit.", colX.unitario, atY + 6)
+      .text("Subtotal", colX.subtotal, atY + 6);
+    return atY + 20;
+  }
+
+  y = drawTableHeader(y);
 
   doc.fillColor("#1e293b").fontSize(9);
   for (const item of options.items) {
     const subtotal = item.cantidad * item.unitario;
+    // Alto real de la fila según cuánto ocupe el nombre del producto (puede
+    // envolver a más de una línea) — sin esto, un nombre largo pisaba la
+    // fila siguiente porque el alto estaba fijo en 20.
+    const rowHeight = Math.max(20, doc.heightOfString(item.producto, { width: PRODUCTO_WIDTH }) + 8);
+
+    if (y + rowHeight > PAGE_BOTTOM) {
+      doc.addPage();
+      y = drawTableHeader(50);
+      doc.fillColor("#1e293b").fontSize(9);
+    }
+
     doc
-      .text(item.producto, colX.producto + 5, y + 6, { width: 245 })
+      .text(item.producto, colX.producto + 5, y + 6, { width: PRODUCTO_WIDTH })
       .text(String(item.cantidad), colX.cantidad, y + 6)
       .text(item.medida ?? "—", colX.medida, y + 6)
       .text(formatCOP(item.unitario), colX.unitario, y + 6)
       .text(formatCOP(subtotal), colX.subtotal, y + 6);
-    y += 20;
+    y += rowHeight;
     doc.moveTo(50, y).lineTo(545, y).strokeColor("#e2e8f0").stroke();
   }
 
+  const totalLines = options.totalLines ?? [];
+  const totalsHeight = 15 + totalLines.reduce((sum, l) => sum + (l.emphasis ? 18 : 15), 0);
+  if (y + totalsHeight > PAGE_BOTTOM) {
+    doc.addPage();
+    y = 50;
+  }
+
   y += 15;
-  for (const line of options.totalLines ?? []) {
+  for (const line of totalLines) {
     doc
       .fontSize(line.emphasis ? 12 : 10)
       .fillColor(line.emphasis ? BRAND : "#334155")
@@ -95,6 +118,10 @@ export function buildDocumentPdf(options: PdfDocumentOptions): PDFKit.PDFDocumen
   }
 
   if (options.notes) {
+    if (y + 30 > PAGE_BOTTOM) {
+      doc.addPage();
+      y = 50;
+    }
     y += 15;
     doc.fontSize(9).fillColor(MUTED).text(`Notas: ${options.notes}`, 50, y, { width: 495 });
   }
