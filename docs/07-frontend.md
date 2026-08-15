@@ -135,7 +135,7 @@ client/
 
 ## Menú lateral
 
-`navConfig.ts` declara los ítems del menú. Cada ítem tiene un campo `roles` (los grupos de roles que lo ven) y un `icon` como **clave** (p. ej. `"users"`, `"truck"`, `"factory"`). `NavIcon.tsx` resuelve la clave a un componente de `lucide-react`. Los módulos del roadmap no construidos salen como `disabled: true` con la etiqueta "Próximamente".
+`navConfig.ts` declara los ítems del menú. Cada ítem tiene un campo `roles` (los grupos de roles que lo ven), un `icon` como **clave** (p. ej. `"users"`, `"truck"`, `"factory"`) y un `group?` opcional (p. ej. `"Ventas"`, `"Producción"`, `"Inventario"`, `"Sistema"`). `NavIcon.tsx` resuelve la clave a un componente de `lucide-react`. `Sidebar.tsx` dibuja un separador con el nombre del grupo arriba de un ítem cuando su `group` cambia respecto del ítem visible anterior (para el rol actual) — un ítem sin `group` no lleva separador. Los módulos del roadmap no construidos salen como `disabled: true` con la etiqueta "Próximamente".
 
 La función `filterNavSections(role)` filtra secciones y entradas según el rol del usuario. `Sidebar.tsx` llama a `filterNavSections(user.role)` y dibuja solo lo que el rol puede ver. Los atajos (`useShortcuts`, `ShortcutsConfig`) aplican el mismo filtro con `buildChoices(role)`: un operario no puede marcar como atajo un módulo sin acceso.
 
