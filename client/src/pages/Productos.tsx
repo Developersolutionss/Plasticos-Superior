@@ -62,8 +62,24 @@ function printLabels(labels: { sku: string; name: string; qrDataUrl: string }[])
       </body>
     </html>`);
   win.document.close();
-  win.focus();
-  win.print();
+
+  // Los QR son <img> con data: URI — el navegador todavía puede estar
+  // decodificándolos cuando este código sigue ejecutando (document.write es
+  // síncrono, pero el decode de la imagen no). Si se llama win.print() de
+  // una, la primera impresión sale con el recuadro del QR vacío y recién la
+  // segunda (con la imagen ya en caché/decodificada) sale bien. Se espera a
+  // que la ventana nueva termine de cargar (eso incluye decodificar las
+  // imágenes) antes de imprimir, con un fallback por si el evento load ya
+  // pasó o no llega a disparar en algún navegador.
+  let printed = false;
+  const doPrint = () => {
+    if (printed) return;
+    printed = true;
+    win.focus();
+    win.print();
+  };
+  win.onload = doPrint;
+  setTimeout(doPrint, 400);
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
