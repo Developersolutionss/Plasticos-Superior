@@ -361,4 +361,33 @@ export const api = {
     a.click();
     URL.revokeObjectURL(url);
   },
+
+  downloadFacturaPdf: async (id: number, filename: string) => {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/facturas/${id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filename}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  downloadCotizacionPdf: async (id: number, filename: string) => {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/cotizaciones/${id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filename}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };

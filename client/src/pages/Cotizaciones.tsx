@@ -227,9 +227,17 @@ export default function Cotizaciones() {
                       </select>
                     </td>
                     <td className="p-3">
-                      <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-xs hover:underline">
-                        Convertir en pedido
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-xs hover:underline">
+                          Convertir en pedido
+                        </button>
+                        <button
+                          onClick={() => api.downloadCotizacionPdf(c.id, c.quoteNumber)}
+                          className="text-slate-600 text-xs hover:underline"
+                        >
+                          PDF
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -259,12 +267,14 @@ export default function Cotizaciones() {
                     </option>
                   ))}
                 </select>
-                <button
-                  onClick={() => handleConvert(c.id)}
-                  className="text-sky-700 text-sm hover:underline"
-                >
-                  Convertir en pedido
-                </button>
+                <div className="flex items-center gap-4">
+                  <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-sm hover:underline">
+                    Convertir en pedido
+                  </button>
+                  <button onClick={() => api.downloadCotizacionPdf(c.id, c.quoteNumber)} className="text-slate-600 text-sm hover:underline">
+                    Descargar PDF
+                  </button>
+                </div>
               </div>
             ))}
           </div>

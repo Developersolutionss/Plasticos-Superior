@@ -244,11 +244,19 @@ export default function Facturas() {
               <h2 className="text-lg font-semibold">
                 {selectedFactura.invoiceNumber} — {selectedFactura.client.name}
               </h2>
-              {selectedFactura.status !== "anulada" && (
-                <button onClick={() => handleAnular(selectedFactura.id)} className="text-red-600 text-xs hover:underline">
-                  Anular factura
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => api.downloadFacturaPdf(selectedFactura.id, selectedFactura.invoiceNumber)}
+                  className="text-slate-600 text-xs hover:underline"
+                >
+                  Descargar PDF
                 </button>
-              )}
+                {selectedFactura.status !== "anulada" && (
+                  <button onClick={() => handleAnular(selectedFactura.id)} className="text-red-600 text-xs hover:underline">
+                    Anular factura
+                  </button>
+                )}
+              </div>
             </div>
             {error && <p className="text-red-600 text-sm">{error}</p>}
             {message && <p className="text-emerald-700 text-sm">{message}</p>}

@@ -4,6 +4,7 @@ import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
 import type { TxClient } from "../services/stockService";
+import { buildDocumentPdf, formatCOP, pdfToBuffer } from "../services/pdfDocument";
 
 export const facturasRouter = Router();
 facturasRouter.use(requireAuth);
@@ -39,6 +40,48 @@ facturasRouter.get("/", async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
   res.json(facturas);
+});
+
+facturasRouter.get("/:id/pdf", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID de factura inválido" });
+
+  const factura = await prisma.factura.findUnique({
+    where: { id },
+    include: { client: true, items: { include: { product: true } }, payments: true },
+  });
+  if (!factura) return res.status(404).json({ error: "Factura no encontrada" });
+
+  const total = factura.items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
+  const pagado = factura.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+  const saldo = total - pagado;
+  const vencida = factura.dueDate != null && factura.dueDate < new Date() && saldo > 0;
+
+  const doc = buildDocumentPdf({
+    kind: "Factura",
+    number: factura.invoiceNumber,
+    cliente: factura.client.name,
+    fecha: factura.createdAt,
+    metaLines: factura.dueDate ? [`Vencimiento: ${factura.dueDate.toLocaleDateString("es-CO")}`] : undefined,
+    items: factura.items.map((it) => ({
+      producto: it.product.name,
+      cantidad: Number(it.quantity),
+      unitario: Number(it.unitPrice),
+      medida: it.measure,
+    })),
+    totalLines: [
+      { label: "Total", value: formatCOP(total) },
+      { label: "Pagado", value: formatCOP(pagado) },
+      { label: "Saldo", value: formatCOP(saldo), emphasis: true },
+    ],
+    stamp: vencida ? "Vencida" : undefined,
+    notes: factura.notes,
+  });
+  const buffer = await pdfToBuffer(doc);
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${factura.invoiceNumber}.pdf"`);
+  res.send(buffer);
 });
 
 const itemSchema = z.object({
