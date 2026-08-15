@@ -45,15 +45,19 @@ function printLabels(labels: { sku: string; name: string; qrDataUrl: string }[])
           body { font-family: sans-serif; margin: 0; padding: 8mm; }
           .grid { display: flex; flex-wrap: wrap; gap: 4mm; }
           .label {
-            width: 6cm; height: 4cm;
+            width: 6cm; min-height: 4cm; height: auto;
             border: 1px dashed #999; border-radius: 3mm;
             padding: 3mm; display: flex; align-items: center; gap: 3mm;
             page-break-inside: avoid;
           }
           .label img { width: 2.6cm; height: 2.6cm; flex-shrink: 0; }
-          .label .text { overflow: hidden; }
-          .label .sku { font-weight: bold; font-size: 12pt; margin: 0 0 2mm; }
-          .label .name { font-size: 9pt; margin: 0; color: #333; }
+          .label .text { overflow: hidden; min-width: 0; }
+          .label .sku { font-weight: bold; font-size: 12pt; margin: 0 0 2mm; overflow-wrap: anywhere; word-break: break-word; }
+          .label .name {
+            font-size: 9pt; margin: 0; color: #333;
+            display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+            overflow: hidden; text-overflow: ellipsis;
+          }
           @media print { body { padding: 0; } }
         </style>
       </head>
