@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DashboardIndicadores from "../../client/src/pages/DashboardIndicadores";
 
@@ -46,5 +47,46 @@ describe("DashboardIndicadores", () => {
     const dashes = await screen.findAllByText("—");
     expect(dashes.length).toBe(2);
     expect(screen.getByText("Sin despachos en el período.")).toBeInTheDocument();
+  });
+
+  it("cambiar el rango y aplicar vuelve a pedir con las fechas nuevas", async () => {
+    vi.mocked(api.getDashboardIndicadores).mockResolvedValue({
+      topProductosDespachados: [],
+      calidad: { aprobadas: 0, rechazadas: 0, pctAprobacion: null },
+      tiempoPromedioProduccionHoras: null,
+    } as any);
+
+    const user = userEvent.setup();
+    renderIndicadores();
+    await screen.findByText("Sin despachos en el período.");
+    vi.mocked(api.getDashboardIndicadores).mockClear();
+
+    const [desde, hasta] = screen.getAllByDisplayValue(/\d{4}-\d{2}-\d{2}/) as HTMLInputElement[];
+    await user.clear(desde);
+    await user.type(desde, "2025-12-01");
+    await user.clear(hasta);
+    await user.type(hasta, "2025-12-31");
+    await user.click(screen.getByText("Aplicar"));
+
+    expect(api.getDashboardIndicadores).toHaveBeenCalledWith({ from: "2025-12-01", to: "2025-12-31" });
+  });
+
+  it("cambiar las fechas sin aplicar no dispara un nuevo pedido", async () => {
+    vi.mocked(api.getDashboardIndicadores).mockResolvedValue({
+      topProductosDespachados: [],
+      calidad: { aprobadas: 0, rechazadas: 0, pctAprobacion: null },
+      tiempoPromedioProduccionHoras: null,
+    } as any);
+
+    const user = userEvent.setup();
+    renderIndicadores();
+    await screen.findByText("Sin despachos en el período.");
+    vi.mocked(api.getDashboardIndicadores).mockClear();
+
+    const [desde] = screen.getAllByDisplayValue(/\d{4}-\d{2}-\d{2}/) as HTMLInputElement[];
+    await user.clear(desde);
+    await user.type(desde, "2025-12-01");
+
+    expect(api.getDashboardIndicadores).not.toHaveBeenCalled();
   });
 });

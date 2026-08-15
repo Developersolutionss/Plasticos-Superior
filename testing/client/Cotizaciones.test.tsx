@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Cotizaciones from "../../client/src/pages/Cotizaciones";
@@ -10,6 +11,7 @@ vi.mock("../../client/src/api/client", () => ({
     getProducts: vi.fn().mockResolvedValue([]),
     getCotizaciones: vi.fn().mockResolvedValue([]),
     createCotizacion: vi.fn(),
+    downloadCotizacionPdf: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -48,5 +50,29 @@ describe("Cotizaciones · preselección desde el botón Cotizar", () => {
     renderCotizaciones();
     await screen.findByLabelText("Buscar cliente");
     expect(screen.queryByLabelText("Quitar cliente")).not.toBeInTheDocument();
+  });
+});
+
+describe("Cotizaciones · descarga de PDF", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getClients).mockResolvedValue(CLIENTS);
+    vi.mocked(api.getCotizaciones).mockResolvedValue([
+      {
+        id: 1,
+        quoteNumber: "COT-00001",
+        status: "borrador",
+        validUntil: null,
+        client: { id: 1, name: "Alfa" },
+        items: [{ quantity: 2, unitPrice: 5000 }],
+      },
+    ] as any);
+  });
+
+  it("el botón PDF descarga la cotización con su número", async () => {
+    const user = userEvent.setup();
+    renderCotizaciones();
+    await user.click(await screen.findByText("PDF"));
+    expect(api.downloadCotizacionPdf).toHaveBeenCalledWith(1, "COT-00001");
   });
 });

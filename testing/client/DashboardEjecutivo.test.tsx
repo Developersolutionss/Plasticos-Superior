@@ -22,6 +22,7 @@ const RESUMEN = {
     { mes: "2026-08", total: 1500000 },
   ],
   carteraPendiente: 250000,
+  carteraVencida: 90000,
   facturasConSaldo: 3,
   opsEnCurso: 5,
   pedidosEnProduccion: 2,
@@ -48,8 +49,16 @@ describe("DashboardEjecutivo", () => {
     renderDashboard();
     expect(await screen.findByText("$1.500.000")).toBeInTheDocument();
     expect(screen.getByText("$250.000")).toBeInTheDocument();
+    expect(screen.getByText("$90.000")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("5")).toBeInTheDocument();
+  });
+
+  it("cartera vencida en 0 no se resalta en rojo", async () => {
+    vi.mocked(api.getDashboardResumen).mockResolvedValue({ ...RESUMEN, carteraVencida: 0 } as any);
+    renderDashboard();
+    const value = await screen.findByText("$0");
+    expect(value.className).not.toContain("text-rose-600");
   });
 
   it("muestra la lista de clientes con mayor saldo", async () => {

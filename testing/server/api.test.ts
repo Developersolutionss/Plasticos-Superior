@@ -718,6 +718,197 @@ describe("cotizaciones → pedido → factura → pagos", () => {
     });
     assert.equal(res.status, 400);
   });
+
+  it("GET /:id/pdf genera un PDF descargable para cotización y factura", async () => {
+    const cotRes = await fetch(`${baseUrl}/api/cotizaciones`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ clientId, items: [{ productId, quantity: 2 }] }),
+    });
+    const cotizacion = (await cotRes.json()) as { id: number; quoteNumber: string };
+
+    const cotPdf = await fetch(`${baseUrl}/api/cotizaciones/${cotizacion.id}/pdf`, { headers: headersFor("ventas") });
+    assert.equal(cotPdf.status, 200);
+    assert.match(cotPdf.headers.get("content-type") ?? "", /application\/pdf/);
+    assert.match(cotPdf.headers.get("content-disposition") ?? "", new RegExp(`${cotizacion.quoteNumber}\\.pdf`));
+    const cotBuf = await cotPdf.arrayBuffer();
+    assert.ok(cotBuf.byteLength > 0);
+    // Firma binaria estándar de un PDF: "%PDF-".
+    assert.equal(Buffer.from(cotBuf.slice(0, 5)).toString("ascii"), "%PDF-");
+
+    const facRes = await fetch(`${baseUrl}/api/facturas`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ clientId, items: [{ productId, quantity: 1 }], dueDate: "2020-01-01" }),
+    });
+    const factura = (await facRes.json()) as { id: number; invoiceNumber: string };
+
+    const facPdf = await fetch(`${baseUrl}/api/facturas/${factura.id}/pdf`, { headers: headersFor("ventas") });
+    assert.equal(facPdf.status, 200);
+    assert.match(facPdf.headers.get("content-type") ?? "", /application\/pdf/);
+    const facBuf = await facPdf.arrayBuffer();
+    assert.ok(facBuf.byteLength > 0);
+
+    const pdfNotFound = await fetch(`${baseUrl}/api/facturas/999999999/pdf`, { headers: headersFor("ventas") });
+    assert.equal(pdfNotFound.status, 404);
+
+    await prisma.facturaItem.deleteMany({ where: { facturaId: factura.id } });
+    await prisma.factura.delete({ where: { id: factura.id } });
+    await prisma.cotizacionItem.deleteMany({ where: { cotizacionId: cotizacion.id } });
+    await prisma.cotizacion.delete({ where: { id: cotizacion.id } });
+  });
+
+  it("factura con dueDate vencido: la cartera del cliente la marca 'vencida' y aporta a carteraVencida del dashboard", async () => {
+    const carteraAntes = await fetch(`${baseUrl}/api/dashboard/resumen`, { headers: authHeaders() });
+    const { carteraVencida: vencidaAntes } = (await carteraAntes.json()) as { carteraVencida: number };
+
+    const facRes = await fetch(`${baseUrl}/api/facturas`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ clientId, items: [{ productId, quantity: 3 }], dueDate: "2020-01-01" }),
+    });
+    assert.equal(facRes.status, 201);
+    const factura = (await facRes.json()) as { id: number };
+
+    const cartera = await fetch(`${baseUrl}/api/clients/${clientId}/cartera`, { headers: headersFor("ventas") });
+    assert.equal(cartera.status, 200);
+    const carteraBody = (await cartera.json()) as {
+      facturasPendientes: { id: number; vencida: boolean; dueDate: string | null }[];
+    };
+    const facturaEnCartera = carteraBody.facturasPendientes.find((f) => f.id === factura.id);
+    assert.ok(facturaEnCartera, "la factura recién creada debe listarse en la cartera");
+    assert.equal(facturaEnCartera!.vencida, true);
+    assert.ok(facturaEnCartera!.dueDate);
+
+    const total = unitPrice * 3;
+    const carteraDespues = await fetch(`${baseUrl}/api/dashboard/resumen`, { headers: authHeaders() });
+    const { carteraVencida: vencidaDespues } = (await carteraDespues.json()) as { carteraVencida: number };
+    assert.equal(vencidaDespues, vencidaAntes + total, "la factura vencida debe sumar su saldo completo a carteraVencida");
+
+    // Una vez pagada, deja de estar vencida (saldo = 0) aunque la fecha ya pasó.
+    await fetch(`${baseUrl}/api/facturas/${factura.id}/payments`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ amount: total, method: "efectivo" }),
+    });
+    const carteraFinal = await fetch(`${baseUrl}/api/clients/${clientId}/cartera`, { headers: headersFor("ventas") });
+    const carteraFinalBody = (await carteraFinal.json()) as { facturasPendientes: { id: number }[] };
+    assert.ok(!carteraFinalBody.facturasPendientes.some((f) => f.id === factura.id), "pagada, ya no tiene saldo pendiente");
+
+    await prisma.payment.deleteMany({ where: { facturaId: factura.id } });
+    await prisma.facturaItem.deleteMany({ where: { facturaId: factura.id } });
+    await prisma.factura.delete({ where: { id: factura.id } });
+  });
+});
+
+describe("dashboard · indicadores con rango de fechas", () => {
+  it("con from/to filtra por ese rango exacto (sin depender de cuántos checks reales haya hoy)", async () => {
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const matchingRange = "from=2025-12-25&to=2026-01-05";
+    const nonMatchingRange = "from=2025-06-01&to=2025-06-02";
+
+    const getAprobadas = async (query: string) => {
+      const res = await fetch(`${baseUrl}/api/dashboard/indicadores?${query}`, { headers: authHeaders() });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { calidad: { aprobadas: number } };
+      return body.calidad.aprobadas;
+    };
+
+    const dentroAntes = await getAprobadas(matchingRange);
+    const fueraAntes = await getAprobadas(nonMatchingRange);
+
+    const viejo = await prisma.qualityCheck.create({
+      data: {
+        productionOrder: {
+          create: { orderNumber: `OP-TEST-OLD-${Date.now()}`, productId: product.id, quantityPlanned: 1, status: "finalizada" },
+        },
+        result: "aprobado",
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    });
+
+    const dentroDespues = await getAprobadas(matchingRange);
+    const fueraDespues = await getAprobadas(nonMatchingRange);
+
+    assert.equal(dentroDespues, dentroAntes + 1, "el check de enero 2026 debe contarse cuando el rango lo incluye");
+    assert.equal(fueraDespues, fueraAntes, "un rango que no lo incluye no debe verse afectado");
+
+    await prisma.qualityCheck.delete({ where: { id: viejo.id } });
+    await prisma.productionOrder.delete({ where: { id: viejo.productionOrderId } });
+  });
+});
+
+describe("despachos · notificación por WhatsApp al completarse", () => {
+  it("sin credenciales de WhatsApp configuradas, queda en modo no-op (no rompe el flujo) y no duplica el aviso", async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-WA-CLIENT-${Date.now()}` } });
+    await prisma.clientContact.create({ data: { clientId: client.id, name: "Contacto", phone: "3001234567", isPrimary: true } });
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+
+    const dispatchRes = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ clientId: client.id, items: [{ productId: product.id, quantityRequested: 2 }] }),
+    });
+    const dispatch = (await dispatchRes.json()) as { id: number; items: { id: number }[] };
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = ((...args: unknown[]) => {
+      logs.push(args.join(" "));
+    }) as typeof console.log;
+
+    try {
+      const complete = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+        method: "PATCH",
+        headers: headersFor("almacen"),
+        body: JSON.stringify({ quantityDispatched: 2 }),
+      });
+      assert.equal(complete.status, 200);
+
+      // Reintento sobre el mismo item ya completado: no debe reenviar el aviso.
+      const retry = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+        method: "PATCH",
+        headers: headersFor("almacen"),
+        body: JSON.stringify({ quantityDispatched: 2 }),
+      });
+      assert.equal(retry.status, 200);
+    } finally {
+      console.log = originalLog;
+    }
+
+    const whatsappLogs = logs.filter((l) => l.includes("WhatsApp no enviado"));
+    assert.equal(whatsappLogs.length, 1, "debe intentar avisar una sola vez, no en cada PATCH");
+    assert.ok(whatsappLogs[0].includes("3001234567"));
+    assert.ok(whatsappLogs[0].includes(client.name));
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch.id } });
+    await prisma.dispatch.delete({ where: { id: dispatch.id } });
+    await prisma.clientContact.deleteMany({ where: { clientId: client.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+  });
+
+  it("un cliente sin teléfono no rompe el flujo (no hay a quién avisar)", async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-WA-SINFONO-${Date.now()}` } });
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+
+    const dispatchRes = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ clientId: client.id, items: [{ productId: product.id, quantityRequested: 1 }] }),
+    });
+    const dispatch = (await dispatchRes.json()) as { id: number; items: { id: number }[] };
+
+    const complete = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched: 1 }),
+    });
+    assert.equal(complete.status, 200);
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch.id } });
+    await prisma.dispatch.delete({ where: { id: dispatch.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+  });
 });
 
 describe("auditoría", () => {
