@@ -270,6 +270,7 @@ export const api = {
   createFactura: (data: {
     clientId: number;
     notes?: string;
+    dueDate?: string;
     items: { productId: number; quantity: number; unitPrice?: number; measure?: string }[];
   }) => request<any>("/facturas", { method: "POST", body: JSON.stringify(data) }),
   createFacturaFromPedido: (pedidoId: number) =>
@@ -324,6 +325,7 @@ export const api = {
       cambioVentasPct: number | null;
       ventasUltimos6Meses: { mes: string; total: number }[];
       carteraPendiente: number;
+      carteraVencida: number;
       facturasConSaldo: number;
       opsEnCurso: number;
       pedidosEnProduccion: number;
@@ -336,12 +338,17 @@ export const api = {
   markNotificationRead: (id: number) => request<any>(`/notifications/${id}/read`, { method: "PATCH" }),
   markAllNotificationsRead: () => request<{ ok: boolean }>("/notifications/read-all", { method: "PATCH" }),
 
-  getDashboardIndicadores: () =>
-    request<{
+  getDashboardIndicadores: (params?: { from?: string; to?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set("from", params.from);
+    if (params?.to) qs.set("to", params.to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<{
       topProductosDespachados: { productId: number; sku: string; name: string; unit: string; total: number }[];
       calidad: { aprobadas: number; rechazadas: number; pctAprobacion: number | null };
       tiempoPromedioProduccionHoras: number | null;
-    }>("/dashboard/indicadores"),
+    }>(`/dashboard/indicadores${suffix}`);
+  },
 
   /** Mismo patrón crudo que downloadPedidoAttachment (fetch + blob + <a
    * download>) — el .xlsx generado no es JSON, no pasa por request(). */
@@ -356,6 +363,35 @@ export const api = {
     const a = document.createElement("a");
     a.href = url;
     a.download = `${resource}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  downloadFacturaPdf: async (id: number, filename: string) => {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/facturas/${id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filename}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  downloadCotizacionPdf: async (id: number, filename: string) => {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/cotizaciones/${id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filename}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
   },

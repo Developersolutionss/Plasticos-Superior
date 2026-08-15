@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api/client";
 
@@ -11,14 +12,57 @@ function Tile({ label, value }: { label: string; value: string }) {
   );
 }
 
+function toISODate(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+const DEFAULT_FROM = toISODate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+const DEFAULT_TO = toISODate(new Date());
+
 export default function DashboardIndicadores() {
-  const { data, isLoading } = useQuery({ queryKey: ["dashboardIndicadores"], queryFn: api.getDashboardIndicadores });
+  // Estado "borrador" de los inputs, separado del rango que realmente
+  // dispara el refetch — así no recarga en cada tecla, solo al aplicar.
+  const [fromDraft, setFromDraft] = useState(DEFAULT_FROM);
+  const [toDraft, setToDraft] = useState(DEFAULT_TO);
+  const [range, setRange] = useState({ from: DEFAULT_FROM, to: DEFAULT_TO });
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["dashboardIndicadores", range.from, range.to],
+    queryFn: () => api.getDashboardIndicadores(range),
+  });
 
   return (
     <div className="space-y-5 max-w-4xl">
       <div>
         <h1 className="text-xl font-semibold text-slate-800">Indicadores</h1>
-        <p className="text-sm text-slate-500">Producción y calidad de los últimos 30 días</p>
+        <p className="text-sm text-slate-500">Producción y calidad en el rango seleccionado</p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-wrap items-end gap-3">
+        <label className="text-xs text-slate-500">
+          Desde
+          <input
+            className="border rounded px-3 py-2 text-sm block mt-1"
+            type="date"
+            value={fromDraft}
+            onChange={(e) => setFromDraft(e.target.value)}
+          />
+        </label>
+        <label className="text-xs text-slate-500">
+          Hasta
+          <input
+            className="border rounded px-3 py-2 text-sm block mt-1"
+            type="date"
+            value={toDraft}
+            onChange={(e) => setToDraft(e.target.value)}
+          />
+        </label>
+        <button
+          className="bg-slate-800 text-white text-sm px-4 py-2 rounded"
+          onClick={() => setRange({ from: fromDraft, to: toDraft })}
+        >
+          Aplicar
+        </button>
       </div>
 
       {isLoading && <p className="text-slate-500 text-sm">Cargando...</p>}
@@ -39,9 +83,7 @@ export default function DashboardIndicadores() {
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
-              Top productos despachados (30 días)
-            </h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Top productos despachados</h2>
             {data.topProductosDespachados.length === 0 ? (
               <p className="text-slate-500 text-sm py-8 text-center">Sin despachos en el período.</p>
             ) : (

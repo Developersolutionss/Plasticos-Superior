@@ -4,6 +4,7 @@ import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
 import type { TxClient } from "../services/stockService";
+import { buildDocumentPdf, formatCOP, pdfToBuffer } from "../services/pdfDocument";
 
 export const facturasRouter = Router();
 facturasRouter.use(requireAuth);
@@ -41,6 +42,48 @@ facturasRouter.get("/", async (req, res) => {
   res.json(facturas);
 });
 
+facturasRouter.get("/:id/pdf", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID de factura inválido" });
+
+  const factura = await prisma.factura.findUnique({
+    where: { id },
+    include: { client: true, items: { include: { product: true } }, payments: true },
+  });
+  if (!factura) return res.status(404).json({ error: "Factura no encontrada" });
+
+  const total = factura.items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
+  const pagado = factura.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+  const saldo = total - pagado;
+  const vencida = factura.dueDate != null && factura.dueDate < new Date() && saldo > 0;
+
+  const doc = buildDocumentPdf({
+    kind: "Factura",
+    number: factura.invoiceNumber,
+    cliente: factura.client.name,
+    fecha: factura.createdAt,
+    metaLines: factura.dueDate ? [`Vencimiento: ${factura.dueDate.toLocaleDateString("es-CO")}`] : undefined,
+    items: factura.items.map((it) => ({
+      producto: it.product.name,
+      cantidad: Number(it.quantity),
+      unitario: Number(it.unitPrice),
+      medida: it.measure,
+    })),
+    totalLines: [
+      { label: "Total", value: formatCOP(total) },
+      { label: "Pagado", value: formatCOP(pagado) },
+      { label: "Saldo", value: formatCOP(saldo), emphasis: true },
+    ],
+    stamp: vencida ? "Vencida" : undefined,
+    notes: factura.notes,
+  });
+  const buffer = await pdfToBuffer(doc);
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${factura.invoiceNumber}.pdf"`);
+  res.send(buffer);
+});
+
 const itemSchema = z.object({
   productId: z.number().int(),
   quantity: z.number().positive(),
@@ -51,6 +94,7 @@ const itemSchema = z.object({
 const createFacturaSchema = z.object({
   clientId: z.number().int(),
   notes: z.string().optional(),
+  dueDate: z.string().optional(),
   items: z.array(itemSchema).min(1),
 });
 
@@ -80,6 +124,7 @@ facturasRouter.post("/", requireVentas, async (req, res) => {
           invoiceNumber,
           clientId: parsed.data.clientId,
           notes: parsed.data.notes,
+          dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
           createdById: req.user!.userId,
           items: {
             create: parsed.data.items.map((item) => ({
@@ -98,8 +143,13 @@ facturasRouter.post("/", requireVentas, async (req, res) => {
   res.status(201).json(factura);
 });
 
+const facturaDesdePedidoSchema = z.object({ dueDate: z.string().optional() }).optional();
+
 /** Genera una factura a partir de la ÚLTIMA versión de un Pedido, copiando sus ítems. */
 facturasRouter.post("/desde-pedido/:pedidoId", requireVentas, async (req, res) => {
+  const parsedBody = facturaDesdePedidoSchema.safeParse(req.body);
+  if (!parsedBody.success) return res.status(400).json({ error: parsedBody.error.flatten() });
+
   const pedidoId = Number(req.params.pedidoId);
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
@@ -122,6 +172,7 @@ facturasRouter.post("/desde-pedido/:pedidoId", requireVentas, async (req, res) =
           invoiceNumber,
           clientId: pedido.clientId,
           pedidoId: pedido.id,
+          dueDate: parsedBody.data?.dueDate ? new Date(parsedBody.data.dueDate) : undefined,
           createdById: req.user!.userId,
           items: {
             create: latestVersion.items.map((item) => ({

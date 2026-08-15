@@ -215,7 +215,9 @@ clientsRouter.get("/:id/cartera", async (req, res) => {
   const facturasConSaldo = facturas.map((f) => {
     const total = f.items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
     const paid = f.payments.reduce((sum, p) => sum + Number(p.amount), 0);
-    return { id: f.id, invoiceNumber: f.invoiceNumber, status: f.status, total, paid, saldo: total - paid };
+    const saldo = total - paid;
+    const vencida = f.dueDate != null && f.dueDate < new Date() && saldo > 0;
+    return { id: f.id, invoiceNumber: f.invoiceNumber, status: f.status, total, paid, saldo, dueDate: f.dueDate, vencida };
   });
 
   const saldoPendiente = facturasConSaldo.reduce((sum, f) => sum + f.saldo, 0);

@@ -138,9 +138,9 @@ export default function Cotizaciones() {
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-wide text-slate-500">Ítems</p>
           {items.map((item, i) => (
-            <div key={i} className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_auto] gap-2">
+            <div key={i} className="border rounded p-2 space-y-2">
               <select
-                className="border rounded px-3 py-2 text-sm"
+                className="border rounded px-3 py-2 text-sm w-full"
                 value={item.productId}
                 onChange={(e) => updateItem(i, { productId: e.target.value, unitPrice: String(productPrice(e.target.value)) })}
               >
@@ -151,30 +151,32 @@ export default function Cotizaciones() {
                   </option>
                 ))}
               </select>
-              <input
-                className="border rounded px-3 py-2 text-sm"
-                placeholder="Cantidad"
-                type="number"
-                step="0.01"
-                value={item.quantity}
-                onChange={(e) => updateItem(i, { quantity: e.target.value })}
-              />
-              <input
-                className="border rounded px-3 py-2 text-sm"
-                placeholder="Precio unitario"
-                type="number"
-                step="0.01"
-                value={item.unitPrice}
-                onChange={(e) => updateItem(i, { unitPrice: e.target.value })}
-              />
-              <button
-                type="button"
-                onClick={() => removeItemRow(i)}
-                className="text-red-600 text-xs px-2"
-                disabled={items.length === 1}
-              >
-                Quitar
-              </button>
+              <div className="flex items-center gap-2">
+                <input
+                  className="border rounded px-3 py-2 text-sm min-w-0 flex-1"
+                  placeholder="Cantidad"
+                  type="number"
+                  step="0.01"
+                  value={item.quantity}
+                  onChange={(e) => updateItem(i, { quantity: e.target.value })}
+                />
+                <input
+                  className="border rounded px-3 py-2 text-sm min-w-0 flex-1"
+                  placeholder="Precio unitario"
+                  type="number"
+                  step="0.01"
+                  value={item.unitPrice}
+                  onChange={(e) => updateItem(i, { unitPrice: e.target.value })}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeItemRow(i)}
+                  className="text-red-600 text-xs px-2 shrink-0"
+                  disabled={items.length === 1}
+                >
+                  Quitar
+                </button>
+              </div>
             </div>
           ))}
           <button type="button" onClick={addItemRow} className="text-sm text-sky-700 hover:underline">
@@ -227,9 +229,17 @@ export default function Cotizaciones() {
                       </select>
                     </td>
                     <td className="p-3">
-                      <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-xs hover:underline">
-                        Convertir en pedido
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-xs hover:underline">
+                          Convertir en pedido
+                        </button>
+                        <button
+                          onClick={() => api.downloadCotizacionPdf(c.id, c.quoteNumber)}
+                          className="text-slate-600 text-xs hover:underline"
+                        >
+                          PDF
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -259,12 +269,14 @@ export default function Cotizaciones() {
                     </option>
                   ))}
                 </select>
-                <button
-                  onClick={() => handleConvert(c.id)}
-                  className="text-sky-700 text-sm hover:underline"
-                >
-                  Convertir en pedido
-                </button>
+                <div className="flex items-center gap-4">
+                  <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-sm hover:underline">
+                    Convertir en pedido
+                  </button>
+                  <button onClick={() => api.downloadCotizacionPdf(c.id, c.quoteNumber)} className="text-slate-600 text-sm hover:underline">
+                    Descargar PDF
+                  </button>
+                </div>
               </div>
             ))}
           </div>
