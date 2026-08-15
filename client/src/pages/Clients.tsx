@@ -596,8 +596,11 @@ export default function Clients() {
                       <p className="text-sm font-medium text-slate-700 mb-2">Facturas con saldo pendiente</p>
                       <ul className="divide-y text-sm">
                         {cartera.facturasPendientes.map((f: any) => (
-                          <li key={f.id} className="py-2 flex justify-between">
-                            <span>{f.invoiceNumber}</span>
+                          <li key={f.id} className="py-2 flex justify-between items-center gap-2">
+                            <span className="flex items-center gap-1.5">
+                              {f.invoiceNumber}
+                              {f.vencida && <span className="text-xs rounded-full px-2 py-0.5 bg-rose-100 text-rose-700">Vencida</span>}
+                            </span>
                             <span>
                               ${f.saldo.toLocaleString("es-CO")} de ${f.total.toLocaleString("es-CO")}
                             </span>

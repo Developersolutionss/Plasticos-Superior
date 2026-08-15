@@ -60,8 +60,10 @@ dashboardRouter.get("/resumen", async (_req, res) => {
 
   const saldoPorCliente = new Map<number, { name: string; saldo: number }>();
   let carteraPendiente = 0;
+  let carteraVencida = 0;
   let facturasConSaldo = 0;
 
+  const ahora = new Date();
   for (const f of todasLasFacturas) {
     const total = f.items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
     const paid = f.payments.reduce((sum, p) => sum + Number(p.amount), 0);
@@ -69,6 +71,7 @@ dashboardRouter.get("/resumen", async (_req, res) => {
     if (saldo > 0) {
       carteraPendiente += saldo;
       facturasConSaldo += 1;
+      if (f.dueDate && f.dueDate < ahora) carteraVencida += saldo;
       const prev = saldoPorCliente.get(f.client.id);
       saldoPorCliente.set(f.client.id, { name: f.client.name, saldo: (prev?.saldo ?? 0) + saldo });
     }
@@ -85,6 +88,7 @@ dashboardRouter.get("/resumen", async (_req, res) => {
     cambioVentasPct,
     ventasUltimos6Meses,
     carteraPendiente,
+    carteraVencida,
     facturasConSaldo,
     opsEnCurso,
     pedidosEnProduccion,

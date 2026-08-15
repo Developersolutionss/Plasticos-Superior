@@ -38,11 +38,15 @@ function total(items: any[]) {
 function totalPaid(payments: any[]) {
   return payments.reduce((sum, p) => sum + Number(p.amount), 0);
 }
+function isVencida(f: any, saldo: number) {
+  return Boolean(f.dueDate) && new Date(f.dueDate) < new Date() && saldo > 0;
+}
 
 export default function Facturas() {
   const [selectedFacturaId, setSelectedFacturaId] = useState<number | null>(null);
   const [clientId, setClientId] = useState("");
   const [notes, setNotes] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [items, setItems] = useState<ItemDraft[]>([{ ...emptyItem }]);
   const [paymentForm, setPaymentForm] = useState({ amount: "", method: "efectivo", notes: "" });
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +84,7 @@ export default function Facturas() {
       const factura = await api.createFactura({
         clientId: Number(clientId),
         notes: notes || undefined,
+        dueDate: dueDate || undefined,
         items: validItems.map((it) => ({
           productId: Number(it.productId),
           quantity: Number(it.quantity),
@@ -88,6 +93,7 @@ export default function Facturas() {
       });
       setClientId("");
       setNotes("");
+      setDueDate("");
       setItems([{ ...emptyItem }]);
       queryClient.invalidateQueries({ queryKey: ["facturas"] });
       setSelectedFacturaId(factura.id);
@@ -183,6 +189,15 @@ export default function Facturas() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
+          <label className="block text-xs text-slate-500">
+            Vencimiento (opcional)
+            <input
+              className="border rounded px-3 py-2 text-sm w-full mt-1"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+          </label>
           <button className="bg-slate-800 text-white text-sm px-4 py-2 rounded" type="submit">
             Crear factura
           </button>
@@ -193,6 +208,7 @@ export default function Facturas() {
           {facturas?.map((f: any) => {
             const t = total(f.items);
             const paid = totalPaid(f.payments);
+            const vencida = isVencida(f, t - paid);
             return (
               <button
                 key={f.id}
@@ -201,9 +217,12 @@ export default function Facturas() {
                   selectedFacturaId === f.id ? "bg-slate-100 font-medium" : ""
                 }`}
               >
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center gap-2">
                   <span>{f.invoiceNumber}</span>
-                  <span className={`text-xs rounded-full px-2 py-0.5 ${STATUS_COLORS[f.status]}`}>{STATUS_LABELS[f.status]}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {vencida && <span className="text-xs rounded-full px-2 py-0.5 bg-rose-100 text-rose-700">Vencida</span>}
+                    <span className={`text-xs rounded-full px-2 py-0.5 ${STATUS_COLORS[f.status]}`}>{STATUS_LABELS[f.status]}</span>
+                  </div>
                 </div>
                 <div className="text-slate-500">{f.client.name}</div>
                 <div className="text-xs text-slate-500">
@@ -269,8 +288,14 @@ export default function Facturas() {
             {(() => {
               const t = total(selectedFactura.items);
               const paid = payments ? totalPaid(payments) : totalPaid(selectedFactura.payments);
+              const vencida = isVencida(selectedFactura, t - paid);
               return (
                 <div className="text-right space-y-1">
+                  {selectedFactura.dueDate && (
+                    <p className={vencida ? "text-rose-700 font-medium" : "text-slate-500"}>
+                      Vence: {new Date(selectedFactura.dueDate).toLocaleDateString()} {vencida && "· Vencida"}
+                    </p>
+                  )}
                   <p>Total: ${t.toLocaleString("es-CO")}</p>
                   <p className="text-emerald-700">Pagado: ${paid.toLocaleString("es-CO")}</p>
                   <p className="font-medium">Saldo: ${(t - paid).toLocaleString("es-CO")}</p>

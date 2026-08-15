@@ -270,6 +270,7 @@ export const api = {
   createFactura: (data: {
     clientId: number;
     notes?: string;
+    dueDate?: string;
     items: { productId: number; quantity: number; unitPrice?: number; measure?: string }[];
   }) => request<any>("/facturas", { method: "POST", body: JSON.stringify(data) }),
   createFacturaFromPedido: (pedidoId: number) =>
@@ -324,6 +325,7 @@ export const api = {
       cambioVentasPct: number | null;
       ventasUltimos6Meses: { mes: string; total: number }[];
       carteraPendiente: number;
+      carteraVencida: number;
       facturasConSaldo: number;
       opsEnCurso: number;
       pedidosEnProduccion: number;

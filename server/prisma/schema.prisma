@@ -663,6 +663,7 @@ model Factura {
   pedido        Pedido?       @relation(fields: [pedidoId], references: [id])
   status        FacturaStatus @default(emitida)
   notes         String?
+  dueDate       DateTime?     @map("due_date")
   createdById   Int?          @map("created_by")
   createdBy     User?         @relation(fields: [createdById], references: [id])
   createdAt     DateTime      @default(now()) @map("created_at")

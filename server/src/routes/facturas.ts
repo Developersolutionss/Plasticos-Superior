@@ -51,6 +51,7 @@ const itemSchema = z.object({
 const createFacturaSchema = z.object({
   clientId: z.number().int(),
   notes: z.string().optional(),
+  dueDate: z.string().optional(),
   items: z.array(itemSchema).min(1),
 });
 
@@ -80,6 +81,7 @@ facturasRouter.post("/", requireVentas, async (req, res) => {
           invoiceNumber,
           clientId: parsed.data.clientId,
           notes: parsed.data.notes,
+          dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
           createdById: req.user!.userId,
           items: {
             create: parsed.data.items.map((item) => ({
@@ -98,8 +100,13 @@ facturasRouter.post("/", requireVentas, async (req, res) => {
   res.status(201).json(factura);
 });
 
+const facturaDesdePedidoSchema = z.object({ dueDate: z.string().optional() }).optional();
+
 /** Genera una factura a partir de la ÚLTIMA versión de un Pedido, copiando sus ítems. */
 facturasRouter.post("/desde-pedido/:pedidoId", requireVentas, async (req, res) => {
+  const parsedBody = facturaDesdePedidoSchema.safeParse(req.body);
+  if (!parsedBody.success) return res.status(400).json({ error: parsedBody.error.flatten() });
+
   const pedidoId = Number(req.params.pedidoId);
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
@@ -122,6 +129,7 @@ facturasRouter.post("/desde-pedido/:pedidoId", requireVentas, async (req, res) =
           invoiceNumber,
           clientId: pedido.clientId,
           pedidoId: pedido.id,
+          dueDate: parsedBody.data?.dueDate ? new Date(parsedBody.data.dueDate) : undefined,
           createdById: req.user!.userId,
           items: {
             create: latestVersion.items.map((item) => ({
