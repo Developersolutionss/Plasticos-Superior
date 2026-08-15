@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { ChevronRight, Menu, Wrench, X, Zap } from "lucide-react";
 import "./Sidebar.css";
@@ -150,9 +150,23 @@ export default function Sidebar({
         <div className="sidebar-divider" />
 
         <nav className="sidebar-nav">
-          {navSections.map((entry) => (
-            <NavSection key={entry.id} entry={entry} />
-          ))}
+          {(() => {
+            let lastGroup: string | undefined;
+            return navSections.map((entry) => {
+              const showGroupHeader = !!entry.group && entry.group !== lastGroup;
+              lastGroup = entry.group;
+              return (
+                <Fragment key={entry.id}>
+                  {showGroupHeader && (
+                    <div className="sidebar-group-label">
+                      <span className="hidden-when-collapsed">{entry.group}</span>
+                    </div>
+                  )}
+                  <NavSection entry={entry} />
+                </Fragment>
+              );
+            });
+          })()}
         </nav>
 
         <div className="sidebar-divider" />
