@@ -241,7 +241,7 @@ export default function Clients() {
     <div className="space-y-4">
       {/* Encabezado */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-semibold text-slate-800">Clientes</h1>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Clientes</h1>
         <button
           onClick={() => navigate("/clientes/nuevo")}
           className="bg-slate-800 text-white text-sm px-4 py-2 rounded inline-flex items-center gap-1.5 hover:bg-slate-700"
@@ -253,9 +253,9 @@ export default function Clients() {
       {/* Barra de búsqueda + filtros + vista */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative flex-1 min-w-[200px]">
-          <Search size={16} strokeWidth={2} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+          <Search size={16} strokeWidth={2} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-400" aria-hidden="true" />
           <input
-            className="w-full border rounded pl-9 pr-3 py-2 text-sm"
+            className="w-full border rounded pl-9 pr-3 py-2 text-sm dark:bg-slate-800 dark:text-slate-100"
             placeholder="Buscar cliente por nombre..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -269,7 +269,7 @@ export default function Clients() {
               title={f.title}
               onClick={() => setFilter(f.key)}
               className={`px-3 py-1.5 rounded-full text-sm border ${
-                filter === f.key ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-700"
+                filter === f.key ? "bg-slate-800 text-white border-slate-800" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
               }`}
             >
               {f.label}
@@ -277,18 +277,18 @@ export default function Clients() {
           ))}
         </div>
 
-        <div className="flex gap-1 border rounded-lg overflow-hidden bg-white">
+        <div className="flex gap-1 border rounded-lg overflow-hidden bg-white dark:bg-slate-900">
           <button
             onClick={() => setView("list")}
             title="Vista en lista"
-            className={`p-2 ${view === "list" ? "bg-slate-100 text-slate-800" : "text-slate-500"}`}
+            className={`p-2 ${view === "list" ? "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100" : "text-slate-500 dark:text-slate-400"}`}
           >
             <List size={16} strokeWidth={2} aria-hidden="true" />
           </button>
           <button
             onClick={() => setView("cajas")}
             title="Vista en cajas"
-            className={`p-2 ${view === "cajas" ? "bg-slate-100 text-slate-800" : "text-slate-500"}`}
+            className={`p-2 ${view === "cajas" ? "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100" : "text-slate-500 dark:text-slate-400"}`}
           >
             <LayoutGrid size={16} strokeWidth={2} aria-hidden="true" />
           </button>
@@ -298,26 +298,26 @@ export default function Clients() {
       <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
         {/* Resultados */}
         <div className="space-y-4">
-          {isLoading && <p className="text-slate-500 text-sm p-2">Cargando clientes...</p>}
+          {isLoading && <p className="text-slate-500 dark:text-slate-400 text-sm p-2">Cargando clientes...</p>}
 
           {view === "list" && !isLoading && (
-            <div className="bg-white rounded-lg shadow divide-y">
+            <div className="bg-white dark:bg-slate-900 rounded-lg shadow divide-y">
               {visibleClients.map((c: any) => (
                 <button
                   key={c.id}
                   onClick={() => selectClient(c)}
-                  className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 text-sm ${
-                    selectedClientId === c.id ? "bg-slate-100" : ""
+                  className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm ${
+                    selectedClientId === c.id ? "bg-slate-100 dark:bg-slate-800" : ""
                   }`}
                 >
                   <ClienteAvatar name={c.name} avatarUrl={c.avatarUrl} size={36} />
                   <span className="min-w-0">
                     <span className="block font-medium truncate">{c.name}</span>
-                    {clienteEmail(c) && <span className="block text-xs text-slate-500 truncate">{clienteEmail(c)}</span>}
+                    {clienteEmail(c) && <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{clienteEmail(c)}</span>}
                   </span>
                 </button>
               ))}
-              {visibleClients.length === 0 && <p className="p-4 text-slate-500 text-sm">No se encontraron clientes.</p>}
+              {visibleClients.length === 0 && <p className="p-4 text-slate-500 dark:text-slate-400 text-sm">No se encontraron clientes.</p>}
             </div>
           )}
 
@@ -327,24 +327,24 @@ export default function Clients() {
                 <button
                   key={c.id}
                   onClick={() => selectClient(c)}
-                  className={`bg-white rounded-lg shadow p-4 flex flex-col items-center gap-2 hover:shadow-md transition ${
+                  className={`bg-white dark:bg-slate-900 rounded-lg shadow p-4 flex flex-col items-center gap-2 hover:shadow-md transition ${
                     selectedClientId === c.id ? "ring-2 ring-sky-500" : ""
                   }`}
                 >
                   <ClienteAvatar name={c.name} avatarUrl={c.avatarUrl} size={48} />
                   <span className="text-sm font-medium text-center leading-tight">{c.name}</span>
-                  {clienteEmail(c) && <span className="text-xs text-slate-400 text-center truncate w-full">{clienteEmail(c)}</span>}
+                  {clienteEmail(c) && <span className="text-xs text-slate-400 dark:text-slate-400 text-center truncate w-full">{clienteEmail(c)}</span>}
                 </button>
               ))}
-              {visibleClients.length === 0 && <p className="col-span-full text-slate-500 text-sm p-2">No se encontraron clientes.</p>}
+              {visibleClients.length === 0 && <p className="col-span-full text-slate-500 dark:text-slate-400 text-sm p-2">No se encontraron clientes.</p>}
             </div>
           )}
         </div>
 
         {/* Ficha del cliente seleccionado */}
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4">
           {!selectedClient && (
-            <p className="text-slate-500">Seleccioná un cliente de la lista para ver su ficha.</p>
+            <p className="text-slate-500 dark:text-slate-400">Seleccioná un cliente de la lista para ver su ficha.</p>
           )}
 
           {selectedClient && (
@@ -356,7 +356,7 @@ export default function Clients() {
                     <h2 className="text-lg font-semibold truncate">{selectedClient.name}</h2>
                     <button
                       onClick={() => setEditingClient(selectedClient)}
-                      className="text-sky-700 text-xs hover:underline inline-flex items-center gap-1"
+                      className="text-sky-700 dark:text-sky-400 text-xs hover:underline inline-flex items-center gap-1"
                     >
                       <Pencil size={12} strokeWidth={2} aria-hidden="true" /> Editar datos / foto
                     </button>
@@ -371,7 +371,7 @@ export default function Clients() {
                 </button>
               </div>
 
-              {error && <p className="text-red-600 text-sm">{error}</p>}
+              {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
 
               <div className="flex gap-1 border-b overflow-x-auto">
                 {TABS.map((t) => (
@@ -379,7 +379,7 @@ export default function Clients() {
                     key={t.key}
                     onClick={() => setActiveTab(t.key)}
                     className={`px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap ${
-                      activeTab === t.key ? "border-slate-800 font-medium text-slate-800" : "border-transparent text-slate-500"
+                      activeTab === t.key ? "border-slate-800 font-medium text-slate-800 dark:text-slate-100" : "border-transparent text-slate-500 dark:text-slate-400"
                     }`}
                   >
                     {t.label}
@@ -394,53 +394,53 @@ export default function Clients() {
                       <button
                         key={contact.id}
                         onClick={() => setSelectedContact(contact)}
-                        className="text-left border rounded-lg p-4 hover:border-slate-400 hover:shadow-sm transition"
+                        className="text-left border rounded-lg p-4 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition"
                       >
                         <p className="font-medium flex items-center gap-2">
                           {contact.name}
                           {contact.isPrimary && (
-                            <span className="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Principal</span>
+                            <span className="text-xs bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 px-2 py-0.5 rounded-full">Principal</span>
                           )}
                         </p>
-                        <p className="text-slate-500 text-sm mt-1">{contact.position ?? "Sin cargo"}</p>
-                        <p className="text-slate-400 text-xs mt-2">Ver detalle →</p>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{contact.position ?? "Sin cargo"}</p>
+                        <p className="text-slate-400 dark:text-slate-400 text-xs mt-2">Ver detalle →</p>
                       </button>
                     ))}
                     {contacts?.length === 0 && (
-                      <p className="text-slate-500 text-sm py-2 col-span-full">Sin contactos todavía.</p>
+                      <p className="text-slate-500 dark:text-slate-400 text-sm py-2 col-span-full">Sin contactos todavía.</p>
                     )}
                   </div>
 
                   <form onSubmit={handleCreateContact} className="border-t pt-4 space-y-2">
-                    <p className="text-sm font-medium text-slate-700">Agregar contacto</p>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Agregar contacto</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <input
-                        className="border rounded px-3 py-2 text-sm"
+                        className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                         placeholder="Nombre"
                         value={contactForm.name}
                         onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
                       />
                       <input
-                        className="border rounded px-3 py-2 text-sm"
+                        className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                         placeholder="Cargo"
                         value={contactForm.position}
                         onChange={(e) => setContactForm({ ...contactForm, position: e.target.value })}
                       />
                       <input
-                        className="border rounded px-3 py-2 text-sm"
+                        className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                         placeholder="Teléfono"
                         value={contactForm.phone}
                         onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })}
                       />
                       <input
-                        className="border rounded px-3 py-2 text-sm"
+                        className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                         placeholder="Email"
                         type="email"
                         value={contactForm.email}
                         onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
                       />
                     </div>
-                    <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                       <input
                         type="checkbox"
                         checked={contactForm.isPrimary}
@@ -464,57 +464,57 @@ export default function Clients() {
                           <p className="font-medium">
                             {addr.label}
                             {addr.isPrimary && (
-                              <span className="ml-2 text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Principal</span>
+                              <span className="ml-2 text-xs bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 px-2 py-0.5 rounded-full">Principal</span>
                             )}
                           </p>
-                          <p className="text-slate-500">{addr.addressLine}</p>
-                          <p className="text-slate-500">
+                          <p className="text-slate-500 dark:text-slate-400">{addr.addressLine}</p>
+                          <p className="text-slate-500 dark:text-slate-400">
                             {[addr.city, addr.region, addr.postalCode].filter(Boolean).join(", ") || "-"}
                           </p>
                         </div>
-                        <button onClick={() => handleDeleteAddress(addr.id)} className="text-red-600 text-xs hover:underline">
+                        <button onClick={() => handleDeleteAddress(addr.id)} className="text-red-600 dark:text-red-400 text-xs hover:underline">
                           Eliminar
                         </button>
                       </li>
                     ))}
-                    {addresses?.length === 0 && <p className="text-slate-500 text-sm py-2">Sin direcciones todavía.</p>}
+                    {addresses?.length === 0 && <p className="text-slate-500 dark:text-slate-400 text-sm py-2">Sin direcciones todavía.</p>}
                   </ul>
 
                   <form onSubmit={handleCreateAddress} className="border-t pt-4 space-y-2">
-                    <p className="text-sm font-medium text-slate-700">Agregar dirección</p>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Agregar dirección</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <input
-                        className="border rounded px-3 py-2 text-sm"
+                        className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                         placeholder="Etiqueta (ej. Bodega Principal)"
                         value={addressForm.label}
                         onChange={(e) => setAddressForm({ ...addressForm, label: e.target.value })}
                       />
                       <input
-                        className="border rounded px-3 py-2 text-sm"
+                        className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                         placeholder="Dirección"
                         value={addressForm.addressLine}
                         onChange={(e) => setAddressForm({ ...addressForm, addressLine: e.target.value })}
                       />
                       <input
-                        className="border rounded px-3 py-2 text-sm"
+                        className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                         placeholder="Ciudad"
                         value={addressForm.city}
                         onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
                       />
                       <input
-                        className="border rounded px-3 py-2 text-sm"
+                        className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                         placeholder="Región / Depto"
                         value={addressForm.region}
                         onChange={(e) => setAddressForm({ ...addressForm, region: e.target.value })}
                       />
                       <input
-                        className="border rounded px-3 py-2 text-sm"
+                        className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                         placeholder="Código postal"
                         value={addressForm.postalCode}
                         onChange={(e) => setAddressForm({ ...addressForm, postalCode: e.target.value })}
                       />
                     </div>
-                    <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                       <input
                         type="checkbox"
                         checked={addressForm.isPrimary}
@@ -535,21 +535,21 @@ export default function Clients() {
                     {interactions?.map((it: any) => (
                       <li key={it.id} className="py-3 text-sm">
                         <p>
-                          <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full mr-2">
+                          <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-0.5 rounded-full mr-2">
                             {INTERACTION_LABELS[it.type]}
                           </span>
                           {new Date(it.createdAt).toLocaleString()}
                         </p>
-                        <p className="text-slate-700 mt-1">{it.description}</p>
+                        <p className="text-slate-700 dark:text-slate-200 mt-1">{it.description}</p>
                       </li>
                     ))}
-                    {interactions?.length === 0 && <p className="text-slate-500 text-sm py-2">Sin interacciones todavía.</p>}
+                    {interactions?.length === 0 && <p className="text-slate-500 dark:text-slate-400 text-sm py-2">Sin interacciones todavía.</p>}
                   </ul>
 
                   <form onSubmit={handleCreateInteraction} className="border-t pt-4 space-y-2">
-                    <p className="text-sm font-medium text-slate-700">Registrar interacción</p>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Registrar interacción</p>
                     <select
-                      className="border rounded px-3 py-2 text-sm w-full"
+                      className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       value={interactionForm.type}
                       onChange={(e) => setInteractionForm({ ...interactionForm, type: e.target.value as any })}
                     >
@@ -559,7 +559,7 @@ export default function Clients() {
                       <option value="nota">Nota</option>
                     </select>
                     <textarea
-                      className="border rounded px-3 py-2 text-sm w-full"
+                      className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       placeholder="Descripción"
                       rows={2}
                       value={interactionForm.description}
@@ -575,31 +575,31 @@ export default function Clients() {
               {activeTab === "cartera" && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-3 sm:gap-4 max-w-md">
-                    <div className="border rounded-lg p-3">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Límite de crédito</p>
+                    <div className="border rounded-lg p-3 dark:border-slate-700">
+                      <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Límite de crédito</p>
                       <p className="text-lg font-semibold">${Number(cartera?.creditLimit ?? 0).toLocaleString("es-CO")}</p>
                     </div>
-                    <div className="border rounded-lg p-3">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Saldo pendiente</p>
-                      <p className={`text-lg font-semibold ${Number(cartera?.saldoPendiente) > 0 ? "text-amber-700" : "text-emerald-700"}`}>
+                    <div className="border rounded-lg p-3 dark:border-slate-700">
+                      <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Saldo pendiente</p>
+                      <p className={`text-lg font-semibold ${Number(cartera?.saldoPendiente) > 0 ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}`}>
                         ${Number(cartera?.saldoPendiente ?? 0).toLocaleString("es-CO")}
                       </p>
                     </div>
                   </div>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     El saldo pendiente se calcula solo, sumando las facturas no anuladas de este cliente menos los pagos
                     recibidos (módulo Facturas).
                   </p>
 
                   {cartera && cartera.facturasPendientes.length > 0 && (
                     <div>
-                      <p className="text-sm font-medium text-slate-700 mb-2">Facturas con saldo pendiente</p>
+                      <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Facturas con saldo pendiente</p>
                       <ul className="divide-y text-sm">
                         {cartera.facturasPendientes.map((f: any) => (
                           <li key={f.id} className="py-2 flex justify-between items-center gap-2">
                             <span className="flex items-center gap-1.5">
                               {f.invoiceNumber}
-                              {f.vencida && <span className="text-xs rounded-full px-2 py-0.5 bg-rose-100 text-rose-700">Vencida</span>}
+                              {f.vencida && <span className="text-xs rounded-full px-2 py-0.5 bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-400">Vencida</span>}
                             </span>
                             <span>
                               ${f.saldo.toLocaleString("es-CO")} de ${f.total.toLocaleString("es-CO")}
@@ -611,9 +611,9 @@ export default function Clients() {
                   )}
 
                   <form onSubmit={handleSaveCreditLimit} className="space-y-2 max-w-xs border-t pt-4">
-                    <label className="block text-sm font-medium text-slate-700">Editar límite de crédito (COP)</label>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Editar límite de crédito (COP)</label>
                     <input
-                      className="border rounded px-3 py-2 text-sm w-full"
+                      className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       type="number"
                       min={0}
                       value={creditLimitInput}
@@ -629,18 +629,18 @@ export default function Clients() {
               {activeTab === "editar" && (
                 <div className="space-y-6">
                   <div>
-                    <p className="text-sm font-medium text-slate-700 mb-2">Editar datos</p>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Editar datos</p>
                     <button
                       onClick={() => setEditingClient(selectedClient)}
-                      className="border border-slate-300 rounded px-4 py-2 text-sm inline-flex items-center gap-1.5 hover:bg-slate-50"
+                      className="border border-slate-300 dark:border-slate-600 rounded px-4 py-2 text-sm inline-flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"
                     >
                       <Pencil size={14} strokeWidth={2} aria-hidden="true" /> Editar datos
                     </button>
                   </div>
 
                   <div className="border-t pt-4">
-                    <p className="text-sm font-medium text-slate-700 mb-1">Zona de peligro</p>
-                    <p className="text-xs text-slate-500 mb-3">
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Zona de peligro</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
                       Al eliminar, el cliente se desactiva y deja de aparecer en las listas. Sus facturas, cotizaciones y
                       pedidos se conservan.
                     </p>
@@ -654,7 +654,7 @@ export default function Clients() {
                         </button>
                         <button
                           onClick={() => setConfirmingDelete(false)}
-                          className="border border-slate-300 text-slate-700 text-sm px-4 py-2 rounded hover:bg-slate-50"
+                          className="border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm px-4 py-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
                         >
                           Cancelar
                         </button>
@@ -662,7 +662,7 @@ export default function Clients() {
                     ) : (
                       <button
                         onClick={() => setConfirmingDelete(true)}
-                        className="text-red-600 text-sm hover:underline inline-flex items-center gap-1.5"
+                        className="text-red-600 dark:text-red-400 text-sm hover:underline inline-flex items-center gap-1.5"
                       >
                         Eliminar cliente
                       </button>
@@ -709,30 +709,30 @@ export default function Clients() {
           ) : (
             <div className="space-y-3 text-sm">
               {selectedContact.isPrimary && (
-                <span className="inline-block text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">
+                <span className="inline-block text-xs bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 px-2 py-0.5 rounded-full">
                   Contacto principal
                 </span>
               )}
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Cargo</p>
-                <p className="text-slate-700">{selectedContact.position ?? "-"}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Cargo</p>
+                <p className="text-slate-700 dark:text-slate-200">{selectedContact.position ?? "-"}</p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Teléfono</p>
-                <p className="text-slate-700">{selectedContact.phone ?? "-"}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Teléfono</p>
+                <p className="text-slate-700 dark:text-slate-200">{selectedContact.phone ?? "-"}</p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Email</p>
-                <p className="text-slate-700">{selectedContact.email ?? "-"}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Email</p>
+                <p className="text-slate-700 dark:text-slate-200">{selectedContact.email ?? "-"}</p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Agregado el</p>
-                <p className="text-slate-700">{new Date(selectedContact.createdAt).toLocaleString()}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Agregado el</p>
+                <p className="text-slate-700 dark:text-slate-200">{new Date(selectedContact.createdAt).toLocaleString()}</p>
               </div>
               <div className="border-t pt-3 flex items-center justify-between">
                 <button
                   onClick={() => setEditingContact(true)}
-                  className="flex items-center gap-1.5 text-slate-600 text-xs hover:underline"
+                  className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 text-xs hover:underline"
                 >
                   <Pencil size={14} strokeWidth={2} aria-hidden="true" />
                   Editar
@@ -743,7 +743,7 @@ export default function Clients() {
                     setSelectedContact(null);
                     setEditingContact(false);
                   }}
-                  className="text-red-600 text-xs hover:underline"
+                  className="text-red-600 dark:text-red-400 text-xs hover:underline"
                 >
                   Eliminar contacto
                 </button>

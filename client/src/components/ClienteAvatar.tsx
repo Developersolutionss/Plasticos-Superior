@@ -22,7 +22,7 @@ export default function ClienteAvatar({ name, avatarUrl, size = 40 }: ClienteAva
 
   return (
     <div
-      className="rounded-full bg-sky-100 text-sky-700 font-semibold flex items-center justify-center flex-shrink-0"
+      className="rounded-full bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 font-semibold flex items-center justify-center flex-shrink-0"
       style={{ ...style, fontSize: size * 0.38 }}
       aria-hidden="true"
     >

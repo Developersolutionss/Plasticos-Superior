@@ -148,15 +148,15 @@ export default function Productos() {
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-800">Productos</h1>
-          <p className="text-sm text-slate-500">Catálogo de productos del inventario</p>
+          <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Productos</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Catálogo de productos del inventario</p>
         </div>
         <div className="flex items-center gap-2">
           {selectedIds.size > 0 && (
             <button
               onClick={handlePrintLabels}
               disabled={printing}
-              className="border border-slate-300 text-slate-700 text-sm px-4 py-2 rounded inline-flex items-center gap-1.5 hover:bg-slate-50 disabled:opacity-50"
+              className="border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm px-4 py-2 rounded inline-flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
             >
               <Tag size={16} strokeWidth={2} aria-hidden="true" />
               {printing ? "Generando..." : `Imprimir etiquetas (${selectedIds.size})`}
@@ -171,14 +171,14 @@ export default function Productos() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {isLoading && <p className="p-4 text-center text-slate-500 text-sm">Cargando...</p>}
-        {!isLoading && products?.length === 0 && <p className="p-4 text-center text-slate-500 text-sm">No hay productos.</p>}
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+        {isLoading && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</p>}
+        {!isLoading && products?.length === 0 && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">No hay productos.</p>}
 
         {!isLoading && products && products.length > 0 && (
           <>
             <table className="hidden md:table w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-500">
+              <thead className="bg-slate-50 dark:bg-slate-800 text-left text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="p-3 w-8">
                     <input
@@ -199,28 +199,28 @@ export default function Productos() {
               </thead>
               <tbody>
                 {products.map((p: any) => (
-                  <tr key={p.id} className="border-t border-slate-100">
+                  <tr key={p.id} className="border-t border-slate-100 dark:border-slate-700">
                     <td className="p-3">
                       <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelected(p.id)} />
                     </td>
-                    <td className="p-3 text-slate-500">{p.sku}</td>
-                    <td className="p-3 font-medium text-slate-800">{p.name}</td>
-                    <td className="p-3 text-slate-600">{CATEGORY_LABELS[p.category] ?? p.category}</td>
-                    <td className="p-3 text-slate-600">{p.unit}</td>
-                    <td className="p-3 text-slate-600">{p.minStock}</td>
-                    <td className="p-3 text-slate-600">{formatCOP(Number(p.unitPrice))}</td>
+                    <td className="p-3 text-slate-500 dark:text-slate-400">{p.sku}</td>
+                    <td className="p-3 font-medium text-slate-800 dark:text-slate-100">{p.name}</td>
+                    <td className="p-3 text-slate-600 dark:text-slate-300">{CATEGORY_LABELS[p.category] ?? p.category}</td>
+                    <td className="p-3 text-slate-600 dark:text-slate-300">{p.unit}</td>
+                    <td className="p-3 text-slate-600 dark:text-slate-300">{p.minStock}</td>
+                    <td className="p-3 text-slate-600 dark:text-slate-300">{formatCOP(Number(p.unitPrice))}</td>
                     <td className="p-3">
                       {p.active ? (
-                        <span className="text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full">Activo</span>
+                        <span className="text-xs text-green-700 dark:text-emerald-400 bg-green-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full">Activo</span>
                       ) : (
-                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Inactivo</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">Inactivo</span>
                       )}
                     </td>
                     <td className="p-3">
                       {p.active ? (
                         <div className="flex items-center gap-2">
                           <button
-                            className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
+                            className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
                             title="Editar"
                             onClick={() => setEditingProduct(p)}
                           >
@@ -229,23 +229,23 @@ export default function Productos() {
                           {deactivatingId === p.id ? (
                             <div className="flex items-center gap-1.5">
                               <button
-                                className="text-red-600 text-xs font-medium hover:underline"
+                                className="text-red-600 dark:text-red-400 text-xs font-medium hover:underline"
                                 onClick={() => handleDeactivate(p.id)}
                               >
                                 Confirmar
                               </button>
-                              <button className="text-slate-500 text-xs hover:underline" onClick={() => setDeactivatingId(null)}>
+                              <button className="text-slate-500 dark:text-slate-400 text-xs hover:underline" onClick={() => setDeactivatingId(null)}>
                                 Cancelar
                               </button>
                             </div>
                           ) : (
-                            <button className="text-red-600 text-xs hover:underline" onClick={() => setDeactivatingId(p.id)}>
+                            <button className="text-red-600 dark:text-red-400 text-xs hover:underline" onClick={() => setDeactivatingId(p.id)}>
                               Desactivar
                             </button>
                           )}
                         </div>
                       ) : (
-                        <button className="text-emerald-600 text-xs hover:underline" onClick={() => handleReactivate(p.id)}>
+                        <button className="text-emerald-600 dark:text-emerald-400 text-xs hover:underline" onClick={() => handleReactivate(p.id)}>
                           Reactivar
                         </button>
                       )}
@@ -255,24 +255,24 @@ export default function Productos() {
               </tbody>
             </table>
 
-            <div className="md:hidden divide-y divide-slate-100">
+            <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-700">
               {products.map((p: any) => (
                 <div key={p.id} className="p-4 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <label className="flex items-center gap-2">
                       <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelected(p.id)} />
-                      <p className="font-medium text-slate-800">
-                        {p.name} <span className="text-slate-400 font-normal">({p.sku})</span>
+                      <p className="font-medium text-slate-800 dark:text-slate-100">
+                        {p.name} <span className="text-slate-400 dark:text-slate-400 font-normal">({p.sku})</span>
                       </p>
                     </label>
                     {p.active ? (
-                      <span className="text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full shrink-0">Activo</span>
+                      <span className="text-xs text-green-700 dark:text-emerald-400 bg-green-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full shrink-0">Activo</span>
                     ) : (
-                      <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">Inactivo</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full shrink-0">Inactivo</span>
                     )}
                   </div>
-                  <p className="text-sm text-slate-500">{CATEGORY_LABELS[p.category] ?? p.category}</p>
-                  <div className="flex items-center gap-4 text-sm text-slate-600">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{CATEGORY_LABELS[p.category] ?? p.category}</p>
+                  <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-300">
                     <span>
                       Mín: {p.minStock} {p.unit}
                     </span>
@@ -280,27 +280,27 @@ export default function Productos() {
                   </div>
                   {p.active ? (
                     <div className="flex items-center gap-3 pt-1">
-                      <button className="text-slate-600 text-xs hover:underline inline-flex items-center gap-1" onClick={() => setEditingProduct(p)}>
+                      <button className="text-slate-600 dark:text-slate-300 text-xs hover:underline inline-flex items-center gap-1" onClick={() => setEditingProduct(p)}>
                         <Pencil size={12} strokeWidth={2} /> Editar
                       </button>
                       {deactivatingId === p.id ? (
                         <>
-                          <button className="text-red-600 text-xs font-medium hover:underline" onClick={() => handleDeactivate(p.id)}>
+                          <button className="text-red-600 dark:text-red-400 text-xs font-medium hover:underline" onClick={() => handleDeactivate(p.id)}>
                             Confirmar
                           </button>
-                          <button className="text-slate-500 text-xs hover:underline" onClick={() => setDeactivatingId(null)}>
+                          <button className="text-slate-500 dark:text-slate-400 text-xs hover:underline" onClick={() => setDeactivatingId(null)}>
                             Cancelar
                           </button>
                         </>
                       ) : (
-                        <button className="text-red-600 text-xs hover:underline" onClick={() => setDeactivatingId(p.id)}>
+                        <button className="text-red-600 dark:text-red-400 text-xs hover:underline" onClick={() => setDeactivatingId(p.id)}>
                           Desactivar
                         </button>
                       )}
                     </div>
                   ) : (
                     <div className="pt-1">
-                      <button className="text-emerald-600 text-xs hover:underline" onClick={() => handleReactivate(p.id)}>
+                      <button className="text-emerald-600 dark:text-emerald-400 text-xs hover:underline" onClick={() => handleReactivate(p.id)}>
                         Reactivar
                       </button>
                     </div>

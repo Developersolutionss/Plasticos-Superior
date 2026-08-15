@@ -31,37 +31,37 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100">
-      <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-md w-full max-w-sm space-y-4">
-        <h1 className="text-xl font-semibold text-slate-800">Plásticos Superior</h1>
+    <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-800">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 p-8 rounded-lg shadow-md w-full max-w-sm space-y-4">
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Plásticos Superior</h1>
 
         {!needs2fa && (
           <>
             <div>
-              <label htmlFor="login-email" className="block text-sm text-slate-600 mb-1">
+              <label htmlFor="login-email" className="block text-sm text-slate-600 dark:text-slate-300 mb-1">
                 Email
               </label>
               <input
                 id="login-email"
-                className="w-full border rounded px-3 py-2"
+                className="w-full border rounded px-3 py-2 dark:bg-slate-800 dark:text-slate-100"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 type="email"
               />
             </div>
             <div>
-              <label htmlFor="login-password" className="block text-sm text-slate-600 mb-1">
+              <label htmlFor="login-password" className="block text-sm text-slate-600 dark:text-slate-300 mb-1">
                 Contraseña
               </label>
               <input
                 id="login-password"
-                className="w-full border rounded px-3 py-2"
+                className="w-full border rounded px-3 py-2 dark:bg-slate-800 dark:text-slate-100"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 type="password"
               />
             </div>
-            <Link to="/forgot-password" className="text-xs text-sky-700 hover:underline block text-right">
+            <Link to="/forgot-password" className="text-xs text-sky-700 dark:text-sky-400 hover:underline block text-right">
               ¿Olvidaste tu contraseña?
             </Link>
           </>
@@ -69,9 +69,9 @@ export default function Login() {
 
         {needs2fa && (
           <div>
-            <label className="block text-sm text-slate-600 mb-1">Código de la app autenticadora</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-300 mb-1">Código de la app autenticadora</label>
             <input
-              className="w-full border rounded px-3 py-2 text-center text-lg tracking-widest"
+              className="w-full border rounded px-3 py-2 text-center text-lg tracking-widest dark:bg-slate-800 dark:text-slate-100"
               value={totpToken}
               onChange={(e) => setTotpToken(e.target.value)}
               maxLength={6}
@@ -80,7 +80,7 @@ export default function Login() {
           </div>
         )}
 
-        {error && <p className="text-red-600 text-sm">{error}</p>}
+        {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
         <button className="w-full bg-slate-800 text-white rounded py-2 hover:bg-slate-700" type="submit">
           {needs2fa ? "Verificar" : "Ingresar"}
         </button>
@@ -91,7 +91,7 @@ export default function Login() {
               setNeeds2fa(false);
               setTotpToken("");
             }}
-            className="w-full text-sm text-slate-500 hover:underline"
+            className="w-full text-sm text-slate-500 dark:text-slate-400 hover:underline"
           >
             Volver
           </button>

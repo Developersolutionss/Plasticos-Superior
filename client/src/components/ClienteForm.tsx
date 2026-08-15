@@ -76,12 +76,13 @@ export default function ClienteForm({ client, onSaved, onCancel }: ClienteFormPr
     }
   }
 
-  const inputClass = "w-full border rounded px-3 py-2 text-sm";
-  const labelClass = "block text-xs text-slate-500 mb-1";
+  const inputClass =
+    "w-full border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:text-slate-100";
+  const labelClass = "block text-xs text-slate-500 dark:text-slate-400 mb-1";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
 
       <div className="flex items-center gap-4">
         <ClienteAvatar name={name || client?.name || "?"} avatarUrl={avatarPreview} size={64} />
@@ -90,10 +91,10 @@ export default function ClienteForm({ client, onSaved, onCancel }: ClienteFormPr
             ref={fileInputRef}
             type="file"
             accept="image/jpeg,image/png,image/webp"
-            className="text-xs"
+            className="text-xs dark:bg-slate-800 dark:text-slate-100"
             onChange={(e) => handleAvatarChange(e.target.files?.[0])}
           />
-          <p className="text-xs text-slate-400">JPG, PNG o WEBP · máx 2 MB</p>
+          <p className="text-xs text-slate-400 dark:text-slate-400">JPG, PNG o WEBP · máx 2 MB</p>
         </div>
       </div>
 

@@ -62,12 +62,13 @@ export default function UsuarioForm({ user, onSaved, onCancel }: UsuarioFormProp
     }
   }
 
-  const inputClass = "w-full border rounded px-3 py-2 text-sm";
-  const labelClass = "block text-xs text-slate-500 mb-1";
+  const inputClass =
+    "w-full border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:text-slate-100";
+  const labelClass = "block text-xs text-slate-500 dark:text-slate-400 mb-1";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
 
       <div>
         <label className={labelClass}>Nombre</label>

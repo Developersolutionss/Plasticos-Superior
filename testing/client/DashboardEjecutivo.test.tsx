@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DashboardEjecutivo from "../../client/src/pages/DashboardEjecutivo";
+import { AuthProvider } from "../../client/src/auth/AuthContext";
+import { ThemeProvider } from "../../client/src/theme/ThemeContext";
 
 vi.mock("../../client/src/api/client", () => ({
   api: { getDashboardResumen: vi.fn() },
@@ -34,7 +36,11 @@ function renderDashboard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <DashboardEjecutivo />
+      <AuthProvider>
+        <ThemeProvider>
+          <DashboardEjecutivo />
+        </ThemeProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

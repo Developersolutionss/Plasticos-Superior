@@ -532,6 +532,45 @@
   background: #0284c7;
 }
 
+/* Modo oscuro: este modal usa CSS clásico (no clases de Tailwind), así que
+   sus colores de modo claro se sobreescriben acá en vez de con `dark:`. */
+.dark .sc-panel {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+.dark .sc-header {
+  border-bottom-color: #334155;
+}
+.dark .sc-close {
+  color: #94a3b8;
+}
+.dark .sc-close:hover {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+.dark .sc-hint {
+  color: #94a3b8;
+}
+.dark .sc-group-label {
+  color: #64748b;
+}
+.dark .sc-row:hover {
+  background: #1e293b;
+}
+.dark .sc-soon {
+  color: #94a3b8;
+  border-color: #334155;
+}
+.dark .sc-footer {
+  border-top-color: #334155;
+}
+.dark .sc-btn-ghost {
+  color: #94a3b8;
+}
+.dark .sc-btn-ghost:hover {
+  background: #1e293b;
+}
+
 /* Por debajo de 768px (breakpoint `md` de Tailwind) el sidebar deja de ser
    una columna del grid y pasa a un cajón deslizable a pantalla completa,
    controlado por Layout.tsx (mobileOpen/onCloseMobile). El comportamiento

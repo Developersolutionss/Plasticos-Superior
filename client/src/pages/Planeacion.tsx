@@ -26,24 +26,24 @@ export default function Planeacion() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800">Planeación</h1>
-        <p className="text-sm text-slate-500">Pedidos aprobados listos para generar su orden de producción</p>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Planeación</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Pedidos aprobados listos para generar su orden de producción</p>
       </div>
 
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
 
-      {isLoading && <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Cargando...</div>}
+      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
       {!isLoading && pending?.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
           No hay pedidos pendientes de generar orden de producción.
         </div>
       )}
 
       {!isLoading && pending && pending.length > 0 && (
         <>
-          <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-100 text-left">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                 <tr>
                   <th className="p-3">Pedido</th>
                   <th className="p-3">Cliente</th>
@@ -79,12 +79,12 @@ export default function Planeacion() {
             </table>
           </div>
 
-          <div className="md:hidden bg-white rounded-lg shadow divide-y divide-slate-100">
+          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
             {pending.map((item: any) => (
               <div key={item.pedidoVersionItemId} className="p-4 space-y-2">
-                <p className="font-medium text-slate-800">{item.pedidoOrderNumber}</p>
-                <p className="text-sm text-slate-600">{item.clientName}</p>
-                <p className="text-sm text-slate-500">
+                <p className="font-medium text-slate-800 dark:text-slate-100">{item.pedidoOrderNumber}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-300">{item.clientName}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
                   {item.productName} ({item.productSku}) — {item.quantity} {item.measure ? `· ${item.measure}` : ""}
                 </p>
                 <button

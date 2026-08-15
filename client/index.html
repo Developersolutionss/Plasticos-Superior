@@ -6,6 +6,23 @@
     <meta name="theme-color" content="#0f172a" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <title>Plásticos Superior</title>
+    <script>
+      // Aplica la clase `dark` antes de que cargue el bundle de React, para
+      // evitar el flash de modo claro en cada carga (mismo criterio de
+      // lectura que ThemeContext.tsx). La preferencia se guarda POR
+      // USUARIO (ps_theme:<id>, o ps_theme:anon antes de loguearse) — para
+      // saber cuál leer acá hay que fijarse quién es el usuario logueado
+      // ahora mismo, igual que AuthContext.tsx.
+      (function () {
+        try {
+          var rawUser = localStorage.getItem("user");
+          var userId = rawUser ? JSON.parse(rawUser).id : "anon";
+          var pref = localStorage.getItem("ps_theme:" + userId);
+          var dark = pref === "dark" || (pref !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

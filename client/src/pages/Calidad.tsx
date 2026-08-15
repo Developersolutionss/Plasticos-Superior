@@ -29,7 +29,7 @@ function Actions({
     return (
       <div className={`flex flex-col gap-2 ${align === "end" ? "items-end" : ""}`}>
         <textarea
-          className="border rounded px-2 py-1 text-xs w-full sm:w-56"
+          className="border rounded px-2 py-1 text-xs w-full sm:w-56 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           placeholder="Motivo del rechazo (opcional)"
           value={observations}
           onChange={(e) => setObservations(e.target.value)}
@@ -37,7 +37,7 @@ function Actions({
         />
         <div className="flex gap-2">
           <button
-            className="text-slate-500 hover:text-slate-700 text-xs px-2 py-1"
+            className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs px-2 py-1"
             type="button"
             onClick={() => {
               setRejectingId(null);
@@ -61,7 +61,7 @@ function Actions({
   return (
     <div className={`flex gap-2 ${align === "end" ? "justify-end" : ""}`}>
       <button
-        className="border border-red-300 text-red-700 hover:bg-red-50 text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 flex-1 sm:flex-none"
+        className="border border-red-300 dark:border-red-800 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 flex-1 sm:flex-none"
         type="button"
         disabled={submittingId === order.id}
         onClick={() => setRejectingId(order.id)}
@@ -115,24 +115,24 @@ export default function Calidad() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800">Calidad</h1>
-        <p className="text-sm text-slate-500">Órdenes de producción que ya pasaron por precorte, pendientes de aprobar</p>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Calidad</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Órdenes de producción que ya pasaron por precorte, pendientes de aprobar</p>
       </div>
 
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
 
-      {isLoading && <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Cargando...</div>}
+      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
       {!isLoading && pending?.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
           No hay órdenes pendientes de control de calidad.
         </div>
       )}
 
       {!isLoading && pending && pending.length > 0 && (
         <>
-          <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-100 text-left">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                 <tr>
                   <th className="p-3">OP</th>
                   <th className="p-3">Producto</th>
@@ -168,13 +168,13 @@ export default function Calidad() {
             </table>
           </div>
 
-          <div className="md:hidden bg-white rounded-lg shadow divide-y divide-slate-100">
+          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
             {pending.map((order: any) => (
               <div key={order.id} className="p-4 space-y-3">
                 <div>
-                  <p className="font-medium text-slate-800">{order.orderNumber}</p>
-                  <p className="text-sm text-slate-600">{order.product.name}</p>
-                  <p className="text-sm text-slate-500">
+                  <p className="font-medium text-slate-800 dark:text-slate-100">{order.orderNumber}</p>
+                  <p className="text-sm text-slate-600 dark:text-slate-300">{order.product.name}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
                     Planificado: {order.quantityPlanned} {order.product.unit} · Precorte: {precorteKg(order) ?? "—"}
                   </p>
                 </div>

@@ -33,10 +33,10 @@ export default function ResetPassword() {
 
   if (!token) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100">
-        <p className="text-slate-600">
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-800">
+        <p className="text-slate-600 dark:text-slate-300">
           Falta el token de recuperación.{" "}
-          <Link to="/forgot-password" className="text-sky-700 hover:underline">
+          <Link to="/forgot-password" className="text-sky-700 dark:text-sky-400 hover:underline">
             Pedí un link nuevo
           </Link>
           .
@@ -46,28 +46,28 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100">
-      <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-md w-full max-w-sm space-y-4">
-        <h1 className="text-xl font-semibold text-slate-800">Elegí una nueva contraseña</h1>
+    <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-800">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 p-8 rounded-lg shadow-md w-full max-w-sm space-y-4">
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Elegí una nueva contraseña</h1>
         {done ? (
-          <p className="text-emerald-700 text-sm">Contraseña actualizada. Redirigiendo al login...</p>
+          <p className="text-emerald-700 dark:text-emerald-400 text-sm">Contraseña actualizada. Redirigiendo al login...</p>
         ) : (
           <>
             <input
-              className="w-full border rounded px-3 py-2"
+              className="w-full border rounded px-3 py-2 dark:bg-slate-800 dark:text-slate-100"
               type="password"
               placeholder="Nueva contraseña"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
             <input
-              className="w-full border rounded px-3 py-2"
+              className="w-full border rounded px-3 py-2 dark:bg-slate-800 dark:text-slate-100"
               type="password"
               placeholder="Confirmar contraseña"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
-            {error && <p className="text-red-600 text-sm">{error}</p>}
+            {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
             <button className="w-full bg-slate-800 text-white rounded py-2 hover:bg-slate-700" type="submit">
               Guardar nueva contraseña
             </button>

@@ -53,21 +53,21 @@ export default function SecuritySettings() {
 
   return (
     <div className="max-w-lg space-y-4">
-      <h1 className="text-xl font-semibold text-slate-800">Seguridad de la cuenta</h1>
+      <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Seguridad de la cuenta</h1>
 
-      <div className="bg-white rounded-lg shadow p-4 space-y-3">
-        <p className="text-sm font-medium text-slate-700">Autenticación de dos factores (2FA)</p>
-        {error && <p className="text-red-600 text-sm">{error}</p>}
-        {message && <p className="text-emerald-700 text-sm">{message}</p>}
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Autenticación de dos factores (2FA)</p>
+        {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+        {message && <p className="text-emerald-700 dark:text-emerald-400 text-sm">{message}</p>}
 
         {me?.twoFactorEnabled ? (
           <div className="space-y-2">
-            <p className="text-sm text-emerald-700 flex items-center gap-1.5">
+            <p className="text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
               <CircleCheck size={16} strokeWidth={2} /> Tenés 2FA activado en tu cuenta.
             </p>
             <form onSubmit={handleDisable} className="flex gap-2">
               <input
-                className="border rounded px-3 py-2 text-sm flex-1"
+                className="border rounded px-3 py-2 text-sm flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 placeholder="Código de 6 dígitos para desactivar"
                 value={disableToken}
                 onChange={(e) => setDisableToken(e.target.value)}
@@ -80,7 +80,7 @@ export default function SecuritySettings() {
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               No tenés 2FA activado. Es opcional, pero recomendado para cuentas con más permisos.
             </p>
             {!setup && (
@@ -90,17 +90,17 @@ export default function SecuritySettings() {
             )}
             {setup && (
               <div className="space-y-3">
-                <p className="text-sm text-slate-600">
+                <p className="text-sm text-slate-600 dark:text-slate-300">
                   Escaneá este código con Google Authenticator, Authy o similar, y confirmá con el código que te
                   muestre la app.
                 </p>
                 <img src={setup.qrCodeDataUrl} alt="Código QR para 2FA" className="border rounded w-48 h-48" />
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-400 dark:text-slate-400">
                   ¿No podés escanear? Ingresá este código a mano: <code className="font-mono">{setup.secret}</code>
                 </p>
                 <form onSubmit={handleVerify} className="flex gap-2">
                   <input
-                    className="border rounded px-3 py-2 text-sm flex-1"
+                    className="border rounded px-3 py-2 text-sm flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     placeholder="Código de 6 dígitos"
                     value={verifyToken}
                     onChange={(e) => setVerifyToken(e.target.value)}

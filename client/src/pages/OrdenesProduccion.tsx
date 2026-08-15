@@ -13,12 +13,12 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  pendiente: "bg-slate-100 text-slate-700",
-  en_proceso: "bg-sky-100 text-sky-700",
+  pendiente: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
+  en_proceso: "bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400",
   pendiente_calidad: "bg-purple-100 text-purple-700",
-  detenida: "bg-amber-100 text-amber-700",
-  finalizada: "bg-emerald-100 text-emerald-700",
-  cancelada: "bg-red-100 text-red-700",
+  detenida: "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400",
+  finalizada: "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400",
+  cancelada: "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400",
 };
 
 const STATIONS = [
@@ -34,9 +34,9 @@ function StationsCompleted({ order }: { order: any }) {
     <span className="inline-flex gap-1 align-middle">
       {STATIONS.map((s) =>
         done.has(s.value) ? (
-          <CircleCheck key={s.value} size={16} strokeWidth={2} className="text-emerald-600" />
+          <CircleCheck key={s.value} size={16} strokeWidth={2} className="text-emerald-600 dark:text-emerald-400" />
         ) : (
-          <Circle key={s.value} size={16} strokeWidth={2} className="text-slate-300" />
+          <Circle key={s.value} size={16} strokeWidth={2} className="text-slate-300 dark:text-slate-400" />
         )
       )}
     </span>
@@ -82,11 +82,11 @@ export default function OrdenesProduccion() {
 
   return (
     <div className="space-y-4">
-      <form onSubmit={handleCreate} className="bg-white rounded-lg shadow p-4 space-y-3">
-        <p className="text-sm font-medium text-slate-700">Nueva orden de producción</p>
-        {error && <p className="text-red-600 text-sm">{error}</p>}
+      <form onSubmit={handleCreate} className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nueva orden de producción</p>
+        {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-          <select className="border rounded px-3 py-2 text-sm" value={productId} onChange={(e) => setProductId(e.target.value)}>
+          <select className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={productId} onChange={(e) => setProductId(e.target.value)}>
             <option value="">Producto...</option>
             {products?.map((p: any) => (
               <option key={p.id} value={p.id}>
@@ -95,7 +95,7 @@ export default function OrdenesProduccion() {
             ))}
           </select>
           <input
-            className="border rounded px-3 py-2 text-sm"
+            className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="Cantidad planificada (kg)"
             type="number"
             step="0.01"
@@ -103,13 +103,13 @@ export default function OrdenesProduccion() {
             onChange={(e) => setQuantityPlanned(e.target.value)}
           />
           <input
-            className="border rounded px-3 py-2 text-sm"
+            className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="Medida (opcional)"
             value={measure}
             onChange={(e) => setMeasure(e.target.value)}
           />
           <input
-            className="border rounded px-3 py-2 text-sm"
+            className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="Notas (opcional)"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -120,19 +120,19 @@ export default function OrdenesProduccion() {
         </button>
       </form>
 
-      {isLoading && <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Cargando...</div>}
+      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
 
       {!isLoading && orders?.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
           Todavía no hay órdenes de producción.
         </div>
       )}
 
       {!isLoading && orders && orders.length > 0 && (
         <>
-          <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-100 text-left">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                 <tr>
                   <th className="p-3">OP</th>
                   <th className="p-3">Producto</th>
@@ -171,17 +171,17 @@ export default function OrdenesProduccion() {
             </table>
           </div>
 
-          <div className="md:hidden bg-white rounded-lg shadow divide-y divide-slate-100">
+          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
             {orders.map((o: any) => (
               <div key={o.id} className="p-4 space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="font-medium text-slate-800">{o.orderNumber}</p>
+                  <p className="font-medium text-slate-800 dark:text-slate-100">{o.orderNumber}</p>
                   <span title="Extrusión · Impresión · Sellado · Precorte">
                     <StationsCompleted order={o} />
                   </span>
                 </div>
-                <p className="text-sm text-slate-600">{o.product.name}</p>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-slate-600 dark:text-slate-300">{o.product.name}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
                   {o.quantityPlanned} {o.product.unit}
                 </p>
                 <select

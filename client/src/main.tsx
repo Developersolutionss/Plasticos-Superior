@@ -6,6 +6,7 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import { ShortcutsProvider } from "./components/useShortcuts";
+import { ThemeProvider } from "./theme/ThemeContext";
 import "./index.css";
 
 // Apenas hay una build nueva en el servidor, se recarga sola en vez de
@@ -24,11 +25,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <ShortcutsProvider>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
-        </ShortcutsProvider>
+        <ThemeProvider>
+          <ShortcutsProvider>
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+          </ShortcutsProvider>
+        </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>
   </React.StrictMode>

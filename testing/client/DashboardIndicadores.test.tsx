@@ -3,6 +3,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DashboardIndicadores from "../../client/src/pages/DashboardIndicadores";
+import { AuthProvider } from "../../client/src/auth/AuthContext";
+import { ThemeProvider } from "../../client/src/theme/ThemeContext";
 
 vi.mock("../../client/src/api/client", () => ({
   api: { getDashboardIndicadores: vi.fn() },
@@ -14,7 +16,11 @@ function renderIndicadores() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <DashboardIndicadores />
+      <AuthProvider>
+        <ThemeProvider>
+          <DashboardIndicadores />
+        </ThemeProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

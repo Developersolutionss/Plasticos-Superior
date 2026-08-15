@@ -28,18 +28,18 @@ export default function Exportaciones() {
   return (
     <div className="space-y-5 max-w-2xl">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800">Exportaciones</h1>
-        <p className="text-sm text-slate-500">Descargá los datos del sistema en Excel</p>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Exportaciones</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Descargá los datos del sistema en Excel</p>
       </div>
 
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm divide-y divide-slate-100 dark:divide-slate-700">
         {EXPORTS.map((e) => (
           <div key={e.resource} className="flex items-center justify-between gap-3 px-5 py-4">
             <div>
-              <p className="text-sm font-medium text-slate-800">{e.label}</p>
-              <p className="text-xs text-slate-500">{e.description}</p>
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{e.label}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{e.description}</p>
             </div>
             <button
               type="button"

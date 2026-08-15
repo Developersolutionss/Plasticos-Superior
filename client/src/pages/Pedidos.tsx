@@ -69,9 +69,9 @@ export default function Pedidos() {
     return (
       <div className="space-y-2">
         {list.map((item, i) => (
-          <div key={i} className="border rounded p-2 space-y-2">
+          <div key={i} className="border rounded p-2 space-y-2 dark:border-slate-700">
             <select
-              className="border rounded px-3 py-2 text-sm w-full"
+              className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               value={item.productId}
               onChange={(e) => update(i, { productId: e.target.value, unitPrice: String(productPrice(e.target.value)) })}
             >
@@ -84,7 +84,7 @@ export default function Pedidos() {
             </select>
             <div className="flex items-center gap-2">
               <input
-                className="border rounded px-3 py-2 text-sm min-w-0 flex-1"
+                className="border rounded px-3 py-2 text-sm min-w-0 flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 placeholder="Cantidad"
                 type="number"
                 step="0.01"
@@ -92,7 +92,7 @@ export default function Pedidos() {
                 onChange={(e) => update(i, { quantity: e.target.value })}
               />
               <input
-                className="border rounded px-3 py-2 text-sm min-w-0 flex-1"
+                className="border rounded px-3 py-2 text-sm min-w-0 flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 placeholder="Precio unitario"
                 type="number"
                 step="0.01"
@@ -102,7 +102,7 @@ export default function Pedidos() {
               <button
                 type="button"
                 onClick={() => setList(list.filter((_, idx) => idx !== i))}
-                className="text-red-600 text-xs px-2 shrink-0"
+                className="text-red-600 dark:text-red-400 text-xs px-2 shrink-0"
                 disabled={list.length === 1}
               >
                 Quitar
@@ -110,7 +110,7 @@ export default function Pedidos() {
             </div>
           </div>
         ))}
-        <button type="button" onClick={() => setList([...list, { ...emptyItem }])} className="text-sm text-sky-700 hover:underline">
+        <button type="button" onClick={() => setList([...list, { ...emptyItem }])} className="text-sm text-sky-700 dark:text-sky-400 hover:underline">
           + Agregar ítem
         </button>
       </div>
@@ -227,10 +227,10 @@ export default function Pedidos() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-4">
       <div className="space-y-4">
-        <form onSubmit={handleCreate} className="bg-white rounded-lg shadow p-4 space-y-2">
-          <p className="text-sm font-medium text-slate-700">Nuevo pedido</p>
-          {error && <p className="text-red-600 text-sm">{error}</p>}
-          <select className="border rounded px-3 py-2 text-sm w-full" value={clientId} onChange={(e) => setClientId(e.target.value)}>
+        <form onSubmit={handleCreate} className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-2">
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nuevo pedido</p>
+          {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+          <select className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={clientId} onChange={(e) => setClientId(e.target.value)}>
             <option value="">Cliente...</option>
             {clients?.map((c: any) => (
               <option key={c.id} value={c.id}>
@@ -240,7 +240,7 @@ export default function Pedidos() {
           </select>
           {itemRows(items, setItems)}
           <input
-            className="border rounded px-3 py-2 text-sm w-full"
+            className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="Notas (opcional)"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -250,8 +250,8 @@ export default function Pedidos() {
           </button>
         </form>
 
-        <div className="bg-white rounded-lg shadow divide-y">
-          {isLoading && <p className="p-4 text-slate-500 text-sm">Cargando...</p>}
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow divide-y">
+          {isLoading && <p className="p-4 text-slate-500 dark:text-slate-400 text-sm">Cargando...</p>}
           {pedidos?.map((p: any) => {
             const v = p.versions[0];
             return (
@@ -262,27 +262,27 @@ export default function Pedidos() {
                   setTab("actual");
                   setEditing(false);
                 }}
-                className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-50 ${
-                  selectedPedidoId === p.id ? "bg-slate-100 font-medium" : ""
+                className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                  selectedPedidoId === p.id ? "bg-slate-100 dark:bg-slate-800 font-medium" : ""
                 }`}
               >
                 <div className="flex justify-between">
                   <span>{p.orderNumber}</span>
-                  <span className="text-xs text-slate-500">v{p.currentVersion}</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">v{p.currentVersion}</span>
                 </div>
-                <div className="text-slate-500">{p.client.name}</div>
-                <div className="text-xs text-slate-500">
+                <div className="text-slate-500 dark:text-slate-400">{p.client.name}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
                   {STATUS_LABELS[p.status]} · ${v ? total(v.items).toLocaleString("es-CO") : 0}
                 </div>
               </button>
             );
           })}
-          {pedidos?.length === 0 && <p className="p-4 text-slate-500 text-sm">Todavía no hay pedidos.</p>}
+          {pedidos?.length === 0 && <p className="p-4 text-slate-500 dark:text-slate-400 text-sm">Todavía no hay pedidos.</p>}
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-4">
-        {!selectedPedido && <p className="text-slate-500">Seleccioná un pedido para ver el detalle.</p>}
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4">
+        {!selectedPedido && <p className="text-slate-500 dark:text-slate-400">Seleccioná un pedido para ver el detalle.</p>}
 
         {selectedPedido && (
           <div className="space-y-4">
@@ -291,17 +291,17 @@ export default function Pedidos() {
                 {selectedPedido.orderNumber} — {selectedPedido.client.name}
               </h2>
               <div className="flex gap-3">
-                <button onClick={() => handleFacturar(selectedPedido.id)} className="text-emerald-700 text-xs hover:underline">
+                <button onClick={() => handleFacturar(selectedPedido.id)} className="text-emerald-700 dark:text-emerald-400 text-xs hover:underline">
                   Facturar pedido
                 </button>
-                <button onClick={() => handleDuplicate(selectedPedido.id)} className="text-sky-700 text-xs hover:underline">
+                <button onClick={() => handleDuplicate(selectedPedido.id)} className="text-sky-700 dark:text-sky-400 text-xs hover:underline">
                   Duplicar pedido
                 </button>
               </div>
             </div>
 
-            {error && <p className="text-red-600 text-sm">{error}</p>}
-            {message && <p className="text-emerald-700 text-sm">{message}</p>}
+            {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+            {message && <p className="text-emerald-700 dark:text-emerald-400 text-sm">{message}</p>}
 
             <div className="flex gap-1 border-b overflow-x-auto">
               {[
@@ -313,7 +313,7 @@ export default function Pedidos() {
                   key={t.key}
                   onClick={() => setTab(t.key as any)}
                   className={`px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap ${
-                    tab === t.key ? "border-slate-800 font-medium text-slate-800" : "border-transparent text-slate-500"
+                    tab === t.key ? "border-slate-800 font-medium text-slate-800 dark:text-slate-100" : "border-transparent text-slate-500 dark:text-slate-400"
                   }`}
                 >
                   {t.label}
@@ -328,7 +328,7 @@ export default function Pedidos() {
                   <strong>{STATUS_LABELS[latestVersion.status]}</strong>
                 </p>
                 <table className="hidden sm:table w-full text-sm">
-                  <thead className="bg-slate-100 text-left">
+                  <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                     <tr>
                       <th className="p-2">Producto</th>
                       <th className="p-2">Cantidad</th>
@@ -351,7 +351,7 @@ export default function Pedidos() {
                   {latestVersion.items.map((it: any) => (
                     <div key={it.id} className="p-2.5 text-sm space-y-0.5">
                       <p className="font-medium">{it.product.name}</p>
-                      <p className="text-slate-500">
+                      <p className="text-slate-500 dark:text-slate-400">
                         {it.quantity} × ${Number(it.unitPrice).toLocaleString("es-CO")} = $
                         {(Number(it.quantity) * Number(it.unitPrice)).toLocaleString("es-CO")}
                       </p>
@@ -359,7 +359,7 @@ export default function Pedidos() {
                   ))}
                 </div>
                 <p className="text-right font-medium">Total: ${total(latestVersion.items).toLocaleString("es-CO")}</p>
-                {latestVersion.notes && <p className="text-sm text-slate-600">Notas: {latestVersion.notes}</p>}
+                {latestVersion.notes && <p className="text-sm text-slate-600 dark:text-slate-300">Notas: {latestVersion.notes}</p>}
                 <button onClick={startEditing} className="bg-slate-800 text-white text-sm px-4 py-2 rounded">
                   Editar (crea nueva versión)
                 </button>
@@ -368,7 +368,7 @@ export default function Pedidos() {
 
             {tab === "actual" && editing && (
               <form onSubmit={handleSaveVersion} className="space-y-2">
-                <select className="border rounded px-3 py-2 text-sm w-full" value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                <select className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
                   {Object.entries(STATUS_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
                       {label}
@@ -377,7 +377,7 @@ export default function Pedidos() {
                 </select>
                 {itemRows(editItems, setEditItems)}
                 <input
-                  className="border rounded px-3 py-2 text-sm w-full"
+                  className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   placeholder="Notas (opcional)"
                   value={editNotes}
                   onChange={(e) => setEditNotes(e.target.value)}
@@ -402,16 +402,16 @@ export default function Pedidos() {
                     <li key={v.id} className="py-3 text-sm">
                       <p className="font-medium">
                         v{v.versionNumber} — {STATUS_LABELS[v.status]}{" "}
-                        <span className="text-xs text-slate-500">{new Date(v.createdAt).toLocaleString()}</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">{new Date(v.createdAt).toLocaleString()}</span>
                       </p>
-                      <ul className="text-slate-600 ml-4 list-disc">
+                      <ul className="text-slate-600 dark:text-slate-300 ml-4 list-disc">
                         {v.items.map((it: any) => (
                           <li key={it.id}>
                             {it.product.name} × {it.quantity} — ${Number(it.unitPrice).toLocaleString("es-CO")}
                           </li>
                         ))}
                       </ul>
-                      {v.notes && <p className="text-slate-500 mt-1">Notas: {v.notes}</p>}
+                      {v.notes && <p className="text-slate-500 dark:text-slate-400 mt-1">Notas: {v.notes}</p>}
                     </li>
                   ))}
               </ul>
@@ -423,20 +423,20 @@ export default function Pedidos() {
                   {attachments?.map((a: any) => (
                     <li key={a.id} className="py-2 flex items-center justify-between text-sm">
                       <span>
-                        {a.originalName} <span className="text-xs text-slate-500">({Math.round(a.sizeBytes / 1024)} KB)</span>
+                        {a.originalName} <span className="text-xs text-slate-500 dark:text-slate-400">({Math.round(a.sizeBytes / 1024)} KB)</span>
                       </span>
                       <button
                         onClick={() => api.downloadPedidoAttachment(selectedPedido.id, a.id, a.originalName)}
-                        className="text-sky-700 text-xs hover:underline"
+                        className="text-sky-700 dark:text-sky-400 text-xs hover:underline"
                       >
                         Descargar
                       </button>
                     </li>
                   ))}
-                  {attachments?.length === 0 && <p className="text-slate-500 text-sm py-2">Sin adjuntos todavía.</p>}
+                  {attachments?.length === 0 && <p className="text-slate-500 dark:text-slate-400 text-sm py-2">Sin adjuntos todavía.</p>}
                 </ul>
                 <div className="flex gap-2 items-center border-t pt-3">
-                  <input ref={fileInputRef} type="file" className="text-sm" />
+                  <input ref={fileInputRef} type="file" className="text-sm dark:bg-slate-800 dark:text-slate-100" />
                   <button onClick={handleUploadAttachment} className="bg-slate-800 text-white text-sm px-4 py-2 rounded">
                     Subir
                   </button>

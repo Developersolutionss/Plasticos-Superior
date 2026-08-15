@@ -61,9 +61,9 @@ export default function BarcodeScanner({ title = "Escanear código", onDetected,
   return (
     <Modal title={title} onClose={onClose}>
       <div className="space-y-3">
-        {error && <p className="text-red-600 text-sm">{error}</p>}
+        {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
         <div id={SCANNER_ELEMENT_ID} className="w-full rounded overflow-hidden bg-slate-900" />
-        <p className="text-xs text-slate-500">Apuntá la cámara al código QR.</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">Apuntá la cámara al código QR.</p>
       </div>
     </Modal>
   );

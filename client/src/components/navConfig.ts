@@ -160,11 +160,15 @@ export const navSections: NavEntry[] = [
     id: "configuracion",
     icon: "settings",
     label: "Configuración",
-    roles: ADMIN,
+    // TODOS a nivel de sección para que "Apariencia" (preferencia personal)
+    // sea visible para cualquier rol; los hijos de seguridad/administración
+    // fijan `roles: ADMIN` explícito para no heredar este TODOS.
+    roles: TODOS,
     group: "Sistema",
     children: [
-      { id: "configuracion-auth", label: "Autenticación", to: "/configuracion/autenticacion" },
-      { id: "configuracion-usuarios", label: "Usuarios y permisos", to: "/configuracion/usuarios" },
+      { id: "configuracion-auth", label: "Autenticación", to: "/configuracion/autenticacion", roles: ADMIN },
+      { id: "configuracion-usuarios", label: "Usuarios y permisos", to: "/configuracion/usuarios", roles: ADMIN },
+      { id: "configuracion-apariencia", label: "Apariencia", to: "/configuracion/apariencia" },
     ],
   },
 ];

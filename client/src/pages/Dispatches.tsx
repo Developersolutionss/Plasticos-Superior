@@ -60,7 +60,7 @@ export default function Dispatches() {
           <ScanLine size={16} strokeWidth={2} aria-hidden="true" /> Escanear
         </button>
         {canReadClients && (
-          <select className="border rounded px-3 py-2" value={clientId} onChange={(e) => setClientId(e.target.value)}>
+          <select className="border rounded px-3 py-2 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={clientId} onChange={(e) => setClientId(e.target.value)}>
             <option value="">Todos los clientes</option>
             {clients?.map((c: any) => (
               <option key={c.id} value={c.id}>
@@ -69,7 +69,7 @@ export default function Dispatches() {
             ))}
           </select>
         )}
-        <select className="border rounded px-3 py-2" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select className="border rounded px-3 py-2 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">Todos los estados</option>
           <option value="pendiente">Pendiente</option>
           <option value="en_proceso">En proceso</option>
@@ -77,17 +77,17 @@ export default function Dispatches() {
         </select>
       </div>
 
-      {scanMessage && <p className="text-red-600 text-sm">{scanMessage}</p>}
-      {isLoading && <p className="text-slate-500">Cargando...</p>}
+      {scanMessage && <p className="text-red-600 dark:text-red-400 text-sm">{scanMessage}</p>}
+      {isLoading && <p className="text-slate-500 dark:text-slate-400">Cargando...</p>}
 
       <div className="space-y-3">
         {dispatches?.map((d: any) => (
-          <div key={d.id} className="bg-white rounded-lg shadow p-4">
+          <div key={d.id} className="bg-white dark:bg-slate-900 rounded-lg shadow p-4">
             <div className="flex flex-wrap justify-between items-center gap-1 mb-2">
               <span className="font-medium">
                 Pedido #{d.id} - {d.client.name}
               </span>
-              <span className="text-xs uppercase tracking-wide text-slate-500">{d.status}</span>
+              <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{d.status}</span>
             </div>
             <ul className="space-y-2">
               {d.items.map((item: any) => (
@@ -112,7 +112,7 @@ export default function Dispatches() {
             </ul>
           </div>
         ))}
-        {dispatches?.length === 0 && <p className="text-slate-500">No hay despachos para este filtro.</p>}
+        {dispatches?.length === 0 && <p className="text-slate-500 dark:text-slate-400">No hay despachos para este filtro.</p>}
       </div>
 
       {scanning && (
