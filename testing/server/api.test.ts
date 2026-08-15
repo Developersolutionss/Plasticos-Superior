@@ -1682,6 +1682,354 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
   });
 });
 
+describe("productos", () => {
+  it("crea un producto con el rol correcto, rechaza el rol incorrecto, y rechaza SKU duplicado", async () => {
+    const sku = `TEST-SKU-${Date.now()}`;
+    const forbidden = await fetch(`${baseUrl}/api/products`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ sku, name: "Producto de test", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
+    });
+    assert.equal(forbidden.status, 403);
+
+    const res = await fetch(`${baseUrl}/api/products`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ sku, name: "Producto de test", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
+    });
+    assert.equal(res.status, 201);
+    const product = (await res.json()) as { id: number };
+
+    const dup = await fetch(`${baseUrl}/api/products`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ sku, name: "Otro", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
+    });
+    assert.equal(dup.status, 409);
+
+    await prisma.product.delete({ where: { id: product.id } });
+  });
+
+  it("edita, desactiva y reactiva un producto — desactivado sale del selector filtrado pero no del catálogo completo", async () => {
+    const sku = `TEST-SKU-${Date.now()}-2`;
+    const created = (await (
+      await fetch(`${baseUrl}/api/products`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ sku, name: "Producto B", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
+      })
+    ).json()) as { id: number };
+
+    const patched = await fetch(`${baseUrl}/api/products/${created.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ name: "Producto B editado" }),
+    });
+    assert.equal(patched.status, 200);
+
+    const deactivated = await fetch(`${baseUrl}/api/products/${created.id}`, { method: "DELETE", headers: headersFor("produccion") });
+    assert.equal(deactivated.status, 200);
+    assert.equal(((await deactivated.json()) as { active: boolean }).active, false);
+
+    const filtered = (await (await fetch(`${baseUrl}/api/inventory/products`, { headers: authHeaders() })).json()) as { id: number }[];
+    assert.ok(!filtered.some((p) => p.id === created.id));
+    const full = (await (await fetch(`${baseUrl}/api/products`, { headers: authHeaders() })).json()) as { id: number }[];
+    assert.ok(full.some((p) => p.id === created.id));
+
+    const reactivated = await fetch(`${baseUrl}/api/products/${created.id}/reactivate`, { method: "POST", headers: headersFor("produccion") });
+    assert.equal(reactivated.status, 200);
+    assert.equal(((await reactivated.json()) as { active: boolean }).active, true);
+
+    await prisma.product.delete({ where: { id: created.id } });
+  });
+});
+
+describe("usuarios", () => {
+  it("crea un usuario con el rol correcto, rechaza el rol incorrecto, y rechaza email duplicado", async () => {
+    const email = `test-user-${Date.now()}@empresa.com`;
+    const forbidden = await fetch(`${baseUrl}/api/users`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ name: "Test User", email, password: "testpass123", role: "ventas_pedidos" }),
+    });
+    assert.equal(forbidden.status, 403);
+
+    const res = await fetch(`${baseUrl}/api/users`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "Test User", email, password: "testpass123", role: "ventas_pedidos" }),
+    });
+    assert.equal(res.status, 201);
+    const user = (await res.json()) as { id: number };
+
+    const dup = await fetch(`${baseUrl}/api/users`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "Otro", email, password: "testpass123", role: "ventas_pedidos" }),
+    });
+    assert.equal(dup.status, 409);
+
+    await prisma.user.delete({ where: { id: user.id } });
+  });
+
+  it("un admin no puede desactivarse a sí mismo; desactivar bloquea el login y reactivar lo devuelve", async () => {
+    const me = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "admin@empresa.com", password: "password123" }),
+    });
+    const meBody = (await me.json()) as { user: { id: number } };
+
+    const selfDeactivate = await fetch(`${baseUrl}/api/users/${meBody.user.id}`, { method: "DELETE", headers: authHeaders() });
+    assert.equal(selfDeactivate.status, 400);
+
+    const email = `test-deact-${Date.now()}@empresa.com`;
+    const created = (await (
+      await fetch(`${baseUrl}/api/users`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ name: "Test Deact", email, password: "testpass123", role: "ventas_pedidos" }),
+      })
+    ).json()) as { id: number };
+
+    const deactivated = await fetch(`${baseUrl}/api/users/${created.id}`, { method: "DELETE", headers: authHeaders() });
+    assert.equal(deactivated.status, 200);
+
+    const loginBlocked = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: "testpass123" }),
+    });
+    assert.equal(loginBlocked.status, 401);
+
+    const reactivated = await fetch(`${baseUrl}/api/users/${created.id}/reactivate`, { method: "POST", headers: authHeaders() });
+    assert.equal(reactivated.status, 200);
+
+    const loginOk = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: "testpass123" }),
+    });
+    assert.equal(loginOk.status, 200);
+
+    await prisma.user.delete({ where: { id: created.id } });
+  });
+});
+
+describe("notificaciones", () => {
+  it("lista, cuenta, marca como leída (propia sí, ajena no) y marca todas", async () => {
+    const me = (await (
+      await fetch(`${baseUrl}/api/auth/me`, { headers: authHeaders() })
+    ).json()) as { id: number };
+    const otherUser = await prisma.user.findFirst({ where: { email: "ventas@empresa.com" } });
+
+    const notif = await prisma.notification.create({
+      data: { userId: me.id, type: "test", message: "TEST-notificación", read: false },
+    });
+
+    const list = (await (await fetch(`${baseUrl}/api/notifications`, { headers: authHeaders() })).json()) as { id: number }[];
+    assert.ok(list.some((n) => n.id === notif.id));
+
+    const countBefore = (await (
+      await fetch(`${baseUrl}/api/notifications/unread-count`, { headers: authHeaders() })
+    ).json()) as { count: number };
+    assert.ok(countBefore.count >= 1);
+
+    const foreignAttempt = await fetch(`${baseUrl}/api/notifications/${notif.id}/read`, {
+      method: "PATCH",
+      headers: headersFor("ventas"),
+    });
+    assert.equal(foreignAttempt.status, 404);
+
+    const markRead = await fetch(`${baseUrl}/api/notifications/${notif.id}/read`, { method: "PATCH", headers: authHeaders() });
+    assert.equal(markRead.status, 200);
+    assert.equal(((await markRead.json()) as { read: boolean }).read, true);
+
+    const markAll = await fetch(`${baseUrl}/api/notifications/read-all`, { method: "PATCH", headers: authHeaders() });
+    assert.equal(markAll.status, 200);
+
+    await prisma.notification.delete({ where: { id: notif.id } });
+    void otherUser;
+  });
+});
+
+describe("inventario · movimientos", () => {
+  it("Almacén puede listar, Ventas no puede, y un query param inválido da 400", async () => {
+    const ok = await fetch(`${baseUrl}/api/inventory/movements`, { headers: headersFor("almacen") });
+    assert.equal(ok.status, 200);
+    const okBody = (await ok.json()) as { items: unknown[] };
+    assert.ok(Array.isArray(okBody.items));
+
+    const forbidden = await fetch(`${baseUrl}/api/inventory/movements`, { headers: headersFor("ventas") });
+    assert.equal(forbidden.status, 403);
+
+    const badQuery = await fetch(`${baseUrl}/api/inventory/movements?productId=abc`, { headers: headersFor("almacen") });
+    assert.equal(badQuery.status, 400);
+  });
+});
+
+describe("dashboard", () => {
+  it("GET /resumen trae carteraVencida numérico", async () => {
+    const res = await fetch(`${baseUrl}/api/dashboard/resumen`, { headers: authHeaders() });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { carteraVencida: number };
+    assert.equal(typeof body.carteraVencida, "number");
+  });
+
+  it("GET /indicadores funciona sin params y con rango, y rechaza rol incorrecto", async () => {
+    const sinRango = await fetch(`${baseUrl}/api/dashboard/indicadores`, { headers: authHeaders() });
+    assert.equal(sinRango.status, 200);
+
+    const conRango = await fetch(`${baseUrl}/api/dashboard/indicadores?from=2026-01-01&to=2026-12-31`, { headers: authHeaders() });
+    assert.equal(conRango.status, 200);
+
+    const forbidden = await fetch(`${baseUrl}/api/dashboard/indicadores`, { headers: headersFor("almacen") });
+    assert.equal(forbidden.status, 403);
+  });
+});
+
+describe("exportaciones", () => {
+  it("inventario es accesible para cualquier autenticado; pedidos requiere Ventas", async () => {
+    const inv = await fetch(`${baseUrl}/api/export/inventario`, { headers: headersFor("almacen") });
+    assert.equal(inv.status, 200);
+    assert.ok(inv.headers.get("content-type")?.includes("spreadsheetml"));
+
+    const forbidden = await fetch(`${baseUrl}/api/export/pedidos`, { headers: headersFor("almacen") });
+    assert.equal(forbidden.status, 403);
+
+    const allowed = await fetch(`${baseUrl}/api/export/pedidos`, { headers: headersFor("ventas") });
+    assert.equal(allowed.status, 200);
+  });
+});
+
+describe("facturas · vencimiento y PDF", () => {
+  it("una factura con dueDate pasado y sin pagos queda 'vencida' en la cartera del cliente", async () => {
+    const acme = await prisma.client.findFirst({ where: { name: "Cliente ACME" } });
+    const bulto = await prisma.product.findFirst({ where: { sku: "BUL-001" } });
+    assert.ok(acme && bulto, "requiere el seed (Cliente ACME, producto BUL-001)");
+
+    const res = await fetch(`${baseUrl}/api/facturas`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({
+        clientId: acme!.id,
+        dueDate: "2020-01-01",
+        items: [{ productId: bulto!.id, quantity: 1, unitPrice: 1000 }],
+      }),
+    });
+    assert.equal(res.status, 201);
+    const factura = (await res.json()) as { id: number; invoiceNumber: string };
+
+    const cartera = (await (
+      await fetch(`${baseUrl}/api/clients/${acme!.id}/cartera`, { headers: headersFor("ventas") })
+    ).json()) as { facturasPendientes: { id: number; vencida: boolean }[] };
+    const found = cartera.facturasPendientes.find((f) => f.id === factura.id);
+    assert.ok(found, "la factura recién creada debe aparecer como pendiente");
+    assert.equal(found!.vencida, true);
+
+    const pdf = await fetch(`${baseUrl}/api/facturas/${factura.id}/pdf`, { headers: headersFor("ventas") });
+    assert.equal(pdf.status, 200);
+    assert.equal(pdf.headers.get("content-type"), "application/pdf");
+    const buffer = Buffer.from(await pdf.arrayBuffer());
+    assert.equal(buffer.subarray(0, 4).toString(), "%PDF");
+
+    await prisma.facturaItem.deleteMany({ where: { facturaId: factura.id } });
+    await prisma.factura.delete({ where: { id: factura.id } });
+  });
+});
+
+describe("cotizaciones · PDF", () => {
+  it("genera un PDF válido para una cotización", async () => {
+    const acme = await prisma.client.findFirst({ where: { name: "Cliente ACME" } });
+    const bulto = await prisma.product.findFirst({ where: { sku: "BUL-001" } });
+    assert.ok(acme && bulto, "requiere el seed (Cliente ACME, producto BUL-001)");
+
+    const created = (await (
+      await fetch(`${baseUrl}/api/cotizaciones`, {
+        method: "POST",
+        headers: headersFor("ventas"),
+        body: JSON.stringify({ clientId: acme!.id, items: [{ productId: bulto!.id, quantity: 1, unitPrice: 1000 }] }),
+      })
+    ).json()) as { id: number };
+
+    const pdf = await fetch(`${baseUrl}/api/cotizaciones/${created.id}/pdf`, { headers: headersFor("ventas") });
+    assert.equal(pdf.status, 200);
+    assert.equal(pdf.headers.get("content-type"), "application/pdf");
+    const buffer = Buffer.from(await pdf.arrayBuffer());
+    assert.equal(buffer.subarray(0, 4).toString(), "%PDF");
+
+    await prisma.cotizacionItem.deleteMany({ where: { cotizacionId: created.id } });
+    await prisma.cotizacion.delete({ where: { id: created.id } });
+  });
+});
+
+describe("despachos · completar no rompe (hook de WhatsApp)", () => {
+  it("marcar el último ítem pendiente completa el despacho sin error, aunque WhatsApp no esté configurado", async () => {
+    const acme = await prisma.client.findFirst({ where: { name: "Cliente ACME" } });
+    const bulto = await prisma.product.findFirst({ where: { sku: "BUL-001" } });
+    assert.ok(acme && bulto);
+
+    const created = (await (
+      await fetch(`${baseUrl}/api/dispatches`, {
+        method: "POST",
+        headers: headersFor("almacen"),
+        body: JSON.stringify({ clientId: acme!.id, items: [{ productId: bulto!.id, quantityRequested: 1 }] }),
+      })
+    ).json()) as { id: number; items: { id: number }[] };
+
+    const res = await fetch(`${baseUrl}/api/dispatches/${created.id}/items/${created.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched: 1 }),
+    });
+    assert.equal(res.status, 200);
+
+    const dispatch = await prisma.dispatch.findUnique({ where: { id: created.id } });
+    assert.equal(dispatch!.status, "despachado");
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: created.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "dispatch_item", referenceId: created.items[0].id } });
+    await prisma.dispatch.delete({ where: { id: created.id } });
+    // applyMovement() ya restó 1 al stock real de BUL-001 (currentQuantity)
+    // al marcar el ítem despachado — borrar el movimiento no revierte ese
+    // efecto solo, hay que reponerlo a mano o el stock del seed se va
+    // achicando 1 unidad cada vez que corre la suite.
+    await prisma.inventoryStock.update({ where: { productId: bulto!.id }, data: { currentQuantity: { increment: 1 } } });
+  });
+});
+
+describe("almacén · ubicación por token", () => {
+  it("resuelve el token del QR a la ubicación correcta, 404 con token inválido, 403 con rol incorrecto", async () => {
+    const code = `TEST-LOC-${Date.now()}`;
+    const location = (await (
+      await fetch(`${baseUrl}/api/warehouse/locations`, {
+        method: "POST",
+        headers: headersFor("almacen"),
+        body: JSON.stringify({ code, label: "Ubicación de test" }),
+      })
+    ).json()) as { id: number; code: string };
+
+    const qr = (await (
+      await fetch(`${baseUrl}/api/warehouse/locations/${location.id}/qr`, { headers: headersFor("almacen") })
+    ).json()) as { url: string };
+    const locToken = qr.url.split("/").pop()!;
+
+    const resolved = await fetch(`${baseUrl}/api/warehouse/locations/by-token/${locToken}`, { headers: headersFor("almacen") });
+    assert.equal(resolved.status, 200);
+    const resolvedBody = (await resolved.json()) as { id: number; code: string };
+    assert.equal(resolvedBody.id, location.id);
+    assert.equal(resolvedBody.code, code);
+
+    const notFound = await fetch(`${baseUrl}/api/warehouse/locations/by-token/token-invalido`, { headers: headersFor("almacen") });
+    assert.equal(notFound.status, 404);
+
+    const forbidden = await fetch(`${baseUrl}/api/warehouse/locations/by-token/${locToken}`, { headers: headersFor("ventas") });
+    assert.equal(forbidden.status, 403);
+
+    await prisma.warehouseLocation.delete({ where: { id: location.id } });
+  });
+});
+
 describe("frecuentes · ranking, boost por interacciones y purga semanal", () => {
   it("redistribuye en ranking: el mas visitado conserva el valor mas alto", () => {
     const next = redistributeScores([

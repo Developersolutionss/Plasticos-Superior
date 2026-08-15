@@ -150,6 +150,27 @@
   flex-direction: column;
 }
 
+.sidebar-group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--sb-text-dim);
+  padding: 14px 10px 4px;
+  white-space: nowrap;
+}
+.collapsed .sidebar-group-label {
+  padding: 14px 0 4px;
+  text-align: center;
+  overflow: hidden;
+}
+.collapsed .sidebar-group-label::before {
+  content: "";
+  display: block;
+  height: 1px;
+  background: var(--sb-border);
+  margin: 0 6px;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
