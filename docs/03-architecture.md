@@ -70,8 +70,9 @@ En **producción**, el servidor solo expone la API (no sirve el build del fronte
 
 El token define **quién es** el usuario. Después del login, las rutas sensibles aplican `requireRole(...)` con los grupos de `ROLES` (Ventas, Almacén, Producción, Operarios, Calidad, Auditoría) de `server/src/middleware/auth.ts`:
 
-- `requireAuth` protege **todo** router, excepto `POST /api/auth/login`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password` y el webhook de WhatsApp.
+- `requireAuth` protege **todo** router, excepto `POST /api/auth/login`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, `GET /api/public/locations/:token` y el webhook de WhatsApp.
 - `GET /health` y `/api/uploads` son **públicos**. El primero es el health check. El segundo sirve los archivos subidos (avatares de clientes y adjuntos de pedidos) para las etiquetas `<img>`.
+- `GET /api/public/locations/:token` (Almacén/WMS) también es público: en vez de sesión, usa el `publicToken` de la ubicación como credencial — solo quien escaneó el QR físico de esa ubicación puede consultarla. La alimenta la página pública `/qr/:token` del frontend, fuera de `RequireAuth`.
 - `requireRole(...)` restringe una ruta concreta. Devuelve `403` si el rol no está en la lista.
 - `super_admin` y `admin` pertenecen a todos los grupos, así que siempre pasan.
 
@@ -134,6 +135,13 @@ Configurado en `vite.config.ts` con `vite-plugin-pwa`:
 | `/api/production` | `productionRouter` | `server/src/routes/production.ts` |
 | `/api/production-orders` | `productionOrdersRouter` | `server/src/routes/productionOrders.ts` |
 | `/api/dispatches` | `dispatchesRouter` | `server/src/routes/dispatches.ts` |
+| `/api/products` | `productsRouter` | `server/src/routes/products.ts` |
+| `/api/users` | `usersRouter` | `server/src/routes/users.ts` |
+| `/api/warehouse` | `warehouseRouter` | `server/src/routes/warehouse.ts` |
+| `/api/public/locations` | `publicLocationRouter` | `server/src/routes/publicLocation.ts` (sin `requireAuth`) |
+| `/api/dashboard` | `dashboardRouter` | `server/src/routes/dashboard.ts` |
+| `/api/export` | `exportRouter` | `server/src/routes/export.ts` |
+| `/api/notifications` | `notificationsRouter` | `server/src/routes/notifications.ts` |
 | `/api/cotizaciones` | `cotizacionesRouter` | `server/src/routes/cotizaciones.ts` |
 | `/api/pedidos` | `pedidosRouter` | `server/src/routes/pedidos.ts` |
 | `/api/facturas` | `facturasRouter` | `server/src/routes/facturas.ts` |
@@ -142,7 +150,7 @@ Configurado en `vite.config.ts` con `vite-plugin-pwa`:
 
 El router de clientes también expone sub-recursos: contactos (`GET/POST/DELETE /api/clients/:id/contacts`), direcciones (`.../addresses`), interacciones (`.../interactions`), cartera (`.../cartera`) y límite de crédito (`PATCH .../credit-limit`). No requieren montaje aparte en `index.ts`.
 
-Varios routers aplican el rol a nivel de **router completo** (no solo a la ruta sensible): `clients`, `cotizaciones`, `pedidos` y `facturas` exigen ventas; `dispatches` exige almacén; `production-orders` exige OPERARIOS + CALIDAD + AUDITORIA (cada grupo accede a lo suyo dentro del router). Ver [06 — Backend](06-backend.md).
+Varios routers aplican el rol a nivel de **router completo** (no solo a la ruta sensible): `clients`, `cotizaciones`, `pedidos` y `facturas` exigen ventas; `dispatches` y `warehouse` exigen almacén; `production-orders` exige OPERARIOS + CALIDAD + AUDITORIA (cada grupo accede a lo suyo dentro del router); `users`, `dashboard` y `export` exigen `ROLES.ADMIN` (`export` suma rol de ventas en `/pedidos` y `/facturas`). Ver [06 — Backend](06-backend.md).
 
 Al iniciar, `index.ts` también arranca el cron de purga semanal de "Frecuentes" (`scheduleFrecuentesReset`).
 

@@ -100,7 +100,7 @@ Resultado esperado:
 | `WHATSAPP_PHONE_NUMBER_ID` | ID del número de WhatsApp (fase 2) | vacío |
 | `RESEND_API_KEY` | Llave de Resend para el email de recuperación de contraseña. Si está vacía, el link se imprime en la consola del servidor | vacío |
 | `RESEND_FROM_EMAIL` | Remitente del correo de recuperación | `onboarding@resend.dev` |
-| `FRONTEND_URL` | URL del frontend, usada para armar el link del email | `http://localhost:5173` |
+| `FRONTEND_URL` | URL del frontend, usada para armar el link del email de recuperación y el link del QR de ubicación de Almacén (`/qr/<token>`) | `http://localhost:5173` |
 
 ## Usuarios de prueba (seed)
 
@@ -122,9 +122,11 @@ Todos con contraseña `password123`, uno por rol de la matriz completa:
 
 Productos sembrados (catálogo): `BUL-001`, `ROL-PL-001`, `ROL-F-001`, `MAN-001`, `TIR-001`, `CTL-001`.
 Clientes sembrados: "Cliente ACME" y "Distribuidora Norte". Cliente ACME tiene límite de crédito `5.000.000`, una bodega principal, y los contactos María López (principal) y Carlos Pérez.
-La semilla también crea un pedido de prueba para el módulo de Planeación: `PED-SEED-PLANEACION` (cliente "Distribuidora Norte", estado `aprobado`, con 2 items — `BUL-001` × 40 y `ROL-PL-001` × 25). Este pedido aparece en la cola de Planeación al entrar al sistema.
+La semilla también crea un pedido de prueba para el módulo de Planeación: `PED-SEED-PLANEACION` (cliente "Distribuidora Norte", estado `aprobado`, con 2 ítems — `BUL-001` × 40 y `ROL-PL-001` × 25). Este pedido aparece en la cola de Planeación al entrar al sistema.
 
 La semilla crea además una OP demo para el módulo de Calidad: `OP-SEED-CALIDAD` (producto `BUL-001`, estado `pendiente_calidad`, con su paso de precorte cargado). Esta OP aparece en la cola de Calidad al entrar al sistema.
+
+También siembra 3 ubicaciones de bodega (`A-1`, `A-2`, `B-1`) con stock repartido para Almacén, 2 OPs cerradas (una aprobada y una rechazada en Calidad) y 1 despacho completado para poblar el dashboard de Indicadores, y 1 notificación demo para el admin.
 
 ## Scripts
 
