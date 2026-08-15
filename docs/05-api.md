@@ -99,7 +99,7 @@ curl -X POST http://localhost:4000/api/auth/forgot-password \
 | POST | `/api/clients/:id/visit` | — | Registra una visita a la ficha (motor "Frecuentes"): +1 interacción. Al llegar al umbral 5 sube `viewCount` al máximo+1 y consume el boost. Respuesta `{ viewCount, lastViewedAt, cycleInteractions }` |
 | PATCH | `/api/clients/:id/credit-limit` | `{ creditLimit }` | Edita el límite de crédito manual |
 | DELETE | `/api/clients/:id` | — | Desactiva el cliente (`active: false`, soft delete: conserva facturas/cotizaciones/pedidos y deja de aparecer en listas) |
-| GET | `/api/clients/:id/cartera` | — | Saldo pendiente calculado (total facturado no anulado − pagos) + detalle de facturas pendientes |
+| GET | `/api/clients/:id/cartera` | — | Saldo pendiente calculado (total facturado no anulado − pagos) + `facturasPendientes` (cada una con `saldo`, `dueDate` y `vencida`: `true` si `dueDate` ya pasó y todavía tiene saldo) |
 | GET | `/api/clients/contacts` | — | **Lista global** de contactos con la empresa relacionada (nombre, `avatarUrl`, `viewCount`, `lastViewedAt`) — pantalla CRM "Contactos" |
 | GET | `/api/clients/:id/contacts` | — | Contactos del cliente (principal primero) |
 | POST | `/api/clients/:id/contacts` | `{ name, position?, phone?, email?, isPrimary? }` | Crea un contacto. Si `isPrimary: true`, desmarca los demás en una transacción |
@@ -175,6 +175,8 @@ curl -X POST http://localhost:4000/api/production-orders/1/stages \
 | POST | `/api/dispatches` | `{ clientId, items: [{ productId, quantityRequested, labelCode?, notes? }] }` | Crea un despacho con sus ítems (almacén) |
 | PATCH | `/api/dispatches/:dispatchId/items/:itemId` | `{ quantityDispatched }` | Marca un ítem despachado (almacén). Descuenta stock y actualiza el estado del despacho en una transacción |
 
+Cuando ese `PATCH` deja el despacho en `despachado` (recién en ese momento, no en reintentos posteriores), el sistema intenta avisar por WhatsApp al contacto principal del cliente (`services/whatsapp.ts`, `sendWhatsAppMessage`). Sin `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID` configuradas, el envío queda en modo no-op silencioso: solo lo imprime en la consola del servidor, igual que `email.ts` sin `RESEND_API_KEY`. Si el cliente no tiene un contacto con teléfono, simplemente no avisa.
+
 ```bash
 curl -X PATCH http://localhost:4000/api/dispatches/1/items/2 \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
@@ -219,8 +221,8 @@ curl -X PATCH http://localhost:4000/api/dispatches/1/items/2 \
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/dashboard/resumen` | Ventas de los últimos 6 meses, `cambioVentasPct` (variación vs. mes anterior; `null` si el mes anterior fue 0), cartera pendiente, facturas con saldo, OPs en curso, pedidos en producción, cotizaciones abiertas, top 5 `topClientesSaldo` |
-| GET | `/api/dashboard/indicadores` | Últimos 30 días: top 5 productos despachados, `calidad: { aprobadas, rechazadas, pctAprobacion }`, `tiempoPromedioProduccionHoras` |
+| GET | `/api/dashboard/resumen` | Ventas de los últimos 6 meses, `cambioVentasPct` (variación vs. mes anterior; `null` si el mes anterior fue 0), cartera pendiente, `carteraVencida` (suma del saldo de facturas con `dueDate` pasado), facturas con saldo, OPs en curso, pedidos en producción, cotizaciones abiertas, top 5 `topClientesSaldo` |
+| GET | `/api/dashboard/indicadores` | `?from=YYYY-MM-DD&to=YYYY-MM-DD` (opcional; sin params, últimos 30 días) — top 5 productos despachados, `calidad: { aprobadas, rechazadas, pctAprobacion }`, `tiempoPromedioProduccionHoras`, todo calculado sobre el rango |
 
 ### Exportaciones
 
@@ -250,6 +252,7 @@ No hay `POST` manual: las notificaciones solo las crea `notifyRoles()` desde otr
 | POST | `/api/cotizaciones` | `{ clientId, validUntil?, notes?, items: [{ productId, quantity, unitPrice?, measure? }] }` | Crea cotización (`COT-00001`). Si un ítem no trae precio, toma el del catálogo |
 | PATCH | `/api/cotizaciones/:id/status` | `{ status }` | Cambia estado (`borrador` / `enviada` / `aceptada` / `rechazada` / `expirada`) |
 | POST | `/api/cotizaciones/:id/convertir-a-pedido` | — | Copia los ítems a un Pedido nuevo (v1). La cotización queda enlazada, sin borrar |
+| GET | `/api/cotizaciones/:id/pdf` | — | Descarga un PDF (`services/pdfDocument.ts`) listo para mandar al cliente: ítems, total y validez |
 
 ### Pedidos
 
@@ -269,11 +272,12 @@ No hay `POST` manual: las notificaciones solo las crea `notifyRoles()` desde otr
 | Método | Ruta | Cuerpo | Descripción |
 |---|---|---|---|
 | GET | `/api/facturas` | `?clientId=&status=` | Lista con cliente, ítems y pagos |
-| POST | `/api/facturas` | `{ clientId, notes?, items }` | Crea factura suelta (`FAC-00001`) |
-| POST | `/api/facturas/desde-pedido/:pedidoId` | — | Factura desde la **última versión** del pedido (copia sus ítems) |
+| POST | `/api/facturas` | `{ clientId, notes?, dueDate?, items }` | Crea factura suelta (`FAC-00001`). `dueDate` es opcional (fecha de vencimiento) |
+| POST | `/api/facturas/desde-pedido/:pedidoId` | `{ dueDate? }` (opcional) | Factura desde la **última versión** del pedido (copia sus ítems) |
 | PATCH | `/api/facturas/:id/anular` | — | Marca la factura `anulada` (acción manual) |
 | GET | `/api/facturas/:id/payments` | — | Lista abonos |
 | POST | `/api/facturas/:id/payments` | `{ amount, method, paidAt?, notes? }` | Registra un abono. La factura recalcula sola su estado (`emitida` / `pagada_parcial` / `pagada`) |
+| GET | `/api/facturas/:id/pdf` | — | Descarga un PDF con ítems, total, pagado, saldo y vencimiento; incluye un sello "Vencida" si aplica |
 
 ```bash
 curl -X POST http://localhost:4000/api/facturas/1/payments \

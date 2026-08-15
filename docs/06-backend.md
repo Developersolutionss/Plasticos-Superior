@@ -30,14 +30,16 @@ server/
     │   ├── auditContext.ts   → AsyncLocalStorage: usuario/IP/user-agent de la petición actual
     │   ├── auditExtension.ts → withAudit: $extends que audita create/update/delete de tablas críticas
     │   ├── exportExcel.ts    → buildExcelBuffer: helper compartido de Excel con estilo de marca
-    │   └── notify.ts         → notifyRoles: crea notificaciones in-app para un grupo de roles
+    │   ├── notify.ts         → notifyRoles: crea notificaciones in-app para un grupo de roles
+    │   ├── pdfDocument.ts     → buildDocumentPdf/pdfToBuffer: PDF de cotización/factura con pdfkit
+    │   └── whatsapp.ts        → sendWhatsAppMessage: mensaje saliente (no-op sin credenciales)
     ├── routes/
     │   ├── auth.ts            → login (rechaza usuarios inactivos), me, forgot/reset-password, 2FA
-    │   ├── clients.ts         → CRM: clientes, contactos, direcciones, interacciones, cartera, avatares, visitas
+    │   ├── clients.ts         → CRM: clientes, contactos, direcciones, interacciones, cartera (con vencidas), avatares, visitas
     │   ├── inventory.ts       → GET /api/inventory[/alerts[/products][/movements]]
     │   ├── production.ts      → alta manual + import Excel (preview/confirm)
     │   ├── productionOrders.ts→ OPs + registro de etapa + cola de Planeación + control de calidad + dispara notificaciones
-    │   ├── dispatches.ts      → GET/POST despachos + marcar ítems
+    │   ├── dispatches.ts      → GET/POST despachos + marcar ítems + notifica por WhatsApp al completarse
     │   ├── products.ts        → CRUD de catálogo + etiqueta QR imprimible
     │   ├── users.ts           → CRUD de usuarios y roles
     │   ├── warehouse.ts       → ubicaciones de bodega + stock por ubicación + QR
@@ -45,9 +47,9 @@ server/
     │   ├── dashboard.ts       → indicadores ejecutivos y de producción/calidad
     │   ├── export.ts          → descargas .xlsx (inventario, pedidos, facturas, clientes)
     │   ├── notifications.ts   → listar/marcar notificaciones del usuario
-    │   ├── cotizaciones.ts    → cotizaciones + convertir a pedido
+    │   ├── cotizaciones.ts    → cotizaciones + convertir a pedido + PDF
     │   ├── pedidos.ts         → pedidos versionados + adjuntos
-    │   ├── facturas.ts        → facturas + abonos/pagos + anulación
+    │   ├── facturas.ts        → facturas (con vencimiento) + abonos/pagos + anulación + PDF
     │   ├── auditLog.ts        → GET /api/audit-log (bitácora forense)
     │   └── whatsappWebhook.ts → handshake + recepción de documentos (fase 2)
     └── generated/prisma/    → Prisma Client generado
@@ -268,12 +270,20 @@ La purga **no reordena posiciones**: solo remapea los números. El más visitado
 
 **`notifyRoles(roles, { type, message, link? })`** — crea una `Notification` (`createMany`) para cada usuario activo que tenga alguno de los roles dados. No hay bus de eventos central: cada router que necesita notificar llama a esta función explícitamente. Hoy el único llamador es `productionOrders.ts`: notifica a `ROLES.CALIDAD` cuando una etapa de `precorte` deja la OP `pendiente_calidad`, y a `ROLES.PRODUCCION_GESTION` cuando Calidad rechaza un lote.
 
+### `services/pdfDocument.ts`
+
+**`buildDocumentPdf({ kind, number, cliente, fecha, items, totalLines, metaLines?, notes?, stamp? })`** + **`pdfToBuffer(doc)`** — genera un PDF con `pdfkit` para una cotización o factura: encabezado con tipo/número/cliente/fecha, tabla de ítems, líneas de total (con `emphasis` opcional para resaltar una, p. ej. el saldo), notas y un sello de texto opcional (`stamp: "Vencida"`). Usado por `GET /cotizaciones/:id/pdf` y `GET /facturas/:id/pdf`. `formatCOP()` vive en el mismo archivo y es el formateador de moneda compartido por ambos endpoints.
+
+### `services/whatsapp.ts`
+
+**`sendWhatsAppMessage(to, message)`** — manda un mensaje de texto libre por la Graph API de Meta (WhatsApp Business). Sin `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID` en el entorno, queda en modo no-op silencioso: solo lo imprime en consola, mismo criterio que `email.ts` sin `RESEND_API_KEY` — nunca rompe el flujo que lo llama. Los errores de red o de la API de Meta tampoco se propagan (se loguean y se ignoran). Único llamador hoy: `dispatches.ts`, al completar un despacho.
+
 ## Transacciones (`prisma.$transaction`)
 
 Use transacciones donde la operación debe ser atómica (todo o nada). Operaciones transaccionales actuales:
 
 - **Alta de producción** (`createProductionEntry`): crea `production_entry` + `applyMovement` de entrada.
-- **Despacho** (PATCH de ítem): actualiza ítem + `applyMovement` de salida + estado del despacho.
+- **Despacho** (PATCH de ítem): actualiza ítem + `applyMovement` de salida + estado del despacho. Si esa actualización deja el despacho `despachado` (y no lo estaba ya), **fuera** de la transacción intenta avisar por WhatsApp al cliente (ver `services/whatsapp.ts`).
 - **Etapa de producción** (`POST /:id/stages`): crea la etapa; si la estación es `precorte`, deja la OP `pendiente_calidad` (no mueve stock todavía).
 - **Control de calidad** (`POST /:id/quality-check`): crea el `quality_check`; si aprueba, `applyMovement` de entrada (con el kilaje del precorte) + marca la OP `finalizada`; si rechaza, deja la OP `detenida`.
 - **Contactos/direcciones principal**: desmarca el anterior + crea el nuevo.
@@ -300,5 +310,5 @@ npm run prisma:seed --workspace=server    # prisma db seed
 
 ## Dependencias del server (`server/package.json`)
 
-- **Runtime:** `@prisma/client`, `@prisma/adapter-pg`, `pg`, `bcryptjs`, `cors`, `dotenv`, `exceljs`, `express`, `jsonwebtoken`, `multer`, `otplib`, `qrcode`, `resend`, `zod`.
+- **Runtime:** `@prisma/client`, `@prisma/adapter-pg`, `pg`, `bcryptjs`, `cors`, `dotenv`, `exceljs`, `express`, `jsonwebtoken`, `multer`, `otplib`, `pdfkit` (PDF de cotizaciones/facturas), `qrcode`, `resend`, `zod`.
 - **Dev:** `prisma`, `tsx`, `typescript`, `@types/*`.

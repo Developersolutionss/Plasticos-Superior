@@ -34,7 +34,8 @@ El sistema digitaliza este flujo:
 | Archivos Excel | `exceljs` (backend), `multer` (subida) | Importación de producción y exportaciones con estilo |
 | Gráficos | Recharts (frontend) | Dashboard ejecutivo y de indicadores |
 | Escaneo QR | `html5-qrcode` (frontend), `qrcode` (backend) | Lectura por cámara y generación de QR imprimibles |
-| WhatsApp | Webhook de WhatsApp Business API (Meta Graph API) | Fase 2 (parcial) |
+| PDF | `pdfkit` (backend) | Cotizaciones y facturas descargables para mandar al cliente |
+| WhatsApp | Webhook + Graph API de Meta (WhatsApp Business) | Recepción (fase 2, parcial) y envío saliente al completar un despacho (no-op sin credenciales) |
 
 ## Módulos
 
@@ -42,7 +43,7 @@ El sistema digitaliza este flujo:
 |---|---|---|
 | Autenticación | ✅ Implementado | Login JWT con matriz de **11 roles**, bloqueo por intentos fallidos (5), 2FA/TOTP opcional y recuperación de contraseña |
 | CRM de clientes | ✅ Implementado | Clientes con avatar y ranking "Frecuentes" en vivo, contactos, direcciones, historial de interacciones, límite de crédito y cartera |
-| Comercial | ✅ Implementado | Cotizaciones (con estado), pedidos **versionados** con adjuntos, facturación y abonos |
+| Comercial | ✅ Implementado | Cotizaciones (con estado, PDF descargable), pedidos **versionados** con adjuntos, facturación con vencimiento/alerta de vencidas, abonos y PDF descargable |
 | Planeación | ✅ Implementado | Cola de ítems de pedidos aprobados/en producción sin OP. Genera la OP de cada ítem |
 | Órdenes de producción | ✅ Implementado | OP con numeración consecutiva y paso por las 4 estaciones |
 | Estaciones de planta | ✅ Implementado | Registro de etapa con kilos, merma y tiempos. El precorte deja la OP `pendiente_calidad`; la entrada de inventario la genera Calidad al aprobar |
@@ -50,7 +51,7 @@ El sistema digitaliza este flujo:
 | Trazabilidad | ✅ Implementado | Historial completo de una OP: pasos por estación, resultado de Calidad y pedido/cliente de origen |
 | Inventario | ✅ Implementado | Stock por producto, stock mínimo, alertas, categorías. Movimientos como bitácora |
 | Producción | ✅ Implementado | Alta manual + importación Excel/CSV con preview y confirmación |
-| Despachos | ✅ Implementado | Crear despacho y marcar ítems como despachados (descuenta stock). Escaneo de producto por cámara |
+| Despachos | ✅ Implementado | Crear despacho y marcar ítems como despachados (descuenta stock). Escaneo de producto por cámara. Al completarse, intenta notificar por WhatsApp al cliente |
 | Almacén / WMS | ✅ Implementado | Ubicaciones de bodega con stock por ubicación. Complementa (no reemplaza) el stock total de Inventario: la suma por ubicación puede quedar por debajo del stock total ("sin ubicar"). QR imprimible por ubicación, con página pública de consulta sin login |
 | Productos | ✅ Implementado | CRUD del catálogo (crear, editar, desactivar/reactivar) e impresión de etiquetas QR por producto |
 | Usuarios y permisos | ✅ Implementado | CRUD de usuarios: crear, editar, cambiar rol, desactivar (bloquea el login) y reactivar. Un admin no puede autodesactivarse |
@@ -58,7 +59,7 @@ El sistema digitaliza este flujo:
 | Exportaciones | ✅ Implementado | Descarga en Excel con estilo de marca: inventario, pedidos, facturas y clientes |
 | Notificaciones | ✅ Implementado | Notificaciones in-app por rol. Hoy solo dos disparadores: OP lista para calidad y OP rechazada en calidad |
 | Auditoría | ✅ Implementado | Bitácora forense de create/update/delete en tablas críticas (Client, Dispatch, ProductionEntry, InventoryMovement) con diff antes/después, usuario, IP y user-agent |
-| WhatsApp | 🔶 Fase 2 | Webhook implementado. Pendiente cuenta Meta aprobada y credenciales |
+| WhatsApp | 🔶 Fase 2 | Webhook de recepción implementado. Envío saliente (aviso de despacho completado) implementado pero en modo no-op: pendiente cuenta Meta aprobada y credenciales |
 
 ## Actores (roles)
 

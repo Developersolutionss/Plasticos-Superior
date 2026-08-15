@@ -96,8 +96,8 @@ Resultado esperado:
 | `JWT_SECRET` | Secreto para firmar los tokens | `change-me-in-production` ⚠️ cámbielo |
 | `PORT` | Puerto del backend | `4000` |
 | `WHATSAPP_VERIFY_TOKEN` | Token de verificación del webhook de WhatsApp | `change-me` |
-| `WHATSAPP_ACCESS_TOKEN` | Token de acceso a Meta Graph API (fase 2) | vacío |
-| `WHATSAPP_PHONE_NUMBER_ID` | ID del número de WhatsApp (fase 2) | vacío |
+| `WHATSAPP_ACCESS_TOKEN` | Token de acceso a Meta Graph API. Usado tanto para el webhook de recepción (fase 2) como para el aviso saliente al completar un despacho; vacío = modo no-op (solo loguea) | vacío |
+| `WHATSAPP_PHONE_NUMBER_ID` | ID del número de WhatsApp | vacío |
 | `RESEND_API_KEY` | Llave de Resend para el email de recuperación de contraseña. Si está vacía, el link se imprime en la consola del servidor | vacío |
 | `RESEND_FROM_EMAIL` | Remitente del correo de recuperación | `onboarding@resend.dev` |
 | `FRONTEND_URL` | URL del frontend, usada para armar el link del email de recuperación y el link del QR de ubicación de Almacén (`/qr/<token>`) | `http://localhost:5173` |
