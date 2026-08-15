@@ -81,6 +81,7 @@ Ver comentarios en [`server/src/routes/whatsappWebhook.ts`](server/src/routes/wh
 ```
 /server   → API REST (Express + Prisma)
 /client   → SPA/PWA (React + Vite)
+/testing  → suites de pruebas (backend con node:test, frontend con Vitest)
 /docs     → documentación técnica del proyecto
 docker-compose.yml → PostgreSQL local
 ```
