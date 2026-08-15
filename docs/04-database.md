@@ -37,10 +37,12 @@ Conceptos esenciales:
 
 ```
 users 1───N production_entries / inventory_movements / dispatches / import_logs
+users 1───N notifications / stock_locations (updatedBy)
 clients 1───N client_contacts / client_addresses / client_interactions / cotizaciones
 clients 1───N dispatches / production_entries / facturas / pedidos
 products 1───1 inventory_stock
-products 1───N production_entries / dispatch_items / inventory_movements
+products 1───N production_entries / dispatch_items / inventory_movements / stock_locations
+warehouse_locations 1───N stock_locations
 production_orders 1───N production_stage_logs
 pedido_version_items 0..1───0..1 production_orders (vínculo opcional, módulo Planeación)
 cotizaciones 1───N cotizacion_items · 1───0..N pedidos
@@ -66,7 +68,22 @@ app_meta 1 fila (clave/valor, sin FKs)
 | lockedUntil | DateTime? | Bloqueo temporal por intentos fallidos |
 | twoFactorSecret | String? | Secret TOTP. `@map("two_factor_secret")` |
 | twoFactorEnabled | Boolean | `@default(false)`. Se activa al confirmar el primer código |
+| active | Boolean | `@default(true)`. En `false` (CRUD de Usuarios) el login rechaza `401` aunque la contraseña sea correcta |
 | createdAt | DateTime | `@default(now())` `@map("created_at")` |
+
+### `notifications`
+
+Notificación in-app. `type` es texto libre (p. ej. `op_pendiente_calidad`) para no migrar el schema cada vez que se agrega un disparador nuevo — el frontend solo necesita mostrar `message`/`link`. Solo la escribe `notifyRoles()` (ver [06 — Backend](06-backend.md)); no hay endpoint para crearlas a mano.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| userId | Int | FK → users |
+| type | String | texto libre, identifica el disparador |
+| message | String | texto mostrado al usuario |
+| link | String? | ruta del frontend a la que navega al hacer clic |
+| read | Boolean | `@default(false)` |
+| createdAt | DateTime | `@map("created_at")`. Índice compuesto `[userId, read]` |
 
 ### `products`
 
@@ -80,6 +97,7 @@ app_meta 1 fila (clave/valor, sin FKs)
 | unit | `ProductUnit` | enum: `kg` / `unidad` |
 | minStock | Decimal | `@default(0)`, umbral de alerta |
 | unitPrice | Decimal | `@default(0)`. Precio de catálogo usado por cotizaciones/pedidos/facturas |
+| active | Boolean | `@default(true)`. El catálogo de venta (`GET /products`) filtra `active: true`; el CRUD de Productos ve también los inactivos |
 | createdAt | DateTime | `@map("created_at")` |
 
 ### `clients`
@@ -178,6 +196,15 @@ app_meta 1 fila (clave/valor, sin FKs)
 | currentQuantity | Decimal | `@default(0)` |
 | updatedAt | DateTime | `@updatedAt` `@map("updated_at")` |
 
+### `warehouse_locations` y `stock_locations` (Almacén / WMS)
+
+`warehouse_locations` es la ubicación física de bodega (estante, rack, zona). `stock_locations` registra cuánto de un producto hay en una ubicación puntual. El stock total del producto sigue viviendo en `inventory_stock`; estas dos tablas son una capa complementaria de "dónde está guardado", administrada a mano por Almacén — la suma de las filas de un producto en `stock_locations` puede quedar por debajo de su `inventory_stock.currentQuantity` (diferencia = "sin ubicar").
+
+| Modelo | Campos clave |
+|---|---|
+| `warehouse_locations` | `code` (`@unique`), `label`, `publicToken` (`@unique`, 32 hex aleatorio). El token — no el `code`, corto y adivinable — es la única credencial de `GET /api/public/locations/:token`: exige haber escaneado el QR físico de esa ubicación |
+| `stock_locations` | `productId`, `locationId`, `quantity`, `updatedById`. `@@unique([productId, locationId])`: una fila por combinación producto+ubicación |
+
 ### `production_orders`
 
 **Orden de Producción (OP)**: la unidad de trabajo que se mueve por las estaciones.
@@ -188,7 +215,7 @@ app_meta 1 fila (clave/valor, sin FKs)
 | quantityPlanned | Decimal | `@map("quantity_planned")` |
 | measure | String? | hereda del producto si no se indica |
 | status | `ProductionOrderStatus` | `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada` |
-| pedidoVersionItemId | Int? | `@unique` `@map("pedido_version_item_id")`. FK → pedido_version_items. Vínculo opcional con el item del pedido que originó la OP (módulo Planeación). `NULL` en las OPs manuales |
+| pedidoVersionItemId | Int? | `@unique` `@map("pedido_version_item_id")`. FK → pedido_version_items. Vínculo opcional con el ítem del pedido que originó la OP (módulo Planeación). `NULL` en las OPs manuales |
 | notes | String? | |
 | createdById | Int? | |
 | createdAt | DateTime | `@map("created_at")` |
@@ -251,7 +278,7 @@ Registro del paso de una OP por una estación. Los detalles específicos de cada
 | clientId | Int | FK → clients |
 | status | `DispatchStatus` | `pendiente` / `en_proceso` / `despachado` |
 | requestedDate | DateTime | `@default(now())` `@map("requested_date")` |
-| dispatchedDate | DateTime? | se fija cuando todos los items están despachados |
+| dispatchedDate | DateTime? | se fija cuando todos los ítems están despachados |
 | createdById | Int? | |
 | createdAt | DateTime | `@map("created_at")` |
 
@@ -295,24 +322,24 @@ Registro de cada importación de producción (Excel manual o WhatsApp).
 
 ### `pedidos` + `pedido_versions` + `pedido_version_items` + `pedido_attachments`
 
-El pedido **versionado**: la identidad vive en `pedidos`; el contenido real de cada edición vive en una `PedidoVersion` nueva completa (v1, v2, v3…), para navegar el historial sin sobrescribirlo.
+El pedido es **versionado**: la identidad vive en `pedidos`. El contenido real de cada edición vive en una `PedidoVersion` nueva completa (v1, v2, v3…). Así se puede navegar el historial sin sobrescribir versiones anteriores.
 
 | Modelo | Campos clave |
 |---|---|
 | `pedidos` | `orderNumber` (`PED-00001` @unique), `clientId`, `cotizacionId?`, `status`, `currentVersion Int @default(1)`, `createdById` |
 | `pedido_versions` | `pedidoId`, `versionNumber`, `status`, `notes`. `@@unique([pedidoId, versionNumber])` |
-| `pedido_version_items` | `pedidoVersionId`, `productId`, `quantity`, `unitPrice`, `measure`. Un item puede tener una OP (`productionOrder 0..1`) generada desde Planeación |
+| `pedido_version_items` | `pedidoVersionId`, `productId`, `quantity`, `unitPrice`, `measure`. Un ítem puede tener una OP (`productionOrder 0..1`) generada desde Planeación |
 | `pedido_attachments` | `pedidoId`, `storedName`, `originalName`, `mimeType`, `sizeBytes`, `uploadedById`. Los archivos viven en disco (`server/uploads/pedidos/`) |
 
 ### `facturas` + `factura_items` + `payments`
 
 | Modelo | Campos clave |
 |---|---|
-| `facturas` | `invoiceNumber` (`FAC-00001`, `@unique`), `clientId`, `pedidoId?`, `status` (`emitida` / `pagada_parcial` / `pagada` / `anulada`), `notes`, `createdById` |
+| `facturas` | `invoiceNumber` (`FAC-00001`, `@unique`), `clientId`, `pedidoId?`, `status` (`emitida` / `pagada_parcial` / `pagada` / `anulada`), `notes`, `dueDate?` (`@map("due_date")`, fecha de vencimiento opcional), `createdById` |
 | `factura_items` | `facturaId`, `productId`, `quantity`, `unitPrice`, `measure` |
 | `payments` | `facturaId`, `amount`, `method` (`efectivo` / `transferencia` / `cheque` / `tarjeta` / `otro`), `paidAt`, `notes`, `createdById` |
 
-El estado de la factura se **recalcula solo** con cada abono (`emitida` → `pagada_parcial` → `pagada`). `anulada` es una acción manual.
+El estado de la factura se **recalcula solo** con cada abono (`emitida` → `pagada_parcial` → `pagada`). `anulada` es una acción manual. Una factura está **vencida** cuando `dueDate` ya pasó y todavía tiene saldo pendiente (`total − pagado > 0`); no es un campo de la tabla, se calcula en cada consulta (`GET /clients/:id/cartera`, `GET /dashboard/resumen`).
 
 ### `password_reset_tokens`
 
@@ -377,6 +404,12 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260808045144_add_contact_frequency` | `client_contacts`: `view_count`, `last_viewed_at`, `cycle_interactions` |
 | `20260809171233_add_quality_check` | Estado `pendiente_calidad`, tabla `quality_checks` y enum `QualityResult` |
 | `20260810020619_add_audit_log` | Tabla `audit_logs` y enum `AuditAction` |
+| `20260812223407_add_warehouse_locations` | Tablas `warehouse_locations` y `stock_locations` (Almacén/WMS) |
+| `20260813044951_add_warehouse_location_public_token` | `warehouse_locations`: `public_token` (`@unique`) para el QR sin login |
+| `20260813055010_add_product_active` | `products`: `active` (soft delete) |
+| `20260813063722_add_user_active` | `users`: `active` (soft delete, bloquea login) |
+| `20260813064611_add_notifications` | Tabla `notifications` |
+| `20260815045824_add_factura_due_date` | `facturas`: `due_date` (fecha de vencimiento opcional) |
 
 Para aplicar cambios nuevos:
 
@@ -393,8 +426,11 @@ npm run prisma:migrate    # crea una carpeta nueva con el SQL + regenera el clie
 - **11 usuarios** de prueba (contraseña `password123`): uno por rol (tabla en [02 — Puesta en marcha](02-setup.md)).
 - **6 productos** (SKUs `BUL-001`, `ROL-PL-001`, `ROL-F-001`, `MAN-001`, `TIR-001`, `CTL-001`) con precio de catálogo.
 - **2 clientes**: "Cliente ACME" (con límite de crédito `5.000.000`, bodega principal y 2 contactos) y "Distribuidora Norte".
-- **1 pedido de Planeación**: `PED-SEED-PLANEACION` (estado `aprobado`, 2 items de `BUL-001` y `ROL-PL-001`). Este pedido llena la cola de Planeación al entrar.
+- **1 pedido de Planeación**: `PED-SEED-PLANEACION` (estado `aprobado`, 2 ítems de `BUL-001` y `ROL-PL-001`). Este pedido llena la cola de Planeación al entrar.
 - **1 OP demo de Calidad**: `OP-SEED-CALIDAD` (producto `BUL-001`, estado `pendiente_calidad`, con su paso de precorte cargado). Llena la cola de Calidad al entrar.
+- **3 ubicaciones de bodega** (`A-1`, `A-2`, `B-1`) con stock repartido en `stock_locations`, para poblar Almacén.
+- **2 OPs demo cerradas** con control de calidad (una aprobada, una rechazada) y **1 despacho demo completado**, para poblar el dashboard de Indicadores.
+- **1 notificación demo** para el admin (`type: "seed_demo"`, enlazada a `/calidad`), para que Notificaciones no quede vacío en la primera corrida.
 
 El seed usa el mismo cliente auditado que la app. Así, los clientes que crea generan entradas reales en `audit_logs`, y el módulo de Auditoría no queda vacío en la primera corrida.
 

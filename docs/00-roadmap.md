@@ -48,7 +48,7 @@ El avance real frente al plan se detalla a continuación.
 
 | # | Módulo | Estado |
 |---|---|---|
-| 5 | Planeación | ✅ Implementado (cola de items de pedidos aprobados/en producción sin OP y generación de OP desde cada item) |
+| 5 | Planeación | ✅ Implementado (cola de ítems de pedidos aprobados/en producción sin OP y generación de OP desde cada ítem) |
 | 6 | Órdenes de producción | ✅ Implementado (OP-00001, estado y paso por estación) |
 | 7 | Extrusión | ✅ Implementado (registro de etapa en `production_stage_logs`) |
 | 8 | Impresión | ✅ Implementado (registro de etapa) |
@@ -62,27 +62,27 @@ El avance real frente al plan se detalla a continuación.
 |---|---|---|
 | 12 | Calidad | ✅ Implementado (control de calidad por lote: aprueba y genera la entrada de inventario, o rechaza y deja la OP `detenida`) |
 | 13 | Inventario | ✅ Implementado (stock por producto, categorías, alertas de mínimo) |
-| 14 | Despachos | ✅ Implementado (crear despacho y marcar items → descuenta stock) |
-| 15 | Almacén / WMS | ❌ Pendiente |
-| 16 | Dashboard | 🟡 Parcial (dashboard de stock con alertas) |
-| 17 | Exportaciones | ❌ Pendiente |
+| 14 | Despachos | ✅ Implementado (crear despacho y marcar ítems → descuenta stock) |
+| 15 | Almacén / WMS | ✅ Implementado (ubicaciones de bodega, stock por ubicación complementario a `InventoryStock`, asignación de cantidades, QR imprimible por ubicación con acceso público sin login) |
+| 16 | Dashboard | ✅ Implementado (dashboard ejecutivo: ventas 6 meses, comparativa mensual, cartera pendiente, top clientes; dashboard de indicadores: tasa de aprobación de calidad, tiempo promedio de producción, top productos despachados) |
+| 17 | Exportaciones | ✅ Implementado (Excel con estilo de marca para inventario, pedidos, facturas y clientes) |
 
 ### Fase 4 (semanas 21-24)
 
 | # | Módulo | Estado |
 |---|---|---|
-| 18 | Etiquetas térmicas | ❌ Pendiente |
-| 19 | Escaneo QR / código de barras | ❌ Pendiente |
-| 20 | Notificaciones | ❌ Pendiente |
+| 18 | Etiquetas térmicas | ✅ Implementado (impresión de etiquetas con QR desde el navegador, en Productos; no es integración con hardware de impresora térmica específico) |
+| 19 | Escaneo QR / código de barras | ✅ Implementado (escaneo por cámara del navegador: producto en Despachos y Almacén, OP en la estación de producción, ubicación de bodega en Almacén) |
+| 20 | Notificaciones | ✅ Implementado (notificaciones in-app; hoy solo dos disparadores: OP lista para calidad y OP rechazada en calidad) |
 | 21 | Pruebas finales y despliegue | ❌ Pendiente |
 
 ## Resumen de avance
 
 | Estado | Cantidad |
 |---|---|
-| ✅ Implementado | 16 |
-| 🟡 Parcial | 1 |
-| ❌ Pendiente | 6 |
+| ✅ Implementado | 20 |
+| 🟡 Parcial | 0 |
+| ❌ Pendiente | 1 |
 
 ## Stack
 
