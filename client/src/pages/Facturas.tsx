@@ -142,9 +142,9 @@ export default function Facturas() {
           </select>
           <div className="space-y-2">
             {items.map((item, i) => (
-              <div key={i} className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_auto] gap-2">
+              <div key={i} className="border rounded p-2 space-y-2">
                 <select
-                  className="border rounded px-2 py-2 text-sm min-w-0"
+                  className="border rounded px-2 py-2 text-sm w-full"
                   value={item.productId}
                   onChange={(e) => updateItem(i, { productId: e.target.value, unitPrice: String(productPrice(e.target.value)) })}
                 >
@@ -155,28 +155,30 @@ export default function Facturas() {
                     </option>
                   ))}
                 </select>
-                <input
-                  className="border rounded px-2 py-2 text-sm min-w-0"
-                  placeholder="Cant."
-                  type="number"
-                  value={item.quantity}
-                  onChange={(e) => updateItem(i, { quantity: e.target.value })}
-                />
-                <input
-                  className="border rounded px-2 py-2 text-sm min-w-0"
-                  placeholder="Precio"
-                  type="number"
-                  value={item.unitPrice}
-                  onChange={(e) => updateItem(i, { unitPrice: e.target.value })}
-                />
-                <button
-                  type="button"
-                  onClick={() => setItems(items.filter((_, idx) => idx !== i))}
-                  className="text-red-600 text-xs"
-                  disabled={items.length === 1}
-                >
-                  Quitar
-                </button>
+                <div className="flex items-center gap-2">
+                  <input
+                    className="border rounded px-2 py-2 text-sm min-w-0 flex-1"
+                    placeholder="Cant."
+                    type="number"
+                    value={item.quantity}
+                    onChange={(e) => updateItem(i, { quantity: e.target.value })}
+                  />
+                  <input
+                    className="border rounded px-2 py-2 text-sm min-w-0 flex-1"
+                    placeholder="Precio"
+                    type="number"
+                    value={item.unitPrice}
+                    onChange={(e) => updateItem(i, { unitPrice: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setItems(items.filter((_, idx) => idx !== i))}
+                    className="text-red-600 text-xs shrink-0"
+                    disabled={items.length === 1}
+                  >
+                    Quitar
+                  </button>
+                </div>
               </div>
             ))}
             <button type="button" onClick={() => setItems([...items, { ...emptyItem }])} className="text-sm text-sky-700 hover:underline">
