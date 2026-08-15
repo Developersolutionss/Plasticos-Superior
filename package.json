@@ -17,7 +17,8 @@
   },
   "allowScripts": {
     "prisma@7.9.1": true,
-    "@prisma/engines@7.9.1": true
+    "@prisma/engines@7.9.1": true,
+    "esbuild@0.28.1": true
   },
   "overrides": {
     "react": "19.2.8",
