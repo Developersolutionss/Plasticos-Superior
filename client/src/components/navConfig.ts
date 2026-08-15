@@ -60,6 +60,10 @@ export interface NavEntry {
   disabled?: boolean;
   roles?: UserRole[];
   children?: NavLeaf[];
+  /** Encabezado de sección que se muestra arriba de este ítem cuando cambia
+   * respecto del ítem anterior visible para el rol actual (ver Sidebar.tsx).
+   * Sin `group`, el ítem no lleva separador arriba (ej. Dashboard, primero). */
+  group?: string;
 }
 
 export interface NavChoice {
@@ -87,21 +91,30 @@ export const navSections: NavEntry[] = [
     icon: "users",
     label: "Clientes",
     roles: VENTAS,
+    group: "Ventas",
     children: [
       { id: "clientes-listado", label: "Listado de clientes", to: "/clientes" },
       { id: "clientes-contactos", label: "Contactos", to: "/clientes/contactos" },
       { id: "clientes-cotizaciones", label: "Cotizaciones", to: "/clientes/cotizaciones" },
     ],
   },
-  { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: ALMACEN },
-  { id: "pedidos", icon: "package", label: "Pedidos", to: "/pedidos", roles: VENTAS },
-  { id: "facturas", icon: "receipt", label: "Facturas", to: "/facturas", roles: VENTAS },
-  { id: "planeacion", icon: "calendar-days", label: "Planeación", to: "/planeacion", roles: PRODUCCION_GESTION },
+  { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: ALMACEN, group: "Ventas" },
+  { id: "pedidos", icon: "package", label: "Pedidos", to: "/pedidos", roles: VENTAS, group: "Ventas" },
+  { id: "facturas", icon: "receipt", label: "Facturas", to: "/facturas", roles: VENTAS, group: "Ventas" },
+  {
+    id: "planeacion",
+    icon: "calendar-days",
+    label: "Planeación",
+    to: "/planeacion",
+    roles: PRODUCCION_GESTION,
+    group: "Producción",
+  },
   {
     id: "produccion",
     icon: "factory",
     label: "Producción",
     roles: OPERARIOS,
+    group: "Producción",
     children: [
       { id: "produccion-carga", label: "Carga de producción (Excel)", to: "/produccion", roles: [...ALMACEN, ...PRODUCCION_GESTION] },
       { id: "produccion-ordenes", label: "Órdenes de producción", to: "/produccion/ordenes", roles: PRODUCCION_GESTION },
@@ -111,33 +124,36 @@ export const navSections: NavEntry[] = [
       { id: "produccion-precorte", label: "Precorte", to: "/produccion/estacion/precorte", roles: OP_SELLADO },
     ],
   },
-  { id: "calidad", icon: "badge-check", label: "Calidad", to: "/calidad", roles: CALIDAD },
+  { id: "calidad", icon: "badge-check", label: "Calidad", to: "/calidad", roles: CALIDAD, group: "Producción" },
   {
     id: "trazabilidad",
     icon: "link",
     label: "Trazabilidad",
     to: "/trazabilidad",
     roles: [...PRODUCCION_GESTION, ...CALIDAD, ...AUDITORIA],
+    group: "Producción",
   },
   {
     id: "inventario",
     icon: "bar-chart",
     label: "Inventario",
     roles: INVENTARIO,
+    group: "Inventario",
     children: [
       { id: "inventario-existencias", label: "Existencias", to: "/" },
       { id: "inventario-productos", label: "Productos", to: "/inventario/productos", roles: PRODUCCION_GESTION },
       { id: "inventario-movimientos", label: "Movimientos", to: "/inventario/movimientos", roles: ALMACEN },
     ],
   },
-  { id: "almacen", icon: "warehouse", label: "Almacén / WMS", to: "/almacen", roles: ALMACEN },
-  { id: "exportaciones", icon: "download", label: "Exportaciones", to: "/exportaciones", roles: ADMIN },
-  { id: "notificaciones", icon: "bell", label: "Notificaciones", to: "/notificaciones", roles: TODOS },
+  { id: "almacen", icon: "warehouse", label: "Almacén / WMS", to: "/almacen", roles: ALMACEN, group: "Inventario" },
+  { id: "exportaciones", icon: "download", label: "Exportaciones", to: "/exportaciones", roles: ADMIN, group: "Sistema" },
+  { id: "notificaciones", icon: "bell", label: "Notificaciones", to: "/notificaciones", roles: TODOS, group: "Sistema" },
   {
     id: "auditoria",
     icon: "scroll-text",
     label: "Auditoría",
     roles: AUDITORIA,
+    group: "Sistema",
     children: [{ id: "auditoria-bitacora", label: "Bitácora de auditoría", to: "/auditoria" }],
   },
   {
@@ -145,6 +161,7 @@ export const navSections: NavEntry[] = [
     icon: "settings",
     label: "Configuración",
     roles: ADMIN,
+    group: "Sistema",
     children: [
       { id: "configuracion-auth", label: "Autenticación", to: "/configuracion/autenticacion" },
       { id: "configuracion-usuarios", label: "Usuarios y permisos", to: "/configuracion/usuarios" },
