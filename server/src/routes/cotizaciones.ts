@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
+import { buildDocumentPdf, formatCOP, pdfToBuffer } from "../services/pdfDocument";
 
 export const cotizacionesRouter = Router();
 cotizacionesRouter.use(requireAuth);
@@ -18,6 +19,40 @@ cotizacionesRouter.get("/", async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
   res.json(cotizaciones);
+});
+
+cotizacionesRouter.get("/:id/pdf", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID de cotización inválido" });
+
+  const cotizacion = await prisma.cotizacion.findUnique({
+    where: { id },
+    include: { client: true, items: { include: { product: true } } },
+  });
+  if (!cotizacion) return res.status(404).json({ error: "Cotización no encontrada" });
+
+  const total = cotizacion.items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
+
+  const doc = buildDocumentPdf({
+    kind: "Cotización",
+    number: cotizacion.quoteNumber,
+    cliente: cotizacion.client.name,
+    fecha: cotizacion.createdAt,
+    metaLines: cotizacion.validUntil ? [`Válida hasta: ${cotizacion.validUntil.toLocaleDateString("es-CO")}`] : undefined,
+    items: cotizacion.items.map((it) => ({
+      producto: it.product.name,
+      cantidad: Number(it.quantity),
+      unitario: Number(it.unitPrice),
+      medida: it.measure,
+    })),
+    totalLines: [{ label: "Total", value: formatCOP(total), emphasis: true }],
+    notes: cotizacion.notes,
+  });
+  const buffer = await pdfToBuffer(doc);
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${cotizacion.quoteNumber}.pdf"`);
+  res.send(buffer);
 });
 
 const itemSchema = z.object({

@@ -60,8 +60,10 @@ dashboardRouter.get("/resumen", async (_req, res) => {
 
   const saldoPorCliente = new Map<number, { name: string; saldo: number }>();
   let carteraPendiente = 0;
+  let carteraVencida = 0;
   let facturasConSaldo = 0;
 
+  const ahora = new Date();
   for (const f of todasLasFacturas) {
     const total = f.items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
     const paid = f.payments.reduce((sum, p) => sum + Number(p.amount), 0);
@@ -69,6 +71,7 @@ dashboardRouter.get("/resumen", async (_req, res) => {
     if (saldo > 0) {
       carteraPendiente += saldo;
       facturasConSaldo += 1;
+      if (f.dueDate && f.dueDate < ahora) carteraVencida += saldo;
       const prev = saldoPorCliente.get(f.client.id);
       saldoPorCliente.set(f.client.id, { name: f.client.name, saldo: (prev?.saldo ?? 0) + saldo });
     }
@@ -85,6 +88,7 @@ dashboardRouter.get("/resumen", async (_req, res) => {
     cambioVentasPct,
     ventasUltimos6Meses,
     carteraPendiente,
+    carteraVencida,
     facturasConSaldo,
     opsEnCurso,
     pedidosEnProduccion,
@@ -95,20 +99,41 @@ dashboardRouter.get("/resumen", async (_req, res) => {
 
 /**
  * Indicadores adicionales (top productos despachados, tasa de aprobación de
- * calidad, tiempo promedio de producción), todos sobre los últimos 30 días
- * y sin necesitar campos nuevos en el schema.
+ * calidad, tiempo promedio de producción), sin necesitar campos nuevos en
+ * el schema. Rango configurable por querystring (`from`/`to`, YYYY-MM-DD);
+ * sin params, cae al comportamiento de siempre (últimos 30 días).
  */
-dashboardRouter.get("/indicadores", async (_req, res) => {
-  const since = new Date();
-  since.setDate(since.getDate() - 30);
+/**
+ * Arma el límite de un día (inicio o fin) a partir de un "YYYY-MM-DD" en la
+ * hora LOCAL del servidor. `new Date("YYYY-MM-DD")` parsea como medianoche
+ * UTC — combinarlo con setHours/setUTCHours después queda mal en cualquier
+ * huso con offset != 0 (en America/Bogota, UTC-5, se pierden horas del día
+ * elegido). Parsear los componentes a mano y pasarlos al constructor local
+ * evita el problema para cualquier huso horario donde corra el servidor.
+ */
+function localDayBoundary(dateStr: string, end: boolean): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return end ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+dashboardRouter.get("/indicadores", async (req, res) => {
+  const defaultSince = new Date();
+  defaultSince.setDate(defaultSince.getDate() - 30);
+  defaultSince.setHours(0, 0, 0, 0);
+
+  const fromParam = req.query.from as string | undefined;
+  const toParam = req.query.to as string | undefined;
+
+  const from = fromParam ? localDayBoundary(fromParam, false) : defaultSince;
+  const to = toParam ? localDayBoundary(toParam, true) : new Date();
 
   const [dispatchItems, qualityChecks] = await Promise.all([
     prisma.dispatchItem.findMany({
-      where: { dispatch: { status: "despachado", dispatchedDate: { gte: since } } },
+      where: { dispatch: { status: "despachado", dispatchedDate: { gte: from, lte: to } } },
       include: { product: { select: { id: true, sku: true, name: true, unit: true } } },
     }),
     prisma.qualityCheck.findMany({
-      where: { createdAt: { gte: since } },
+      where: { createdAt: { gte: from, lte: to } },
       include: { productionOrder: { include: { stages: { select: { startTime: true } } } } },
     }),
   ]);

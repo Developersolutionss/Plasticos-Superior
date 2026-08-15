@@ -47,6 +47,11 @@ export default function DashboardEjecutivo() {
             <Tile label="Ventas del mes" value={formatCOP(data.ventasDelMes)} delta={data.cambioVentasPct} />
             <Tile label="Cartera pendiente" value={formatCOP(data.carteraPendiente)} />
             <Tile
+              label="Cartera vencida"
+              value={formatCOP(data.carteraVencida)}
+              valueClassName={data.carteraVencida > 0 ? "text-rose-600" : undefined}
+            />
+            <Tile
               label="Facturas con saldo"
               value={String(data.facturasConSaldo)}
               valueClassName={data.facturasConSaldo > 0 ? "text-amber-600" : undefined}
