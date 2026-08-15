@@ -40,13 +40,13 @@ El `measure` de la entrada hereda del producto si no se indica.
 
 ### 2. Salida: despacho resta stock
 
-Cuando se marca un item como despachado (`PATCH /api/dispatches/:dispatchId/items/:itemId`) — una sola transacción:
+Cuando se marca un ítem como despachado (`PATCH /api/dispatches/:dispatchId/items/:itemId`) — una sola transacción:
 
-1. Actualiza `quantity_dispatched` del item.
+1. Actualiza `quantity_dispatched` del ítem.
 2. `applyMovement(tx, { quantity: -kilos, movementType: "salida_despacho", referenceType: "dispatch_item" })`:
    - Registra el movimiento de salida.
    - **Decrementa** `inventory_stock.current_quantity`.
-3. Recalcula los items pendientes del despacho:
+3. Recalcula los ítems pendientes del despacho:
    - Si **no quedan** pendientes → `status: "despachado"` y fija `dispatched_date`.
    - Si **quedan** → `status: "en_proceso"`.
 
@@ -65,13 +65,14 @@ Extrusión → Impresión → Sellado → Precorte
   - **Cuando la estación es `precorte`** (la última), la OP queda `pendiente_calidad`. Todavía **no** genera inventario: recién se mueve el stock cuando Calidad aprueba el lote.
 - Un operario solo puede registrar **su** estación (definido por `OPERARIO_STATIONS`). Gestión de producción puede registrar cualquier estación.
 - Estados de OP: `pendiente` → `en_proceso` → `pendiente_calidad` → `finalizada` (o `detenida` / `cancelada`, control evolutivo por `PATCH /status`).
+- Cuando la etapa de `precorte` deja la OP `pendiente_calidad`, el sistema notifica a `ROLES.CALIDAD` (`notifyRoles`, ver más abajo).
 
 ### Control de calidad
 
 `POST /api/production-orders/:id/quality-check` decide el destino del lote:
 
 - **Aprobado**: se genera la entrada de inventario (`applyMovement` con el kilaje del precorte) y la OP pasa a `finalizada`.
-- **Rechazado**: la OP queda `detenida` sin mover stock (Producción decide qué hacer).
+- **Rechazado**: la OP queda `detenida` sin mover stock (Producción decide qué hacer). El sistema notifica a `ROLES.PRODUCCION_GESTION`.
 - La OP debe estar `pendiente_calidad` y no tener aún un control registrado (una sola revisión por OP, `quality_checks.production_order_id` es único).
 
 ### Trazabilidad
@@ -89,6 +90,18 @@ La **bitácora** (`inventory_movements`) guarda cada movimiento individual (audi
 
 > Nota: las reglas de **ajuste** y **devolución** están definidas en los enums (`MovementType`). No hay endpoints que las usen todavía.
 
+## Almacén / WMS: stock por ubicación
+
+`stock_locations` es **complementaria** a `inventory_stock`, no la reemplaza: registra cuánto de un producto hay en cada `warehouse_location` (estante, rack, zona), administrado a mano por Almacén.
+
+- La suma de las filas de un producto en `stock_locations` puede quedar **por debajo** de su stock total en `inventory_stock` — la diferencia es "sin ubicar" (`GET /api/warehouse/stock` la expone como `unassigned`, que puede quedar negativo si se asignó de más). El endpoint no bloquea esa diferencia: es una herramienta operativa, no la fuente de verdad del stock.
+- `POST /api/warehouse/assign` mueve/asigna cantidad hacia una ubicación (y descuenta de otra si se indica `fromLocationId`), en una transacción. `400` si la ubicación de origen no tiene suficiente.
+- Cada ubicación tiene un **QR imprimible** (`GET /api/warehouse/locations/:id/qr`) que codifica su `publicToken`. Escanearlo abre `GET /api/public/locations/:token` — **sin login** — con el stock de esa ubicación en vivo (refetch cada 5 s en el frontend). El token, no el `code` corto de la ubicación, es la credencial: solo quien escaneó el QR físico puede consultarla.
+
+## Notificaciones in-app
+
+`notifyRoles(roles, { type, message, link? })` (`services/notify.ts`) crea una notificación para cada usuario activo con alguno de los roles dados. No hay un bus de eventos central: cada router que necesita avisar llama a esta función explícitamente. Hoy los únicos disparadores del sistema son los dos de Calidad, arriba: OP lista para revisión (a `ROLES.CALIDAD`) y lote rechazado (a `ROLES.PRODUCCION_GESTION`). Cualquier módulo nuevo que necesite notificar debe llamar a `notifyRoles` desde su propio router — no hay disparo automático por cambio de estado en general.
+
 ## Auditoría forense
 
 Además de la bitácora de movimientos, hay una **auditoría forense** (`audit_logs`) que registra automáticamente cada `create`/`update`/`delete` sobre las tablas críticas:
@@ -100,18 +113,18 @@ Además de la bitácora de movimientos, hay una **auditoría forense** (`audit_l
 
 ## Planeación: pedido a órdenes de producción
 
-El módulo de Planeación convierte los items de un pedido aprobado en órdenes de producción.
+El módulo de Planeación convierte los ítems de un pedido aprobado en órdenes de producción.
 
-1. Un pedido con estado `aprobado` o `en_produccion` tiene los items de su versión vigente.
-2. La **cola de Planeación** (`GET /api/production-orders/pending-planning`) devuelve los items que aún no tienen una OP.
-3. `POST /api/production-orders/from-pedido-item/:id` genera la OP de un item. Usa `quantityPlanned = item.quantity` y `measure` del item (o del producto).
-4. La OP queda enlazada con `pedidoVersionItemId`. Un item solo tiene una OP (`@unique`): si ya la tiene, el endpoint responde `400`.
+1. Un pedido con estado `aprobado` o `en_produccion` tiene los ítems de su versión vigente.
+2. La **cola de Planeación** (`GET /api/production-orders/pending-planning`) devuelve los ítems que aún no tienen una OP.
+3. `POST /api/production-orders/from-pedido-item/:id` genera la OP de un ítem. Usa `quantityPlanned = item.quantity` y `measure` del ítem (o del producto).
+4. La OP queda enlazada con `pedidoVersionItemId`. Un ítem solo tiene una OP (`@unique`): si ya la tiene, el endpoint responde `400`.
 
 Reglas:
 
 - Acceso a la cola y a la generación: gestión de producción (`gerente_produccion`, `planeacion`).
 - La cola no es una tabla. Se deriva de los pedidos en cada consulta.
-- La OP nueva usa numeración `OP-XXXXX` con reintento.
+- La OP nueva usa numeración `OP-XXXXX` con reintento (ver "Consistencia / transacciones" más abajo: hasta 8 intentos con backoff y jitter).
 
 ## Ranking "Frecuentes" (CRM)
 
@@ -151,17 +164,17 @@ Reglas:
 
 `pendiente` → `en_transito` → `recibido` → `rechazado`.
 
-**Hoy**, las entradas en `production_entries` se crean directamente como `recibido` (por alta manual o importación). La OP terminada no crea una fila en `production_entries`: cuando Calidad aprueba el lote, genera un movimiento de inventario de tipo `entrada_produccion` (con `referenceType: "manual_adjustment"` referenciando el control de calidad) y actualiza `inventory_stock`. Los estados intermedios (`pendiente`/`en_transito`) están definidos para la integración con WhatsApp (cuando el archivo llega sin confirmar). No se usan en el código actual.
+**Hoy**, las entradas en `production_entries` se crean directamente como `recibido` (por alta manual o importación). La OP terminada no crea una fila en `production_entries`. En su lugar, cuando Calidad aprueba el lote, el sistema genera un movimiento de inventario de tipo `entrada_produccion` — con `referenceType: "manual_adjustment"`, referenciando el control de calidad — y actualiza `inventory_stock`. Los estados intermedios (`pendiente`/`en_transito`) están definidos para la integración con WhatsApp, para cuando el archivo llega sin confirmar. No se usan en el código actual.
 
 ## Estados de despacho (`DispatchStatus`)
 
 | Estado | Cuándo |
 |---|---|
-| `pendiente` | Recién creado (ningún item despachado) |
-| `en_proceso` | Al menos un item despachado. Quedan pendientes |
-| `despachado` | Todos los items despachados |
+| `pendiente` | Recién creado (ningún ítem despachado) |
+| `en_proceso` | Al menos un ítem despachado. Quedan pendientes |
+| `despachado` | Todos los ítems despachados |
 
-Transición automática en el `PATCH` de items. También fija `dispatched_date` al pasar a `despachado`.
+Transición automática en el `PATCH` de ítems. También fija `dispatched_date` al pasar a `despachado`.
 
 ## Origen de las entradas (`ProductionSource`)
 
@@ -186,11 +199,12 @@ Operaciones transaccionales actuales:
 - Alta de producción (entrada + movimiento + stock).
 - Registrar etapa de estación (etapa + estado de la OP). Si la estación es precorte, la OP pasa a `pendiente_calidad` (sin mover stock).
 - Control de calidad (quality_check +, si aprueba, entrada + stock + estado `finalizada` de la OP; si rechaza, estado `detenida`).
-- Marcar item despachado (item + movimiento + stock + estado del despacho).
+- Marcar ítem despachado (ítem + movimiento + stock + estado del despacho).
 - Crear contacto/dirección principal (desmarcar el anterior + crear el nuevo).
 - Borrar un contacto principal (asignar el siguiente + borrar).
-- Numeración consecutiva (`OP-`, `COT-`, `PED-`, `FAC-`).
-- Generar una OP desde la cola de Planeación (crea la OP y enlaza el item).
+- Numeración consecutiva (`OP-`, `COT-`, `PED-`, `FAC-`): hasta **8 reintentos** con backoff creciente y jitter (`delayMs = 10 * intento + Math.random() * 30`) si dos requests calculan el mismo número.
+- Generar una OP desde la cola de Planeación (crea la OP y enlaza el ítem).
+- Asignar stock de Almacén a una ubicación (descuenta el origen + suma el destino).
 - Purga semanal de Frecuentes (re-escalar `viewCount` + reset de `cycleInteractions` + actualizar `app_meta`).
 - Reset de contraseña (password + token usado).
 - Registrar un pago (payment + `recalculateStatus`).

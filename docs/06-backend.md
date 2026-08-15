@@ -10,7 +10,7 @@ server/
 │   ├── pedidos/           → adjuntos de pedidos (disco)
 │   └── clients/           → avatares de clientes (disco)
 ├── prisma/
-│   ├── schema.prisma      → fuente de verdad de la BD (27 modelos)
+│   ├── schema.prisma      → fuente de verdad de la BD (30 modelos)
 │   ├── seed.ts            → datos de ejemplo (npm run prisma:seed)
 │   └── migrations/        → SQL versionado (prisma migrate dev)
 └── src/
@@ -28,14 +28,23 @@ server/
     │   ├── frequency.ts      → motor de "Frecuentes": umbral, boost, reorden, redistribución
     │   ├── frecuentesReset.ts → purga semanal del ranking (cron en memoria)
     │   ├── auditContext.ts   → AsyncLocalStorage: usuario/IP/user-agent de la petición actual
-    │   └── auditExtension.ts → withAudit: $extends que audita create/update/delete de tablas críticas
+    │   ├── auditExtension.ts → withAudit: $extends que audita create/update/delete de tablas críticas
+    │   ├── exportExcel.ts    → buildExcelBuffer: helper compartido de Excel con estilo de marca
+    │   └── notify.ts         → notifyRoles: crea notificaciones in-app para un grupo de roles
     ├── routes/
-    │   ├── auth.ts            → login, me, forgot/reset-password, 2FA
+    │   ├── auth.ts            → login (rechaza usuarios inactivos), me, forgot/reset-password, 2FA
     │   ├── clients.ts         → CRM: clientes, contactos, direcciones, interacciones, cartera, avatares, visitas
-    │   ├── inventory.ts       → GET /api/inventory[/alerts[/products]]
+    │   ├── inventory.ts       → GET /api/inventory[/alerts[/products][/movements]]
     │   ├── production.ts      → alta manual + import Excel (preview/confirm)
-    │   ├── productionOrders.ts→ OPs + registro de etapa + cola de Planeación + control de calidad
-    │   ├── dispatches.ts      → GET/POST despachos + marcar items
+    │   ├── productionOrders.ts→ OPs + registro de etapa + cola de Planeación + control de calidad + dispara notificaciones
+    │   ├── dispatches.ts      → GET/POST despachos + marcar ítems
+    │   ├── products.ts        → CRUD de catálogo + etiqueta QR imprimible
+    │   ├── users.ts           → CRUD de usuarios y roles
+    │   ├── warehouse.ts       → ubicaciones de bodega + stock por ubicación + QR
+    │   ├── publicLocation.ts  → consulta pública de una ubicación vía token (sin requireAuth)
+    │   ├── dashboard.ts       → indicadores ejecutivos y de producción/calidad
+    │   ├── export.ts          → descargas .xlsx (inventario, pedidos, facturas, clientes)
+    │   ├── notifications.ts   → listar/marcar notificaciones del usuario
     │   ├── cotizaciones.ts    → cotizaciones + convertir a pedido
     │   ├── pedidos.ts         → pedidos versionados + adjuntos
     │   ├── facturas.ts        → facturas + abonos/pagos + anulación
@@ -69,6 +78,13 @@ app.use("/api/inventory", inventoryRouter);
 app.use("/api/production", productionRouter);
 app.use("/api/production-orders", productionOrdersRouter);
 app.use("/api/dispatches", dispatchesRouter);
+app.use("/api/products", productsRouter);
+app.use("/api/users", usersRouter);
+app.use("/api/warehouse", warehouseRouter);
+app.use("/api/public/locations", publicLocationRouter);
+app.use("/api/dashboard", dashboardRouter);
+app.use("/api/export", exportRouter);
+app.use("/api/notifications", notificationsRouter);
 app.use("/api/cotizaciones", cotizacionesRouter);
 app.use("/api/pedidos", pedidosRouter);
 app.use("/api/facturas", facturasRouter);
@@ -158,8 +174,9 @@ export function requireAuth(req, res, next) {
 | `ROLES.OPERARIOS` | `gerente_produccion`, `planeacion`, `operario_extrusion`, `operario_impresion`, `operario_sellado_precorte` |
 | `ROLES.CALIDAD` | `calidad` |
 | `ROLES.AUDITORIA` | `auditor` |
+| `ROLES.ADMIN` | — (solo `super_admin`/`admin`) |
 
-Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `dispatches` usa `use(requireAlmacen)`; `production-orders` usa `use(requireRole(...OPERARIOS, ...CALIDAD, ...AUDITORIA))` y aplica `requireProduccionGestion` en crear/cambiar estado/Planeación. El control de calidad (`POST /:id/quality-check`) exige `CALIDAD`; la bitácora (`/api/audit-log`) exige `AUDITORIA`.
+Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `dispatches` y `warehouse` usan `use(requireAlmacen)`; `production-orders` usa `use(requireRole(...OPERARIOS, ...CALIDAD, ...AUDITORIA))` y aplica `requireProduccionGestion` en crear/cambiar estado/Planeación; `users`, `dashboard` y `export` usan `use(requireRole(...ROLES.ADMIN))` (`export` suma rol de ventas en `/pedidos` y `/facturas`). El control de calidad (`POST /:id/quality-check`) exige `CALIDAD`; la bitácora (`/api/audit-log`) exige `AUDITORIA`. `publicLocation.ts` es la única ruta de negocio sin `requireAuth` además del webhook de WhatsApp: usa el `publicToken` de la ubicación como credencial.
 
 - `OPERARIO_STATIONS` mapea cada rol de operario a sus estaciones (`operario_extrusion → ["extrusion"]`, etc.). Se aplica en el POST de etapas: el operario solo registra su estación.
 
@@ -243,17 +260,26 @@ Evita que los puntajes crezcan sin límite:
 
 La purga **no reordena posiciones**: solo remapea los números. El más visitado conserva el valor más alto.
 
+### `services/exportExcel.ts`
+
+**`buildExcelBuffer(sheetName, columns, rows, options)`** — helper compartido con ExcelJS usado por los 4 endpoints de `export.ts`. Genera el estilo de marca: título y subtítulo (fecha de generación) fusionados arriba, encabezado con fondo oscuro y texto blanco, filas cebra, bordes finos, formato por columna (`currency`/`number`/`date`), autofiltro y fila superior congelada. `humanize()` convierte valores de enum en `snake_case` a texto legible.
+
+### `services/notify.ts`
+
+**`notifyRoles(roles, { type, message, link? })`** — crea una `Notification` (`createMany`) para cada usuario activo que tenga alguno de los roles dados. No hay bus de eventos central: cada router que necesita notificar llama a esta función explícitamente. Hoy el único llamador es `productionOrders.ts`: notifica a `ROLES.CALIDAD` cuando una etapa de `precorte` deja la OP `pendiente_calidad`, y a `ROLES.PRODUCCION_GESTION` cuando Calidad rechaza un lote.
+
 ## Transacciones (`prisma.$transaction`)
 
 Use transacciones donde la operación debe ser atómica (todo o nada). Operaciones transaccionales actuales:
 
 - **Alta de producción** (`createProductionEntry`): crea `production_entry` + `applyMovement` de entrada.
-- **Despacho** (PATCH de item): actualiza item + `applyMovement` de salida + estado del despacho.
+- **Despacho** (PATCH de ítem): actualiza ítem + `applyMovement` de salida + estado del despacho.
 - **Etapa de producción** (`POST /:id/stages`): crea la etapa; si la estación es `precorte`, deja la OP `pendiente_calidad` (no mueve stock todavía).
 - **Control de calidad** (`POST /:id/quality-check`): crea el `quality_check`; si aprueba, `applyMovement` de entrada (con el kilaje del precorte) + marca la OP `finalizada`; si rechaza, deja la OP `detenida`.
 - **Contactos/direcciones principal**: desmarca el anterior + crea el nuevo.
-- **Numeración consecutiva** (`OP-`, `COT-`, `PED-`, `FAC-`): el `count()` y el `create` corren en la misma transacción, envuelta en `withSequentialNumberRetry`. Si dos requests calculan el mismo número y chocan contra el `@unique` (P2002), el servicio reintenta la transacción (hasta 3 veces); en el reintento el `count()` ya ve la fila del otro request.
-- **OP desde Planeación** (`POST /from-pedido-item/:id`): valida que el item no tenga OP, la crea con numeración y enlaza `pedidoVersionItemId`.
+- **Numeración consecutiva** (`OP-`, `COT-`, `PED-`, `FAC-`): el `count()` y el `create` corren en la misma transacción, envuelta en `withSequentialNumberRetry`. Si dos requests calculan el mismo número y chocan contra el `@unique` (P2002), el servicio reintenta la transacción, hasta **8 intentos**, con backoff creciente y jitter (`delayMs = 10 * intento + Math.random() * 30`) para que varios requests trabados no vuelvan a chocar en el mismo instante.
+- **OP desde Planeación** (`POST /from-pedido-item/:id`): valida que el ítem no tenga OP, la crea con numeración y enlaza `pedidoVersionItemId`.
+- **Asignar stock a una ubicación** (`POST /api/warehouse/assign`): descuenta de la ubicación de origen (si aplica) y suma a la de destino en una transacción; `400` si el origen no tiene suficiente.
 - **Purga semanal de Frecuentes** (`frecuentesReset`): redistribuye `viewCount` y resetea `cycleInteractions` en transacción, y actualiza la marca en `app_meta`.
 - **Reset de contraseña**: actualiza el password + marca el token usado.
 - **Factura** (abono): registra el pago + `recalculateStatus`.

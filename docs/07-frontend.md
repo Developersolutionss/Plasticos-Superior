@@ -28,9 +28,9 @@ client/
     ├── lib/
     │   └── frequency.ts  → motor "Frecuentes" del lado del cliente (byFrequency, nextInteraction)
     ├── components/
-    │   ├── Layout.tsx    → shell: Sidebar + header + <Outlet />
-    │   ├── Sidebar.tsx   → menú lateral filtrado por rol + atajos
-    │   ├── Sidebar.css   → variables CSS del sidebar (tema oscuro)
+    │   ├── Layout.tsx    → shell: Sidebar (con cajón móvil) + header (con NotificationBell) + <Outlet />
+    │   ├── Sidebar.tsx   → menú lateral filtrado por rol + atajos; cajón (`drawer`) en móvil
+    │   ├── Sidebar.css   → variables CSS del sidebar (tema oscuro) + breakpoints móviles
     │   ├── NavIcon.tsx   → mapa clave → ícono lucide
     │   ├── navConfig.ts  → ítems del menú con `roles` por entrada + filterNavSections
     │   ├── useShortcuts.tsx / ShortcutsConfig.tsx → atajos favoritos (localStorage)
@@ -38,7 +38,11 @@ client/
     │   ├── ClienteAvatar.tsx → avatar del cliente (foto o iniciales)
     │   ├── ClientePicker.tsx → selector de cliente con búsqueda por frecuencia
     │   ├── ClienteForm.tsx   → formulario crear/editar cliente con foto
-    │   └── ContactoForm.tsx  → formulario reutilizable crear/editar contacto
+    │   ├── ContactoForm.tsx  → formulario reutilizable crear/editar contacto
+    │   ├── BarcodeScanner.tsx → escaneo QR/código de barras por cámara (`html5-qrcode`), modal reutilizable
+    │   ├── NotificationBell.tsx → campanita del header: no-leídas (polling 60s) + dropdown
+    │   ├── ProductoForm.tsx  → formulario crear/editar producto
+    │   └── UsuarioForm.tsx   → formulario crear/editar usuario
     └── pages/
         ├── Login.tsx
         ├── ForgotPassword.tsx
@@ -48,7 +52,7 @@ client/
         ├── ProductionUpload.tsx
         ├── OrdenesProduccion.tsx
         ├── EstacionProduccion.tsx
-        ├── Planeacion.tsx    → cola de Planeación: items de pedidos sin OP + generar OP
+        ├── Planeacion.tsx    → cola de Planeación: ítems de pedidos sin OP + generar OP
         ├── Calidad.tsx       → cola de OPs `pendiente_calidad`: aprobar o rechazar el lote
         ├── Trazabilidad.tsx  → historial completo de una OP (estaciones, calidad, origen)
         ├── Auditoria.tsx     → bitácora forense de tablas críticas (filtro + diff expandible)
@@ -58,7 +62,16 @@ client/
         ├── Cotizaciones.tsx
         ├── Pedidos.tsx
         ├── Facturas.tsx
-        └── SecuritySettings.tsx
+        ├── SecuritySettings.tsx
+        ├── Productos.tsx        → CRUD de catálogo + impresión de etiquetas QR
+        ├── Usuarios.tsx          → CRUD de usuarios y roles
+        ├── Almacen.tsx           → ubicaciones de bodega + stock por ubicación (Almacén/WMS)
+        ├── UbicacionDetalle.tsx  → página pública del QR de una ubicación (ruta `/qr/:token`, sin login)
+        ├── Movimientos.tsx       → historial paginado de movimientos de inventario
+        ├── DashboardEjecutivo.tsx   → KPIs de ventas, cartera y producción
+        ├── DashboardIndicadores.tsx → indicadores de calidad y producción
+        ├── Notificaciones.tsx    → lista completa de notificaciones del usuario
+        └── Exportaciones.tsx     → descarga de Excel (inventario/pedidos/facturas/clientes)
 ```
 
 ## `main.tsx` — composición de proveedores
@@ -83,6 +96,7 @@ client/
   <Route path="/login" element={<Login />} />
   <Route path="/forgot-password" element={<ForgotPassword />} />
   <Route path="/reset-password" element={<ResetPassword />} />
+  <Route path="/qr/:token" element={<UbicacionDetalle />} />  {/* pública: el token es la credencial */}
 
   {/* protegidas — RequireAuth valida la sesión; RequireRole valida el rol */}
   <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
@@ -102,19 +116,30 @@ client/
     <Route path="pedidos" element={<RequireRole roles={VENTAS}><Pedidos /></RequireRole>} />
     <Route path="facturas" element={<RequireRole roles={VENTAS}><Facturas /></RequireRole>} />
     <Route path="configuracion/autenticacion" element={<RequireRole roles={ADMIN}><SecuritySettings /></RequireRole>} />
+    <Route path="configuracion/usuarios" element={<RequireRole roles={ADMIN}><Usuarios /></RequireRole>} />
+    <Route path="inventario/productos" element={<RequireRole roles={PRODUCCION_GESTION}><Productos /></RequireRole>} />
+    <Route path="inventario/movimientos" element={<RequireRole roles={ALMACEN}><Movimientos /></RequireRole>} />
+    <Route path="almacen" element={<RequireRole roles={ALMACEN}><Almacen /></RequireRole>} />
+    <Route path="dashboard-ejecutivo" element={<RequireRole roles={ADMIN}><DashboardEjecutivo /></RequireRole>} />
+    <Route path="dashboard-indicadores" element={<RequireRole roles={ADMIN}><DashboardIndicadores /></RequireRole>} />
+    <Route path="exportaciones" element={<RequireRole roles={ADMIN}><Exportaciones /></RequireRole>} />
+    <Route path="notificaciones" element={<Notificaciones />} />  {/* sin RequireRole: cualquier autenticado ve las suyas */}
   </Route>
 </Routes>
 ```
 
 - `RequireAuth` redirige a `/login` si no hay usuario en sesión.
 - `RequireRole` muestra un mensaje de acceso denegado si el rol no pertenece al grupo. Los grupos (`VENTAS`, `ALMACEN`, `PRODUCCION_GESTION`, `OPERARIOS`, `CALIDAD`, `AUDITORIA`, `ADMIN`, …) vienen de `navConfig.ts`.
-- `RequireStationRole` mapea la estación de la URL al grupo de operarios adecuado (`extrusion`→ extrusión, `impresion`→ impresión, `sellado`/`precorte`→ sellado-precorte).
+- `RequireStationRole` mapea la estación de la URL al grupo de operarios adecuado (`extrusion`→ extrusión, `impresion`→ impresión, `sellado`/`precorte`→ sellado-precorte), usando los subgrupos `OP_EXTRUSION`, `OP_IMPRESION` y `OP_SELLADO` (cada uno un subconjunto de `OPERARIOS` con un solo rol de operario) definidos también en `navConfig.ts`.
+- `/qr/:token` es la **única ruta pública fuera de `Layout`**: la abre el QR físico impreso de una ubicación de bodega. No pasa por `RequireAuth` — el token de la URL es la credencial (ver [05 — API](05-api.md), `publicLocation.ts`).
 
 ## Menú lateral
 
 `navConfig.ts` declara los ítems del menú. Cada ítem tiene un campo `roles` (los grupos de roles que lo ven) y un `icon` como **clave** (p. ej. `"users"`, `"truck"`, `"factory"`). `NavIcon.tsx` resuelve la clave a un componente de `lucide-react`. Los módulos del roadmap no construidos salen como `disabled: true` con la etiqueta "Próximamente".
 
 La función `filterNavSections(role)` filtra secciones y entradas según el rol del usuario. `Sidebar.tsx` llama a `filterNavSections(user.role)` y dibuja solo lo que el rol puede ver. Los atajos (`useShortcuts`, `ShortcutsConfig`) aplican el mismo filtro con `buildChoices(role)`: un operario no puede marcar como atajo un módulo sin acceso.
+
+Grupos de roles nuevos en `navConfig.ts`: `TODOS` (los 11 roles — usado por la entrada "Notificaciones") e `INVENTARIO` (`ADMIN` + `almacen_despachos` + `gerente_produccion` + `planeacion` + `ventas_pedidos`, uso interno del archivo).
 
 ## `api/client.ts` — el helper HTTP
 
@@ -154,9 +179,18 @@ Métodos expuestos (`api.*`), agrupados por dominio:
 | Auth | `login(email, password, totpToken?)`, `getMe()`, `forgotPassword(email)`, `resetPassword(token, newPassword)`, `setup2fa()`, `verify2fa(token)`, `disable2fa(token)` |
 | Inventario | `getInventory(category?)`, `getAlerts()`, `getProducts()` |
 | Clientes (CRM) | `getClients()`, `createClient(name)`, `updateClient(id, data)`, `uploadClientAvatar(id, file)`, `recordClientVisit(id)`, `deleteClient(id)`, `getAllContacts()`, `recordContactVisit(contactId)`, `updateClientContact(id, contactId, data)`, `updateCreditLimit(id, creditLimit)`, `getClientContacts(id)`, `createClientContact(id, data)`, `deleteClientContact(id, contactId)`, `getClientAddresses(id)`, `createClientAddress(id, data)`, `deleteClientAddress(id, addressId)`, `getClientInteractions(id)`, `createClientInteraction(id, data)`, `getClientCartera(id)` |
-| Producción | `createProductionEntry(data)`, `previewImport(file)`, `confirmImport(filename, rows)`, `getProductionOrders(status?)`, `createProductionOrder(data)`, `updateProductionOrderStatus(id, status)`, `getProductionOrderStages(id)`, `createProductionStageLog(id, data)`, `getPendingPlanning()`, `createProductionOrderFromPedidoItem(pedidoVersionItemId)` |
+| Producción | `createProductionEntry(data)`, `previewImport(file)`, `confirmImport(filename, rows)`, `getProductionOrders(status?)`, `getProductionOrder(id)`, `createProductionOrder(data)`, `updateProductionOrderStatus(id, status)`, `getProductionOrderStages(id)`, `createProductionStageLog(id, data)`, `getPendingPlanning()`, `createProductionOrderFromPedidoItem(pedidoVersionItemId)` |
+| Calidad | `submitQualityCheck(id, { result, observations? })` |
 | Despachos | `getDispatches(params?)`, `createDispatch(clientId, items)`, `markItemDispatched(dispatchId, itemId, qty)` |
-| Comercial | `getCotizaciones(clientId?)`, `createCotizacion(data)`, `updateCotizacionStatus(id, status)`, `convertCotizacionToPedido(id)`, `getPedidos(params?)`, `createPedido(data)`, `getPedidoVersions(id)`, `updatePedido(id, data)`, `duplicatePedido(id)`, `getPedidoAttachments(id)`, `uploadPedidoAttachment(id, file)` (descarga como blob), `getFacturas(params?)`, `createFactura(data)`, `createFacturaFromPedido(pedidoId)`, `anularFactura(id)`, `getFacturaPayments(id)`, `createPayment(id, data)` |
+| Comercial | `getCotizaciones(clientId?)`, `createCotizacion(data)`, `updateCotizacionStatus(id, status)`, `convertCotizacionToPedido(id)`, `getPedidos(params?)`, `createPedido(data)`, `getPedidoVersions(id)`, `updatePedido(id, data)`, `duplicatePedido(id)`, `getPedidoAttachments(id)`, `uploadPedidoAttachment(id, file)`, `downloadPedidoAttachment(pedidoId, attachmentId, filename)` (descarga como blob), `getFacturas(params?)`, `createFactura(data)`, `createFacturaFromPedido(pedidoId)`, `anularFactura(id)`, `getFacturaPayments(id)`, `createPayment(id, data)` |
+| Auditoría | `getAuditLog(params?: { tableName?, recordId?, page?, pageSize? })` |
+| Productos | `getAllProducts()`, `createProduct(data)`, `updateProduct(id, data)`, `deactivateProduct(id)`, `reactivateProduct(id)`, `getProductLabel(id)` (QR + SKU para la etiqueta) |
+| Usuarios | `getUsers()`, `createUser(data)`, `updateUser(id, data)`, `deactivateUser(id)`, `reactivateUser(id)` |
+| Almacén / WMS | `getWarehouseLocations()`, `createWarehouseLocation(data)`, `getWarehouseStock()`, `assignWarehouseStock(data)`, `getWarehouseLocationQr(id)`, `getWarehouseLocationByToken(token)`, `getPublicLocation(token)` (sin token de sesión — consume la ruta pública) |
+| Inventario (movimientos) | `getInventoryMovements(params?: { productId?, movementType?, page?, pageSize? })` |
+| Dashboard | `getDashboardResumen()`, `getDashboardIndicadores()` |
+| Notificaciones | `getNotifications()`, `getUnreadNotificationCount()`, `markNotificationRead(id)`, `markAllNotificationsRead()` |
+| Exportaciones | `downloadExport(resource: "inventario" \| "pedidos" \| "facturas" \| "clientes")` (descarga como blob, mismo patrón que `downloadPedidoAttachment`) |
 
 ## `auth/AuthContext.tsx` — sesión
 
@@ -216,13 +250,15 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - Sube Excel/CSV → `api.previewImport` → preview válidas/inválidas → "Confirmar" → `api.confirmImport` e invalida inventario/alertas.
 
 ### `Dispatches.tsx`
-- Filtros de cliente y estado. Lista despachos, botón "Marcar despachado" por item. La **creación de despachos existe solo vía API** (`api.createDispatch`); la UI aún no la expone.
+- Filtros de cliente y estado. Lista despachos, botón "Marcar despachado" por ítem. La **creación de despachos existe solo vía API** (`api.createDispatch`); la UI aún no la expone.
+- Escaneo de producto por cámara con `BarcodeScanner`.
 
 ### `OrdenesProduccion.tsx`
 - Lista OPs con indicador de etapas completadas (íconos de lucide por estación). Crea OPs y cambia estado.
 
 ### `EstacionProduccion.tsx`
 - Pantalla por `:station`. El operario registra su etapa (kilos, merma, tiempos, etc.).
+- Escaneo de la OP por cámara con `BarcodeScanner`.
 
 ### `Clients.tsx`
 - Layout maestro–detalle en dos columnas: listado (izquierda) y ficha (derecha).
@@ -253,6 +289,7 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 ### `Calidad.tsx`
 - Cola de OPs `pendiente_calidad` (`api.getProductionOrders("pendiente_calidad")`). Muestra OP, producto, cantidad planificada y el kilaje del precorte.
 - Por fila: **Aprobar** (envía `api.submitQualityCheck(id, { result: "aprobado" })`) o **Rechazar** (pide motivo opcional antes de confirmar, `result: "rechazado"`). Tras el éxito invalida `["productionOrders"]`.
+- El bloque de acciones (aprobar/rechazar con motivo) vive en un componente de módulo aparte, no anidado en el render de la fila: anidado, React lo remontaba en cada tecla y el textarea del motivo perdía el foco.
 
 ### `Trazabilidad.tsx`
 - Selector de OP (`api.getProductionOrders`) + detalle de solo lectura (`api.getProductionOrder(id)`).
@@ -272,9 +309,42 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 ### `SecuritySettings.tsx`
 - Activar/desactivar 2FA: `setup2fa` (QR) → `verify2fa` → estado activo.
 
+### `Productos.tsx`
+- CRUD de catálogo: `api.getAllProducts`, `createProduct`, `updateProduct`, `deactivateProduct` (soft delete), `reactivateProduct`. Modal con `ProductoForm` para crear/editar.
+- Selección múltiple + botón "Imprimir etiquetas": pide `api.getProductLabel` de cada seleccionado y abre una ventana nueva con los QR listos para imprimir (`printLabels`, con `escapeHtml` sobre el contenido para evitar XSS vía `document.write`).
+
+### `Usuarios.tsx`
+- CRUD de usuarios y roles: `api.getUsers`, `createUser`, `updateUser`, `deactivateUser`, `reactivateUser`. Modal con `UsuarioForm`.
+- `deactivateUser` sobre el propio usuario devuelve `400`; la UI muestra un mensaje explicando que no puede autodesactivarse.
+
+### `Almacen.tsx`
+- Ubicaciones de bodega y su stock: `api.getWarehouseLocations`, `getWarehouseStock`, `createWarehouseLocation`, `assignWarehouseStock`, `getWarehouseLocationQr`, `getWarehouseLocationByToken`.
+- Filas expandibles con un formulario de asignación (mover/ubicar stock entre ubicaciones), con escaneo de producto por `BarcodeScanner`. Botón "Escanear producto" busca por SKU. Modal con el QR imprimible de cada ubicación.
+
+### `UbicacionDetalle.tsx`
+- Página **pública** (ruta `/qr/:token`, fuera de `Layout`, sin login) a la que apunta el QR físico de una ubicación. Usa `api.getPublicLocation(token)` con refetch cada 5 s (`refetchInterval: 5000`) para reflejar el stock casi en tiempo real.
+
+### `Movimientos.tsx`
+- Historial paginado de `InventoryMovement` (`api.getInventoryMovements`), filtro por tipo de movimiento, paginación de 50, badges de color por tipo y signo (+/−) según sea entrada o salida.
+
+### `DashboardEjecutivo.tsx`
+- KPIs (`api.getDashboardResumen`): ventas del mes con variación %, cartera pendiente, facturas con saldo, OPs en curso, pedidos en producción, cotizaciones abiertas.
+- Gráfico de barras de ventas de 6 meses (Recharts) y top 5 clientes con mayor saldo pendiente.
+
+### `DashboardIndicadores.tsx`
+- Indicadores (`api.getDashboardIndicadores`): tasa de aprobación de calidad, checks aprobados/rechazados, tiempo promedio de producción en horas.
+- Gráfico de barras horizontal con el top 5 de productos despachados en los últimos 30 días.
+
+### `Notificaciones.tsx`
+- Lista completa de notificaciones del usuario (`api.getNotifications`). Botones para marcar una (`markNotificationRead`) o todas (`markAllNotificationsRead`) como leídas. Un clic navega al `link` de la notificación.
+
+### `Exportaciones.tsx`
+- Cuatro tarjetas (Inventario / Pedidos / Facturas / Clientes); cada una dispara `api.downloadExport(resource)` y descarga un `.xlsx`.
+
 ## `components/Layout.tsx`
 
-- Sidebar oscuro generado desde `navConfig`, header con nombre de usuario y botón "Salir" (`logout`), y `<Outlet />`.
+- Sidebar oscuro generado desde `navConfig`, header con nombre de usuario, `NotificationBell` y botón "Salir" (`logout`), y `<Outlet />`.
+- **Móvil**: `Sidebar` gana un cajón (`drawer`, prop `mobileOpen`/`onCloseMobile`) que se abre con un botón hamburguesa (ícono `Menu` de lucide, visible solo por debajo del breakpoint `md`) en el header. El cajón se cierra solo al navegar (`useEffect` sobre `location.pathname`).
 
 ## PWA (`vite.config.ts`)
 
@@ -285,3 +355,4 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 ## Dependencias principales (`client/package.json`)
 
 - `react`, `react-dom`, `react-router-dom`, `@tanstack/react-query`, `lucide-react`, `tailwindcss`, `vite`, `vite-plugin-pwa`, `@vitejs/plugin-react`, `@tailwindcss/vite`.
+- `recharts` (gráficos del dashboard), `html5-qrcode` (escaneo QR/código de barras por cámara, `BarcodeScanner.tsx`).
