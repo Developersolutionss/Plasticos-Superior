@@ -874,6 +874,11 @@ describe("despachos · completar no rompe (hook de WhatsApp)", () => {
     await prisma.dispatchItem.deleteMany({ where: { dispatchId: created.id } });
     await prisma.inventoryMovement.deleteMany({ where: { referenceType: "dispatch_item", referenceId: created.items[0].id } });
     await prisma.dispatch.delete({ where: { id: created.id } });
+    // applyMovement() ya restó 1 al stock real de BUL-001 (currentQuantity)
+    // al marcar el ítem despachado — borrar el movimiento no revierte ese
+    // efecto solo, hay que reponerlo a mano o el stock del seed se va
+    // achicando 1 unidad cada vez que corre la suite.
+    await prisma.inventoryStock.update({ where: { productId: bulto!.id }, data: { currentQuantity: { increment: 1 } } });
   });
 });
 
