@@ -12,10 +12,25 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={() => setPreference(isDark ? "light" : "dark")}
-      className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 dark:text-slate-400 dark:hover:text-slate-200 p-1"
+      className="relative w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 transition-colors duration-200 active:scale-90"
       title={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
     >
-      {isDark ? <Sun size={18} strokeWidth={2} aria-hidden="true" /> : <Moon size={18} strokeWidth={2} aria-hidden="true" />}
+      <Sun
+        size={18}
+        strokeWidth={2}
+        aria-hidden="true"
+        className={`absolute transition-all duration-500 ease-out ${
+          isDark ? "rotate-0 scale-100 opacity-100" : "rotate-90 scale-0 opacity-0"
+        }`}
+      />
+      <Moon
+        size={18}
+        strokeWidth={2}
+        aria-hidden="true"
+        className={`absolute transition-all duration-500 ease-out ${
+          isDark ? "-rotate-90 scale-0 opacity-0" : "rotate-0 scale-100 opacity-100"
+        }`}
+      />
     </button>
   );
 }

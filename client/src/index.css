@@ -16,3 +16,17 @@
 .dark body {
   color: #e2e8f0;
 }
+
+/* Transición suave al cambiar de tema (en vez del salto abrupto de blanco a
+   oscuro): cualquier elemento sin su propia regla `transition` explícita
+   hereda esta — los que ya definen la suya (ej. .nav-item, el cajón móvil
+   del sidebar) ganan por especificidad y no se ven afectados. Solo se anima
+   color/fondo/borde, nunca `transform`/`width`/`max-height`, para no
+   interferir con otras animaciones de layout ya existentes. */
+*,
+*::before,
+*::after {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: ease;
+  transition-duration: 200ms;
+}
