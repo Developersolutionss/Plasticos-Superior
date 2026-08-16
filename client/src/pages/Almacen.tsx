@@ -15,14 +15,14 @@ function extractLocationToken(scanned: string): string {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="block text-xs font-medium text-slate-600 mb-1">{label}</span>
+      <span className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">{label}</span>
       {children}
     </label>
   );
 }
 
 const inputClass =
-  "w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-500";
+  "w-full border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-500";
 
 export default function Almacen() {
   const [code, setCode] = useState("");
@@ -64,27 +64,27 @@ export default function Almacen() {
   return (
     <div className="space-y-5 max-w-4xl">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800">Almacén / WMS</h1>
-        <p className="text-sm text-slate-500">Ubicaciones físicas de bodega y qué cantidad de cada producto hay en cada una</p>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Almacén / WMS</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Ubicaciones físicas de bodega y qué cantidad de cada producto hay en cada una</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ubicaciones</h2>
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ubicaciones</h2>
         </div>
         <div className="p-5 space-y-4">
           <div className="flex flex-wrap gap-2">
             {locations?.map((loc: any) => (
               <div
                 key={loc.id}
-                className="flex items-center gap-2 border border-slate-200 rounded-md pl-3 pr-1.5 py-1.5 text-sm"
+                className="flex items-center gap-2 border border-slate-200 dark:border-slate-700 rounded-md pl-3 pr-1.5 py-1.5 text-sm"
               >
-                <MapPin size={14} strokeWidth={2} className="text-slate-400" aria-hidden="true" />
-                <span className="font-medium text-slate-800">{loc.code}</span>
-                <span className="text-slate-500">— {loc.label}</span>
+                <MapPin size={14} strokeWidth={2} className="text-slate-400 dark:text-slate-400" aria-hidden="true" />
+                <span className="font-medium text-slate-800 dark:text-slate-100">{loc.code}</span>
+                <span className="text-slate-500 dark:text-slate-400">— {loc.label}</span>
                 <button
                   type="button"
-                  className="ml-1 p-1 rounded hover:bg-slate-100 text-slate-500"
+                  className="ml-1 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
                   title="Ver QR"
                   onClick={() => setQrLocationId(loc.id)}
                 >
@@ -92,12 +92,12 @@ export default function Almacen() {
                 </button>
               </div>
             ))}
-            {locations?.length === 0 && <p className="text-slate-500 text-sm">Todavía no hay ubicaciones.</p>}
+            {locations?.length === 0 && <p className="text-slate-500 dark:text-slate-400 text-sm">Todavía no hay ubicaciones.</p>}
           </div>
 
-          <form onSubmit={handleCreateLocation} className="border-t border-slate-100 pt-4">
+          <form onSubmit={handleCreateLocation} className="border-t border-slate-100 dark:border-slate-700 pt-4">
             {locationError && (
-              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-red-50 text-red-700 text-sm">
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 text-sm">
                 <CircleAlert size={16} strokeWidth={2} aria-hidden="true" />
                 <span>{locationError}</span>
               </div>
@@ -125,12 +125,12 @@ export default function Almacen() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stock por producto</h2>
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Stock por producto</h2>
           <button
             type="button"
-            className="text-slate-600 text-xs border border-slate-300 rounded-md px-2.5 py-1.5 inline-flex items-center gap-1.5 hover:bg-slate-50"
+            className="text-slate-600 dark:text-slate-300 text-xs border border-slate-300 dark:border-slate-600 rounded-md px-2.5 py-1.5 inline-flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"
             onClick={() => {
               setScanError(null);
               setScanningProduct(true);
@@ -139,14 +139,14 @@ export default function Almacen() {
             <ScanLine size={14} strokeWidth={2} aria-hidden="true" /> Escanear producto
           </button>
         </div>
-        {scanError && <p className="px-5 pt-3 text-red-600 text-xs">{scanError}</p>}
-        {isLoading && <p className="p-4 text-center text-slate-500 text-sm">Cargando...</p>}
-        {!isLoading && stock?.length === 0 && <p className="p-4 text-center text-slate-500 text-sm">No hay productos.</p>}
+        {scanError && <p className="px-5 pt-3 text-red-600 dark:text-red-400 text-xs">{scanError}</p>}
+        {isLoading && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</p>}
+        {!isLoading && stock?.length === 0 && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">No hay productos.</p>}
 
         {!isLoading && stock && stock.length > 0 && (
           <>
             <table className="hidden md:table w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-500">
+              <thead className="bg-slate-50 dark:bg-slate-800 text-left text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="p-3 w-8"></th>
                   <th className="p-3">Producto</th>
@@ -167,7 +167,7 @@ export default function Almacen() {
               </tbody>
             </table>
 
-            <div className="md:hidden divide-y divide-slate-100">
+            <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-700">
               {stock.map((p: any) => (
                 <ProductCard
                   key={p.productId}
@@ -199,21 +199,21 @@ function QrModal({ locationId, onClose }: { locationId: number; onClose: () => v
   return (
     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
       <div
-        className="bg-white rounded-xl shadow-lg p-6 max-w-xs w-full text-center space-y-4"
+        className="bg-white dark:bg-slate-900 rounded-xl shadow-lg p-6 max-w-xs w-full text-center space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-slate-700">Código QR de la ubicación</p>
-          <button type="button" className="p-1 rounded hover:bg-slate-100 text-slate-500" onClick={onClose}>
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Código QR de la ubicación</p>
+          <button type="button" className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400" onClick={onClose}>
             <X size={16} strokeWidth={2} />
           </button>
         </div>
-        {isLoading && <p className="text-slate-500 text-sm py-8">Generando...</p>}
+        {isLoading && <p className="text-slate-500 dark:text-slate-400 text-sm py-8">Generando...</p>}
         {data && (
           <>
             <img src={data.dataUrl} alt="Código QR de la ubicación" className="mx-auto w-56 h-56" />
-            <p className="text-xs text-slate-400 break-all">{data.url}</p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-400 dark:text-slate-400 break-all">{data.url}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Imprimí este QR y pegalo en el estante. Al escanearlo con la cámara del celular se abre el stock de esta
               ubicación en tiempo real.
             </p>
@@ -270,20 +270,20 @@ function AssignForm({ product, locations }: { product: any; locations: any[] }) 
       <ul className="text-sm space-y-1.5">
         {product.locations.map((loc: any) => (
           <li key={loc.locationId} className="flex justify-between">
-            <span className="text-slate-600">
+            <span className="text-slate-600 dark:text-slate-300">
               {loc.code} — {loc.label}
             </span>
-            <span className="font-medium text-slate-800">
+            <span className="font-medium text-slate-800 dark:text-slate-100">
               {loc.quantity} {product.unit}
             </span>
           </li>
         ))}
-        {product.locations.length === 0 && <li className="text-slate-500">Sin ubicaciones asignadas todavía.</li>}
+        {product.locations.length === 0 && <li className="text-slate-500 dark:text-slate-400">Sin ubicaciones asignadas todavía.</li>}
       </ul>
 
-      <form onSubmit={handleAssign} className="border-t border-slate-200 pt-3 space-y-2">
+      <form onSubmit={handleAssign} className="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
         {error && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-red-50 text-red-700 text-xs">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 text-xs">
             <CircleAlert size={14} strokeWidth={2} aria-hidden="true" />
             <span>{error}</span>
           </div>
@@ -311,7 +311,7 @@ function AssignForm({ product, locations }: { product: any; locations: any[] }) 
               </select>
               <button
                 type="button"
-                className="shrink-0 border border-slate-300 rounded-md px-2.5 text-slate-600 hover:bg-slate-50"
+                className="shrink-0 border border-slate-300 dark:border-slate-600 rounded-md px-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                 title="Escanear QR de la ubicación"
                 onClick={() => setScanningLocation(true)}
               >
@@ -362,22 +362,22 @@ function ProductRow({
 }) {
   return (
     <>
-      <tr className="border-t border-slate-100 cursor-pointer hover:bg-slate-50" onClick={onToggle}>
-        <td className="p-3 text-slate-400">
+      <tr className="border-t border-slate-100 dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" onClick={onToggle}>
+        <td className="p-3 text-slate-400 dark:text-slate-400">
           {expanded ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronRight size={14} strokeWidth={2} />}
         </td>
         <td className="p-3">
-          {product.name} <span className="text-slate-400">({product.sku})</span>
+          {product.name} <span className="text-slate-400 dark:text-slate-400">({product.sku})</span>
         </td>
         <td className="p-3">
           {product.totalStock} {product.unit}
         </td>
-        <td className={`p-3 ${product.unassigned > 0 ? "text-amber-700 font-medium" : "text-slate-500"}`}>
+        <td className={`p-3 ${product.unassigned > 0 ? "text-amber-700 dark:text-amber-400 font-medium" : "text-slate-500 dark:text-slate-400"}`}>
           {product.unassigned} {product.unit}
         </td>
       </tr>
       {expanded && (
-        <tr className="border-t border-slate-100 bg-slate-50">
+        <tr className="border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
           <td></td>
           <td colSpan={3} className="p-4">
             <AssignForm product={product} locations={locations} />
@@ -403,26 +403,26 @@ function ProductCard({
     <div>
       <button type="button" className="w-full text-left p-4 space-y-1" onClick={onToggle}>
         <div className="flex items-center justify-between">
-          <p className="font-medium text-slate-800">
-            {product.name} <span className="text-slate-400 font-normal">({product.sku})</span>
+          <p className="font-medium text-slate-800 dark:text-slate-100">
+            {product.name} <span className="text-slate-400 dark:text-slate-400 font-normal">({product.sku})</span>
           </p>
           {expanded ? (
-            <ChevronDown size={16} strokeWidth={2} className="text-slate-400 shrink-0" />
+            <ChevronDown size={16} strokeWidth={2} className="text-slate-400 dark:text-slate-400 shrink-0" />
           ) : (
-            <ChevronRight size={16} strokeWidth={2} className="text-slate-400 shrink-0" />
+            <ChevronRight size={16} strokeWidth={2} className="text-slate-400 dark:text-slate-400 shrink-0" />
           )}
         </div>
         <div className="flex items-center gap-4 text-sm">
-          <span className="text-slate-500">
+          <span className="text-slate-500 dark:text-slate-400">
             Stock: {product.totalStock} {product.unit}
           </span>
-          <span className={product.unassigned > 0 ? "text-amber-700 font-medium" : "text-slate-500"}>
+          <span className={product.unassigned > 0 ? "text-amber-700 dark:text-amber-400 font-medium" : "text-slate-500 dark:text-slate-400"}>
             Sin ubicar: {product.unassigned} {product.unit}
           </span>
         </div>
       </button>
       {expanded && (
-        <div className="px-4 pb-4 bg-slate-50">
+        <div className="px-4 pb-4 bg-slate-50 dark:bg-slate-800">
           <AssignForm product={product} locations={locations} />
         </div>
       )}

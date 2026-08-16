@@ -1,1 +1,18 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Mucho texto en la app (spans/divs de listados, etc.) no lleva una clase
+   de color propia — siempre heredó el negro por defecto del navegador, que
+   se veía bien sobre fondos claros. En modo oscuro ese mismo negro heredado
+   queda invisible sobre fondos oscuros. En vez de perseguir cada elemento
+   suelto, se fija acá un color de texto base para todo lo que no tenga su
+   propio `dark:text-*` — un elemento con su propia clase de color siempre
+   gana por especificidad, así que esto no pisa nada de lo ya tratado.
+   `color-scheme: dark` además hace que controles nativos (checkboxes,
+   date pickers, scrollbar) se rendericen oscuros solos. */
+.dark {
+  color-scheme: dark;
+}
+.dark body {
+  color: #e2e8f0;
+}

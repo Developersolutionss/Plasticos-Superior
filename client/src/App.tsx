@@ -30,6 +30,7 @@ import Facturas from "./pages/Facturas";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import SecuritySettings from "./pages/SecuritySettings";
+import Apariencia from "./pages/Apariencia";
 import {
   ADMIN,
   ALMACEN,
@@ -265,6 +266,8 @@ export default function App() {
             </RequireRole>
           }
         />
+        {/* Sin RequireRole a propósito: es una preferencia personal, no algo que restringir por rol. */}
+        <Route path="configuracion/apariencia" element={<Apariencia />} />
       </Route>
     </Routes>
   );

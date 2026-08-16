@@ -10,10 +10,10 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  emitida: "bg-slate-100 text-slate-700",
-  pagada_parcial: "bg-amber-100 text-amber-700",
-  pagada: "bg-emerald-100 text-emerald-700",
-  anulada: "bg-red-100 text-red-700",
+  emitida: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
+  pagada_parcial: "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400",
+  pagada: "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400",
+  anulada: "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400",
 };
 
 const METHOD_LABELS: Record<string, string> = {
@@ -129,10 +129,10 @@ export default function Facturas() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-4">
       <div className="space-y-4">
-        <form onSubmit={handleCreate} className="bg-white rounded-lg shadow p-4 space-y-2">
-          <p className="text-sm font-medium text-slate-700">Nueva factura</p>
-          {error && <p className="text-red-600 text-sm">{error}</p>}
-          <select className="border rounded px-3 py-2 text-sm w-full" value={clientId} onChange={(e) => setClientId(e.target.value)}>
+        <form onSubmit={handleCreate} className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-2">
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nueva factura</p>
+          {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+          <select className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={clientId} onChange={(e) => setClientId(e.target.value)}>
             <option value="">Cliente...</option>
             {clients?.map((c: any) => (
               <option key={c.id} value={c.id}>
@@ -142,9 +142,9 @@ export default function Facturas() {
           </select>
           <div className="space-y-2">
             {items.map((item, i) => (
-              <div key={i} className="border rounded p-2 space-y-2">
+              <div key={i} className="border rounded p-2 space-y-2 dark:border-slate-700">
                 <select
-                  className="border rounded px-2 py-2 text-sm w-full"
+                  className="border rounded px-2 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   value={item.productId}
                   onChange={(e) => updateItem(i, { productId: e.target.value, unitPrice: String(productPrice(e.target.value)) })}
                 >
@@ -157,14 +157,14 @@ export default function Facturas() {
                 </select>
                 <div className="flex items-center gap-2">
                   <input
-                    className="border rounded px-2 py-2 text-sm min-w-0 flex-1"
+                    className="border rounded px-2 py-2 text-sm min-w-0 flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     placeholder="Cant."
                     type="number"
                     value={item.quantity}
                     onChange={(e) => updateItem(i, { quantity: e.target.value })}
                   />
                   <input
-                    className="border rounded px-2 py-2 text-sm min-w-0 flex-1"
+                    className="border rounded px-2 py-2 text-sm min-w-0 flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     placeholder="Precio"
                     type="number"
                     value={item.unitPrice}
@@ -173,7 +173,7 @@ export default function Facturas() {
                   <button
                     type="button"
                     onClick={() => setItems(items.filter((_, idx) => idx !== i))}
-                    className="text-red-600 text-xs shrink-0"
+                    className="text-red-600 dark:text-red-400 text-xs shrink-0"
                     disabled={items.length === 1}
                   >
                     Quitar
@@ -181,20 +181,20 @@ export default function Facturas() {
                 </div>
               </div>
             ))}
-            <button type="button" onClick={() => setItems([...items, { ...emptyItem }])} className="text-sm text-sky-700 hover:underline">
+            <button type="button" onClick={() => setItems([...items, { ...emptyItem }])} className="text-sm text-sky-700 dark:text-sky-400 hover:underline">
               + Agregar ítem
             </button>
           </div>
           <input
-            className="border rounded px-3 py-2 text-sm w-full"
+            className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="Notas (opcional)"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
-          <label className="block text-xs text-slate-500">
+          <label className="block text-xs text-slate-500 dark:text-slate-400">
             Vencimiento (opcional)
             <input
-              className="border rounded px-3 py-2 text-sm w-full mt-1"
+              className="border rounded px-3 py-2 text-sm w-full mt-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
@@ -205,8 +205,8 @@ export default function Facturas() {
           </button>
         </form>
 
-        <div className="bg-white rounded-lg shadow divide-y">
-          {isLoading && <p className="p-4 text-slate-500 text-sm">Cargando...</p>}
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow divide-y">
+          {isLoading && <p className="p-4 text-slate-500 dark:text-slate-400 text-sm">Cargando...</p>}
           {facturas?.map((f: any) => {
             const t = total(f.items);
             const paid = totalPaid(f.payments);
@@ -215,30 +215,30 @@ export default function Facturas() {
               <button
                 key={f.id}
                 onClick={() => setSelectedFacturaId(f.id)}
-                className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-50 ${
-                  selectedFacturaId === f.id ? "bg-slate-100 font-medium" : ""
+                className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                  selectedFacturaId === f.id ? "bg-slate-100 dark:bg-slate-800 font-medium" : ""
                 }`}
               >
                 <div className="flex justify-between items-center gap-2">
                   <span>{f.invoiceNumber}</span>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {vencida && <span className="text-xs rounded-full px-2 py-0.5 bg-rose-100 text-rose-700">Vencida</span>}
+                    {vencida && <span className="text-xs rounded-full px-2 py-0.5 bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-400">Vencida</span>}
                     <span className={`text-xs rounded-full px-2 py-0.5 ${STATUS_COLORS[f.status]}`}>{STATUS_LABELS[f.status]}</span>
                   </div>
                 </div>
-                <div className="text-slate-500">{f.client.name}</div>
-                <div className="text-xs text-slate-500">
+                <div className="text-slate-500 dark:text-slate-400">{f.client.name}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
                   ${t.toLocaleString("es-CO")} · saldo ${(t - paid).toLocaleString("es-CO")}
                 </div>
               </button>
             );
           })}
-          {facturas?.length === 0 && <p className="p-4 text-slate-500 text-sm">Todavía no hay facturas.</p>}
+          {facturas?.length === 0 && <p className="p-4 text-slate-500 dark:text-slate-400 text-sm">Todavía no hay facturas.</p>}
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-4">
-        {!selectedFactura && <p className="text-slate-500">Seleccioná una factura para ver el detalle.</p>}
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4">
+        {!selectedFactura && <p className="text-slate-500 dark:text-slate-400">Seleccioná una factura para ver el detalle.</p>}
 
         {selectedFactura && (
           <div className="space-y-4">
@@ -249,22 +249,22 @@ export default function Facturas() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => api.downloadFacturaPdf(selectedFactura.id, selectedFactura.invoiceNumber)}
-                  className="text-slate-600 text-xs hover:underline"
+                  className="text-slate-600 dark:text-slate-300 text-xs hover:underline"
                 >
                   Descargar PDF
                 </button>
                 {selectedFactura.status !== "anulada" && (
-                  <button onClick={() => handleAnular(selectedFactura.id)} className="text-red-600 text-xs hover:underline">
+                  <button onClick={() => handleAnular(selectedFactura.id)} className="text-red-600 dark:text-red-400 text-xs hover:underline">
                     Anular factura
                   </button>
                 )}
               </div>
             </div>
-            {error && <p className="text-red-600 text-sm">{error}</p>}
-            {message && <p className="text-emerald-700 text-sm">{message}</p>}
+            {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+            {message && <p className="text-emerald-700 dark:text-emerald-400 text-sm">{message}</p>}
 
             <table className="hidden sm:table w-full text-sm">
-              <thead className="bg-slate-100 text-left">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                 <tr>
                   <th className="p-2">Producto</th>
                   <th className="p-2">Cantidad</th>
@@ -287,7 +287,7 @@ export default function Facturas() {
               {selectedFactura.items.map((it: any) => (
                 <div key={it.id} className="p-2.5 text-sm space-y-0.5">
                   <p className="font-medium">{it.product.name}</p>
-                  <p className="text-slate-500">
+                  <p className="text-slate-500 dark:text-slate-400">
                     {it.quantity} × ${Number(it.unitPrice).toLocaleString("es-CO")} = $
                     {(Number(it.quantity) * Number(it.unitPrice)).toLocaleString("es-CO")}
                   </p>
@@ -302,19 +302,19 @@ export default function Facturas() {
               return (
                 <div className="text-right space-y-1">
                   {selectedFactura.dueDate && (
-                    <p className={vencida ? "text-rose-700 font-medium" : "text-slate-500"}>
+                    <p className={vencida ? "text-rose-700 dark:text-rose-400 font-medium" : "text-slate-500 dark:text-slate-400"}>
                       Vence: {new Date(selectedFactura.dueDate).toLocaleDateString()} {vencida && "· Vencida"}
                     </p>
                   )}
                   <p>Total: ${t.toLocaleString("es-CO")}</p>
-                  <p className="text-emerald-700">Pagado: ${paid.toLocaleString("es-CO")}</p>
+                  <p className="text-emerald-700 dark:text-emerald-400">Pagado: ${paid.toLocaleString("es-CO")}</p>
                   <p className="font-medium">Saldo: ${(t - paid).toLocaleString("es-CO")}</p>
                 </div>
               );
             })()}
 
             <div className="border-t pt-4 space-y-3">
-              <p className="text-sm font-medium text-slate-700">Pagos registrados</p>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Pagos registrados</p>
               <ul className="divide-y text-sm">
                 {payments?.map((p: any) => (
                   <li key={p.id} className="py-2 flex justify-between">
@@ -326,20 +326,20 @@ export default function Facturas() {
                     </span>
                   </li>
                 ))}
-                {payments?.length === 0 && <p className="text-slate-500 py-2">Sin pagos todavía.</p>}
+                {payments?.length === 0 && <p className="text-slate-500 dark:text-slate-400 py-2">Sin pagos todavía.</p>}
               </ul>
 
               {selectedFactura.status !== "anulada" && selectedFactura.status !== "pagada" && (
                 <form onSubmit={handleAddPayment} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_auto] gap-2">
                   <input
-                    className="border rounded px-3 py-2 text-sm"
+                    className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     placeholder="Monto"
                     type="number"
                     value={paymentForm.amount}
                     onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
                   />
                   <select
-                    className="border rounded px-3 py-2 text-sm"
+                    className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     value={paymentForm.method}
                     onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })}
                   >
@@ -350,7 +350,7 @@ export default function Facturas() {
                     ))}
                   </select>
                   <input
-                    className="border rounded px-3 py-2 text-sm"
+                    className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     placeholder="Notas"
                     value={paymentForm.notes}
                     onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}

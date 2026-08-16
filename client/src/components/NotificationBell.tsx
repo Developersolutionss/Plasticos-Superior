@@ -41,7 +41,7 @@ export default function NotificationBell() {
     <div className="relative">
       <button
         type="button"
-        className="relative text-slate-500 hover:text-slate-700 p-1"
+        className="relative text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1"
         onClick={() => setOpen((o) => !o)}
         title="Notificaciones"
       >
@@ -56,31 +56,31 @@ export default function NotificationBell() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg border border-slate-200 shadow-lg z-50 max-h-96 overflow-y-auto">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notificaciones</p>
-              <button className="text-xs text-slate-500 hover:underline" onClick={handleMarkAllRead}>
+          <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 shadow-lg z-50 max-h-96 overflow-y-auto">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 dark:border-slate-700">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notificaciones</p>
+              <button className="text-xs text-slate-500 dark:text-slate-400 hover:underline" onClick={handleMarkAllRead}>
                 Marcar todas como leídas
               </button>
             </div>
-            {notifications?.length === 0 && <p className="p-4 text-center text-slate-500 text-sm">Sin notificaciones.</p>}
-            <ul className="divide-y divide-slate-100">
+            {notifications?.length === 0 && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Sin notificaciones.</p>}
+            <ul className="divide-y divide-slate-100 dark:divide-slate-700">
               {notifications?.map((n: any) => (
                 <li key={n.id}>
                   <button
                     type="button"
-                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 ${n.read ? "text-slate-500" : "text-slate-800 font-medium"}`}
+                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 ${n.read ? "text-slate-500 dark:text-slate-400" : "text-slate-800 dark:text-slate-100 font-medium"}`}
                     onClick={() => handleClickNotification(n)}
                   >
                     <p>{n.message}</p>
-                    <p className="text-xs text-slate-400 font-normal mt-0.5">{new Date(n.createdAt).toLocaleString()}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-400 font-normal mt-0.5">{new Date(n.createdAt).toLocaleString()}</p>
                   </button>
                 </li>
               ))}
             </ul>
             <button
               type="button"
-              className="w-full text-center text-xs text-slate-500 hover:underline px-4 py-2.5 border-t border-slate-100"
+              className="w-full text-center text-xs text-slate-500 dark:text-slate-400 hover:underline px-4 py-2.5 border-t border-slate-100 dark:border-slate-700"
               onClick={() => {
                 setOpen(false);
                 navigate("/notificaciones");

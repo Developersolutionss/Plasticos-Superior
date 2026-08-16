@@ -108,10 +108,10 @@ export default function Cotizaciones() {
 
   return (
     <div className="space-y-4">
-      <form onSubmit={handleCreate} className="bg-white rounded-lg shadow p-4 space-y-3">
-        <p className="text-sm font-medium text-slate-700">Nueva cotización</p>
-        {error && <p className="text-red-600 text-sm">{error}</p>}
-        {message && <p className="text-emerald-700 text-sm">{message}</p>}
+      <form onSubmit={handleCreate} className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nueva cotización</p>
+        {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+        {message && <p className="text-emerald-700 dark:text-emerald-400 text-sm">{message}</p>}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
           <ClientePicker
@@ -121,14 +121,14 @@ export default function Cotizaciones() {
             placeholder="Buscar cliente por nombre..."
           />
           <input
-            className="border rounded px-3 py-2 text-sm"
+            className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             type="date"
             placeholder="Válida hasta"
             value={validUntil}
             onChange={(e) => setValidUntil(e.target.value)}
           />
           <input
-            className="border rounded px-3 py-2 text-sm"
+            className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="Notas"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -136,11 +136,11 @@ export default function Cotizaciones() {
         </div>
 
         <div className="space-y-2">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Ítems</p>
+          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Ítems</p>
           {items.map((item, i) => (
-            <div key={i} className="border rounded p-2 space-y-2">
+            <div key={i} className="border rounded p-2 space-y-2 dark:border-slate-700">
               <select
-                className="border rounded px-3 py-2 text-sm w-full"
+                className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 value={item.productId}
                 onChange={(e) => updateItem(i, { productId: e.target.value, unitPrice: String(productPrice(e.target.value)) })}
               >
@@ -153,7 +153,7 @@ export default function Cotizaciones() {
               </select>
               <div className="flex items-center gap-2">
                 <input
-                  className="border rounded px-3 py-2 text-sm min-w-0 flex-1"
+                  className="border rounded px-3 py-2 text-sm min-w-0 flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   placeholder="Cantidad"
                   type="number"
                   step="0.01"
@@ -161,7 +161,7 @@ export default function Cotizaciones() {
                   onChange={(e) => updateItem(i, { quantity: e.target.value })}
                 />
                 <input
-                  className="border rounded px-3 py-2 text-sm min-w-0 flex-1"
+                  className="border rounded px-3 py-2 text-sm min-w-0 flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   placeholder="Precio unitario"
                   type="number"
                   step="0.01"
@@ -171,7 +171,7 @@ export default function Cotizaciones() {
                 <button
                   type="button"
                   onClick={() => removeItemRow(i)}
-                  className="text-red-600 text-xs px-2 shrink-0"
+                  className="text-red-600 dark:text-red-400 text-xs px-2 shrink-0"
                   disabled={items.length === 1}
                 >
                   Quitar
@@ -179,7 +179,7 @@ export default function Cotizaciones() {
               </div>
             </div>
           ))}
-          <button type="button" onClick={addItemRow} className="text-sm text-sky-700 hover:underline">
+          <button type="button" onClick={addItemRow} className="text-sm text-sky-700 dark:text-sky-400 hover:underline">
             + Agregar ítem
           </button>
         </div>
@@ -189,16 +189,16 @@ export default function Cotizaciones() {
         </button>
       </form>
 
-      {isLoading && <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Cargando...</div>}
+      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
       {!isLoading && cotizaciones?.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Todavía no hay cotizaciones.</div>
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Todavía no hay cotizaciones.</div>
       )}
 
       {!isLoading && cotizaciones && cotizaciones.length > 0 && (
         <>
-          <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-100 text-left">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                 <tr>
                   <th className="p-3">Cotización</th>
                   <th className="p-3">Cliente</th>
@@ -217,7 +217,7 @@ export default function Cotizaciones() {
                     <td className="p-3">{c.validUntil ? new Date(c.validUntil).toLocaleDateString() : "-"}</td>
                     <td className="p-3">
                       <select
-                        className="text-xs rounded-full px-2 py-1 border bg-slate-50"
+                        className="text-xs rounded-full px-2 py-1 border bg-slate-50 dark:bg-slate-800"
                         value={c.status}
                         onChange={(e) => handleStatusChange(c.id, e.target.value)}
                       >
@@ -230,12 +230,12 @@ export default function Cotizaciones() {
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-3">
-                        <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-xs hover:underline">
+                        <button onClick={() => handleConvert(c.id)} className="text-sky-700 dark:text-sky-400 text-xs hover:underline">
                           Convertir en pedido
                         </button>
                         <button
                           onClick={() => api.downloadCotizacionPdf(c.id, c.quoteNumber)}
-                          className="text-slate-600 text-xs hover:underline"
+                          className="text-slate-600 dark:text-slate-300 text-xs hover:underline"
                         >
                           PDF
                         </button>
@@ -247,19 +247,19 @@ export default function Cotizaciones() {
             </table>
           </div>
 
-          <div className="md:hidden bg-white rounded-lg shadow divide-y divide-slate-100">
+          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
             {cotizaciones.map((c: any) => (
               <div key={c.id} className="p-4 space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="font-medium text-slate-800">{c.quoteNumber}</p>
-                  <p className="font-medium text-slate-800">${total(c).toLocaleString("es-CO")}</p>
+                  <p className="font-medium text-slate-800 dark:text-slate-100">{c.quoteNumber}</p>
+                  <p className="font-medium text-slate-800 dark:text-slate-100">${total(c).toLocaleString("es-CO")}</p>
                 </div>
-                <p className="text-sm text-slate-600">{c.client.name}</p>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-slate-600 dark:text-slate-300">{c.client.name}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
                   Válida hasta: {c.validUntil ? new Date(c.validUntil).toLocaleDateString() : "-"}
                 </p>
                 <select
-                  className="w-full text-xs rounded-full px-2 py-1.5 border bg-slate-50"
+                  className="w-full text-xs rounded-full px-2 py-1.5 border bg-slate-50 dark:bg-slate-800"
                   value={c.status}
                   onChange={(e) => handleStatusChange(c.id, e.target.value)}
                 >
@@ -270,10 +270,10 @@ export default function Cotizaciones() {
                   ))}
                 </select>
                 <div className="flex items-center gap-4">
-                  <button onClick={() => handleConvert(c.id)} className="text-sky-700 text-sm hover:underline">
+                  <button onClick={() => handleConvert(c.id)} className="text-sky-700 dark:text-sky-400 text-sm hover:underline">
                     Convertir en pedido
                   </button>
-                  <button onClick={() => api.downloadCotizacionPdf(c.id, c.quoteNumber)} className="text-slate-600 text-sm hover:underline">
+                  <button onClick={() => api.downloadCotizacionPdf(c.id, c.quoteNumber)} className="text-slate-600 dark:text-slate-300 text-sm hover:underline">
                     Descargar PDF
                   </button>
                 </div>

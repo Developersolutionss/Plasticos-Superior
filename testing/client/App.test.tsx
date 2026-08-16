@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "../../client/src/App";
 import { AuthProvider } from "../../client/src/auth/AuthContext";
 import { ShortcutsProvider } from "../../client/src/components/useShortcuts";
+import { ThemeProvider } from "../../client/src/theme/ThemeContext";
 
 vi.mock("../../client/src/api/client", () => ({
   api: {
@@ -31,11 +32,13 @@ function renderApp(initialPath = "/login") {
   return render(
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <ShortcutsProvider>
-          <MemoryRouter initialEntries={[initialPath]}>
-            <App />
-          </MemoryRouter>
-        </ShortcutsProvider>
+        <ThemeProvider>
+          <ShortcutsProvider>
+            <MemoryRouter initialEntries={[initialPath]}>
+              <App />
+            </MemoryRouter>
+          </ShortcutsProvider>
+        </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

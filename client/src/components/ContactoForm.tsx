@@ -46,32 +46,32 @@ export default function ContactoForm({
     <form onSubmit={handleSubmit} className="space-y-2">
       <div className="grid grid-cols-2 gap-2">
         <input
-          className="border rounded px-3 py-2 text-sm"
+          className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           placeholder="Nombre"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
         />
         <input
-          className="border rounded px-3 py-2 text-sm"
+          className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           placeholder="Cargo"
           value={form.position}
           onChange={(e) => setForm({ ...form, position: e.target.value })}
         />
         <input
-          className="border rounded px-3 py-2 text-sm"
+          className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           placeholder="Teléfono"
           value={form.phone}
           onChange={(e) => setForm({ ...form, phone: e.target.value })}
         />
         <input
-          className="border rounded px-3 py-2 text-sm"
+          className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           placeholder="Email"
           type="email"
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
         />
       </div>
-      <label className="flex items-center gap-2 text-sm text-slate-600">
+      <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
         <input
           type="checkbox"
           checked={form.isPrimary}
@@ -81,7 +81,7 @@ export default function ContactoForm({
       </label>
       <div className="flex justify-end gap-2 pt-1">
         {onCancel && (
-          <button type="button" onClick={onCancel} className="text-slate-600 text-sm px-3 py-2 rounded hover:bg-slate-100">
+          <button type="button" onClick={onCancel} className="text-slate-600 dark:text-slate-300 text-sm px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700">
             {cancelLabel}
           </button>
         )}

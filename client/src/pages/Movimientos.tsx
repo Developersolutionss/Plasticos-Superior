@@ -12,10 +12,10 @@ const MOVEMENT_LABELS: Record<string, string> = {
 };
 
 const MOVEMENT_COLORS: Record<string, string> = {
-  entrada_produccion: "bg-emerald-100 text-emerald-700",
-  salida_despacho: "bg-red-100 text-red-700",
-  ajuste: "bg-sky-100 text-sky-700",
-  devolucion: "bg-amber-100 text-amber-700",
+  entrada_produccion: "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400",
+  salida_despacho: "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400",
+  ajuste: "bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400",
+  devolucion: "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400",
 };
 
 const ENTRADAS = new Set(["entrada_produccion", "devolucion"]);
@@ -24,7 +24,7 @@ const PAGE_SIZE = 50;
 
 function MovementBadge({ type }: { type: string }) {
   return (
-    <span className={`text-xs rounded-full px-2 py-1 ${MOVEMENT_COLORS[type] ?? "bg-slate-100 text-slate-700"}`}>
+    <span className={`text-xs rounded-full px-2 py-1 ${MOVEMENT_COLORS[type] ?? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"}`}>
       {MOVEMENT_LABELS[type] ?? type}
     </span>
   );
@@ -33,7 +33,7 @@ function MovementBadge({ type }: { type: string }) {
 function MovementQuantity({ movement }: { movement: any }) {
   const isEntrada = ENTRADAS.has(movement.movementType);
   return (
-    <span className={isEntrada ? "text-emerald-700 font-medium" : "text-red-700 font-medium"}>
+    <span className={isEntrada ? "text-emerald-700 dark:text-emerald-400 font-medium" : "text-red-700 dark:text-red-400 font-medium"}>
       {isEntrada ? "+" : "−"}
       {Math.abs(Number(movement.quantity))} {movement.product?.unit}
     </span>
@@ -54,13 +54,13 @@ export default function Movimientos() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800">Movimientos de inventario</h1>
-        <p className="text-sm text-slate-500">Historial de entradas y salidas de stock</p>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Movimientos de inventario</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Historial de entradas y salidas de stock</p>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4">
         <select
-          className="border rounded px-3 py-2 text-sm"
+          className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           value={movementType}
           onChange={(e) => {
             setMovementType(e.target.value);
@@ -76,16 +76,16 @@ export default function Movimientos() {
         </select>
       </div>
 
-      {isLoading && <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Cargando...</div>}
+      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
       {!isLoading && data?.items.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-4 text-center text-slate-500 text-sm">Sin movimientos todavía.</div>
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Sin movimientos todavía.</div>
       )}
 
       {!isLoading && data && data.items.length > 0 && (
         <>
-          <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-100 text-left">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                 <tr>
                   <th className="p-3">Producto</th>
                   <th className="p-3">Tipo</th>
@@ -98,7 +98,7 @@ export default function Movimientos() {
                 {data.items.map((m: any) => (
                   <tr key={m.id} className="border-t">
                     <td className="p-3">
-                      {m.product?.name} <span className="text-slate-400">({m.product?.sku})</span>
+                      {m.product?.name} <span className="text-slate-400 dark:text-slate-400">({m.product?.sku})</span>
                     </td>
                     <td className="p-3">
                       <MovementBadge type={m.movementType} />
@@ -106,28 +106,28 @@ export default function Movimientos() {
                     <td className="p-3">
                       <MovementQuantity movement={m} />
                     </td>
-                    <td className="p-3 text-slate-500">{m.createdBy?.name ?? "—"}</td>
-                    <td className="p-3 text-slate-500">{new Date(m.createdAt).toLocaleString()}</td>
+                    <td className="p-3 text-slate-500 dark:text-slate-400">{m.createdBy?.name ?? "—"}</td>
+                    <td className="p-3 text-slate-500 dark:text-slate-400">{new Date(m.createdAt).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          <div className="md:hidden bg-white rounded-lg shadow divide-y divide-slate-100">
+          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
             {data.items.map((m: any) => (
               <div key={m.id} className="p-4 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium text-slate-800">
-                    {m.product?.name} <span className="text-slate-400 font-normal">({m.product?.sku})</span>
+                  <p className="font-medium text-slate-800 dark:text-slate-100">
+                    {m.product?.name} <span className="text-slate-400 dark:text-slate-400 font-normal">({m.product?.sku})</span>
                   </p>
                   <MovementBadge type={m.movementType} />
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <MovementQuantity movement={m} />
-                  <span className="text-slate-500">{m.createdBy?.name ?? "—"}</span>
+                  <span className="text-slate-500 dark:text-slate-400">{m.createdBy?.name ?? "—"}</span>
                 </div>
-                <p className="text-xs text-slate-400">{new Date(m.createdAt).toLocaleString()}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-400">{new Date(m.createdAt).toLocaleString()}</p>
               </div>
             ))}
           </div>
@@ -137,18 +137,18 @@ export default function Movimientos() {
       {data && data.total > PAGE_SIZE && (
         <div className="flex items-center justify-between text-sm">
           <button
-            className="px-3 py-1.5 border rounded disabled:opacity-40"
+            className="px-3 py-1.5 border rounded disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             type="button"
             disabled={page <= 1}
             onClick={() => setPage((p) => p - 1)}
           >
             Anterior
           </button>
-          <span className="text-slate-500">
+          <span className="text-slate-500 dark:text-slate-400">
             Página {page} de {totalPages}
           </span>
           <button
-            className="px-3 py-1.5 border rounded disabled:opacity-40"
+            className="px-3 py-1.5 border rounded disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             type="button"
             disabled={page >= totalPages}
             onClick={() => setPage((p) => p + 1)}

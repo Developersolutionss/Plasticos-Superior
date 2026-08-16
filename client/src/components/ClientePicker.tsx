@@ -72,10 +72,10 @@ export default function ClientePicker({
         {selected ? (
           <ClienteAvatar name={selected.name} avatarUrl={selected.avatarUrl} size={28} />
         ) : (
-          <Search size={16} strokeWidth={2} className="text-slate-400 shrink-0" aria-hidden="true" />
+          <Search size={16} strokeWidth={2} className="text-slate-400 dark:text-slate-400 shrink-0" aria-hidden="true" />
         )}
         <input
-          className="flex-1 py-2 text-sm outline-none min-w-0"
+          className="flex-1 py-2 text-sm outline-none min-w-0 dark:bg-slate-800 dark:text-slate-100"
           placeholder={selected ? selected.name : placeholder}
           value={open ? query : ""}
           onChange={(e) => {
@@ -92,19 +92,19 @@ export default function ClientePicker({
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="text-slate-400 hover:text-slate-700 p-0.5"
+            className="text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-0.5"
             title="Quitar cliente"
             aria-label="Quitar cliente"
           >
             <X size={16} strokeWidth={2} aria-hidden="true" />
           </button>
         )}
-        <ChevronDown size={16} strokeWidth={2} className={`text-slate-400 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+        <ChevronDown size={16} strokeWidth={2} className={`text-slate-400 dark:text-slate-400 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
       </div>
 
       {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-30">
-          {options.length === 0 && <p className="px-3 py-2 text-sm text-slate-500">Sin resultados.</p>}
+        <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-900 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 py-1 z-30">
+          {options.length === 0 && <p className="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">Sin resultados.</p>}
           {options.map((c) => {
             const active = c.id === value;
             return (
@@ -112,11 +112,11 @@ export default function ClientePicker({
                 key={c.id}
                 type="button"
                 onClick={() => pick(c.id)}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${active ? "bg-slate-100" : "hover:bg-slate-50"}`}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${active ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-50 dark:hover:bg-slate-800"}`}
               >
                 <ClienteAvatar name={c.name} avatarUrl={c.avatarUrl} size={28} />
                 <span className="flex-1 min-w-0 truncate">{c.name}</span>
-                {active && <Check size={16} strokeWidth={2} className="text-sky-600 shrink-0" aria-hidden="true" />}
+                {active && <Check size={16} strokeWidth={2} className="text-sky-600 dark:text-sky-400 shrink-0" aria-hidden="true" />}
               </button>
             );
           })}

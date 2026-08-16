@@ -8,14 +8,14 @@ import BarcodeScanner from "../components/BarcodeScanner";
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="block text-xs font-medium text-slate-600 mb-1">{label}</span>
+      <span className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">{label}</span>
       {children}
     </label>
   );
 }
 
 const inputClass =
-  "w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-500";
+  "w-full border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-500";
 
 type Station = "extrusion" | "impresion" | "sellado" | "precorte";
 
@@ -107,7 +107,7 @@ export default function EstacionProduccion() {
   });
 
   if (!info) {
-    return <p className="text-red-600">Estación desconocida.</p>;
+    return <p className="text-red-600 dark:text-red-400">Estación desconocida.</p>;
   }
 
   const stationStages = stages?.filter((s: any) => s.station === station) ?? [];
@@ -154,15 +154,17 @@ export default function EstacionProduccion() {
   return (
     <div className="space-y-5 max-w-3xl">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800">{info.label}</h1>
-        <p className="text-sm text-slate-500">Registro de paso de producción por estación</p>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">{info.label}</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Registro de paso de producción por estación</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {(error || result) && (
           <div
             className={`flex items-center gap-2 px-5 py-3 text-sm border-b ${
-              error ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"
+              error
+                ? "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 border-red-100 dark:border-red-800"
+                : "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800"
             }`}
           >
             {error ? <CircleAlert size={16} strokeWidth={2} aria-hidden="true" /> : <CircleCheck size={16} strokeWidth={2} aria-hidden="true" />}
@@ -172,7 +174,7 @@ export default function EstacionProduccion() {
 
         <div className="p-5 space-y-5">
           <section className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Orden de producción</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Orden de producción</h2>
             <div className="flex gap-2">
               <select
                 className={inputClass}
@@ -188,7 +190,7 @@ export default function EstacionProduccion() {
               </select>
               <button
                 type="button"
-                className="shrink-0 border border-slate-300 rounded-md px-3 text-slate-600 hover:bg-slate-50"
+                className="shrink-0 border border-slate-300 dark:border-slate-600 rounded-md px-3 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                 title="Escanear OP"
                 onClick={() => setScanning(true)}
               >
@@ -197,8 +199,8 @@ export default function EstacionProduccion() {
             </div>
           </section>
 
-          <section className="space-y-3 border-t border-slate-100 pt-5">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Datos generales</h2>
+          <section className="space-y-3 border-t border-slate-100 dark:border-slate-700 pt-5">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Datos generales</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
               <Field label="Máquina">
                 <input
@@ -272,8 +274,8 @@ export default function EstacionProduccion() {
             </div>
           </section>
 
-          <section className="space-y-3 border-t border-slate-100 pt-5">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Específico de {info.label}</h2>
+          <section className="space-y-3 border-t border-slate-100 dark:border-slate-700 pt-5">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Específico de {info.label}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
               {info.fields.map((field) => (
                 <Field key={field.key} label={field.label}>
@@ -304,7 +306,7 @@ export default function EstacionProduccion() {
             </div>
           </section>
 
-          <section className="space-y-3 border-t border-slate-100 pt-5">
+          <section className="space-y-3 border-t border-slate-100 dark:border-slate-700 pt-5">
             <Field label="Notas (opcional)">
               <input
                 className={inputClass}
@@ -316,7 +318,7 @@ export default function EstacionProduccion() {
           </section>
         </div>
 
-        <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+        <div className="px-5 py-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700 flex justify-end">
           <button
             className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-5 py-2 rounded-md transition-colors"
             type="submit"
@@ -327,30 +329,30 @@ export default function EstacionProduccion() {
       </form>
 
       {form.productionOrderId && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100">
-            <History size={16} strokeWidth={2} className="text-slate-500" aria-hidden="true" />
-            <p className="text-sm font-medium text-slate-700">Historial de {info.label} para esta OP</p>
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 dark:border-slate-700">
+            <History size={16} strokeWidth={2} className="text-slate-500 dark:text-slate-400" aria-hidden="true" />
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Historial de {info.label} para esta OP</p>
           </div>
-          <ul className="divide-y divide-slate-100 text-sm">
+          <ul className="divide-y divide-slate-100 dark:divide-slate-700 text-sm">
             {stationStages.map((s: any) => (
-              <li key={s.id} className="px-5 py-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-slate-700">
+              <li key={s.id} className="px-5 py-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-slate-700 dark:text-slate-200">
                 <span className="font-medium">{s.operatorName}</span>
-                <span className="text-slate-300">·</span>
+                <span className="text-slate-300 dark:text-slate-400">·</span>
                 <span>{s.machine}</span>
-                <span className="text-slate-300">·</span>
+                <span className="text-slate-300 dark:text-slate-400">·</span>
                 <span>{s.kilosProduced} kg</span>
                 {Number(s.mermaKg) > 0 && (
                   <>
-                    <span className="text-slate-300">·</span>
+                    <span className="text-slate-300 dark:text-slate-400">·</span>
                     <span>merma {s.mermaKg} kg</span>
                   </>
                 )}
-                <span className="text-slate-300">·</span>
-                <span className="text-slate-500">{new Date(s.startTime).toLocaleString()}</span>
+                <span className="text-slate-300 dark:text-slate-400">·</span>
+                <span className="text-slate-500 dark:text-slate-400">{new Date(s.startTime).toLocaleString()}</span>
               </li>
             ))}
-            {stationStages.length === 0 && <p className="text-slate-500 px-5 py-4">Sin registros todavía.</p>}
+            {stationStages.length === 0 && <p className="text-slate-500 dark:text-slate-400 px-5 py-4">Sin registros todavía.</p>}
           </ul>
         </div>
       )}

@@ -133,14 +133,14 @@ export default function Contactos() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-800">Contactos</h1>
+      <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Contactos</h1>
 
       {/* Búsqueda + filtros + vista */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative flex-1 min-w-[200px]">
-          <Search size={16} strokeWidth={2} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+          <Search size={16} strokeWidth={2} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-400" aria-hidden="true" />
           <input
-            className="w-full border rounded pl-9 pr-3 py-2 text-sm"
+            className="w-full border rounded pl-9 pr-3 py-2 text-sm dark:bg-slate-800 dark:text-slate-100"
             placeholder="Buscar por contacto o empresa..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -148,7 +148,7 @@ export default function Contactos() {
         </div>
 
         <select
-          className="border rounded px-3 py-2 text-sm bg-white"
+          className="border rounded px-3 py-2 text-sm bg-white dark:bg-slate-900"
           value={companyId}
           onChange={(e) => setCompanyId(e.target.value)}
           title="Filtrar por empresa"
@@ -168,7 +168,7 @@ export default function Contactos() {
               title={f.title}
               onClick={() => setFilter(f.key)}
               className={`px-3 py-1.5 rounded-full text-sm border ${
-                filter === f.key ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-700"
+                filter === f.key ? "bg-slate-800 text-white border-slate-800" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
               }`}
             >
               {f.label}
@@ -176,28 +176,28 @@ export default function Contactos() {
           ))}
         </div>
 
-        <div className="flex gap-1 border rounded-lg overflow-hidden bg-white">
+        <div className="flex gap-1 border rounded-lg overflow-hidden bg-white dark:bg-slate-900">
           <button
             onClick={() => setView("list")}
             title="Vista en lista"
-            className={`p-2 ${view === "list" ? "bg-slate-100 text-slate-800" : "text-slate-500"}`}
+            className={`p-2 ${view === "list" ? "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100" : "text-slate-500 dark:text-slate-400"}`}
           >
             <List size={16} strokeWidth={2} aria-hidden="true" />
           </button>
           <button
             onClick={() => setView("cajas")}
             title="Vista en cajas"
-            className={`p-2 ${view === "cajas" ? "bg-slate-100 text-slate-800" : "text-slate-500"}`}
+            className={`p-2 ${view === "cajas" ? "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100" : "text-slate-500 dark:text-slate-400"}`}
           >
             <LayoutGrid size={16} strokeWidth={2} aria-hidden="true" />
           </button>
         </div>
       </div>
 
-      {isLoading && <p className="text-slate-500 text-sm">Cargando contactos...</p>}
+      {isLoading && <p className="text-slate-500 dark:text-slate-400 text-sm">Cargando contactos...</p>}
 
       {view === "list" && !isLoading && (
-        <div className="bg-white rounded-lg shadow divide-y">
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow divide-y">
           {visibleContacts.map((c: any) => (
             <div key={c.id} className="px-4 py-3 flex items-center gap-3 text-sm group">
               <div className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer" onClick={() => openContact(c)}>
@@ -206,12 +206,12 @@ export default function Contactos() {
                   <span className="block font-medium truncate">
                     {c.name}
                     {c.isPrimary && (
-                      <span className="ml-2 inline-block text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full align-middle">
+                      <span className="ml-2 inline-block text-[10px] bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 px-1.5 py-0.5 rounded-full align-middle">
                         Principal
                       </span>
                     )}
                   </span>
-                  <span className="block text-xs text-slate-500 truncate">
+                  <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">
                     {c.client?.name}
                     {c.position ? ` · ${c.position}` : ""}
                   </span>
@@ -224,7 +224,7 @@ export default function Contactos() {
                     setOpenMenuId(openMenuId === c.id ? null : c.id);
                     setConfirmDeleteId(null);
                   }}
-                  className="p-1.5 rounded hover:bg-slate-100 text-slate-400"
+                  className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-400"
                   title="Más opciones"
                   aria-label={`Opciones de ${c.name}`}
                 >
@@ -234,14 +234,14 @@ export default function Contactos() {
               </div>
             </div>
           ))}
-          {visibleContacts.length === 0 && <p className="p-4 text-slate-500 text-sm">No se encontraron contactos.</p>}
+          {visibleContacts.length === 0 && <p className="p-4 text-slate-500 dark:text-slate-400 text-sm">No se encontraron contactos.</p>}
         </div>
       )}
 
       {view === "cajas" && !isLoading && (
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
           {visibleContacts.map((c: any) => (
-            <div key={c.id} className="bg-white rounded-lg shadow p-4 flex flex-col items-center gap-2 relative">
+            <div key={c.id} className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 flex flex-col items-center gap-2 relative">
               <div className="absolute top-2 right-2">
                 <button
                   onClick={(e) => {
@@ -249,7 +249,7 @@ export default function Contactos() {
                     setOpenMenuId(openMenuId === c.id ? null : c.id);
                     setConfirmDeleteId(null);
                   }}
-                  className="p-1.5 rounded hover:bg-slate-100 text-slate-400"
+                  className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-400"
                   aria-label="Más opciones"
                 >
                   <MoreVertical size={16} strokeWidth={2} aria-hidden="true" />
@@ -260,14 +260,14 @@ export default function Contactos() {
                 <ClienteAvatar name={c.client?.name ?? "?"} avatarUrl={c.client?.avatarUrl} size={48} />
                 <span className="text-sm font-medium text-center leading-tight">
                   {c.name}
-                  {c.isPrimary && <span className="ml-1 text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full align-middle">P</span>}
+                  {c.isPrimary && <span className="ml-1 text-[10px] bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 px-1.5 py-0.5 rounded-full align-middle">P</span>}
                 </span>
-                {c.position && <span className="text-xs text-slate-400">{c.position}</span>}
-                <span className="text-xs text-slate-500 truncate w-full text-center">{c.client?.name}</span>
+                {c.position && <span className="text-xs text-slate-400 dark:text-slate-400">{c.position}</span>}
+                <span className="text-xs text-slate-500 dark:text-slate-400 truncate w-full text-center">{c.client?.name}</span>
               </button>
             </div>
           ))}
-          {visibleContacts.length === 0 && <p className="col-span-full text-slate-500 text-sm p-2">No se encontraron contactos.</p>}
+          {visibleContacts.length === 0 && <p className="col-span-full text-slate-500 dark:text-slate-400 text-sm p-2">No se encontraron contactos.</p>}
         </div>
       )}
 
@@ -287,54 +287,54 @@ export default function Contactos() {
           ) : (
             <div className="space-y-3 text-sm">
               {selectedContact.isPrimary && (
-              <span className="inline-block text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Contacto principal</span>
+              <span className="inline-block text-xs bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 px-2 py-0.5 rounded-full">Contacto principal</span>
             )}
             <div className="flex items-center gap-2">
               <ClienteAvatar name={selectedContact.client?.name ?? "?"} avatarUrl={selectedContact.client?.avatarUrl} size={32} />
               <div className="min-w-0">
-                <p className="text-xs uppercase tracking-wide text-slate-400">Cliente</p>
-                <p className="text-slate-800 font-medium truncate">{selectedContact.client?.name ?? "-"}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Cliente</p>
+                <p className="text-slate-800 dark:text-slate-100 font-medium truncate">{selectedContact.client?.name ?? "-"}</p>
               </div>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Cargo</p>
-              <p className="text-slate-700">{selectedContact.position ?? "-"}</p>
+              <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Cargo</p>
+              <p className="text-slate-700 dark:text-slate-200">{selectedContact.position ?? "-"}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Teléfono</p>
+              <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Teléfono</p>
               {selectedContact.phone ? (
-                <a href={`tel:${selectedContact.phone}`} className="text-slate-700 hover:text-sky-600">
+                <a href={`tel:${selectedContact.phone}`} className="text-slate-700 dark:text-slate-200 hover:text-sky-600">
                   {selectedContact.phone}
                 </a>
               ) : (
-                <p className="text-slate-700">-</p>
+                <p className="text-slate-700 dark:text-slate-200">-</p>
               )}
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Email</p>
+              <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Email</p>
               {selectedContact.email ? (
-                <a href={`mailto:${selectedContact.email}`} className="text-slate-700 hover:text-sky-600">
+                <a href={`mailto:${selectedContact.email}`} className="text-slate-700 dark:text-slate-200 hover:text-sky-600">
                   {selectedContact.email}
                 </a>
               ) : (
-                <p className="text-slate-700">-</p>
+                <p className="text-slate-700 dark:text-slate-200">-</p>
               )}
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Agregado el</p>
-              <p className="text-slate-700">{new Date(selectedContact.createdAt).toLocaleString()}</p>
+              <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-400">Agregado el</p>
+              <p className="text-slate-700 dark:text-slate-200">{new Date(selectedContact.createdAt).toLocaleString()}</p>
             </div>
             <div className="border-t pt-3 flex items-center justify-between">
               <button
                 onClick={() => setEditingContact(true)}
-                className="flex items-center gap-1.5 text-slate-600 text-xs hover:underline"
+                className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 text-xs hover:underline"
               >
                 <Pencil size={14} strokeWidth={2} aria-hidden="true" />
                 Editar
               </button>
               <button
                 onClick={() => openCompany(selectedContact)}
-                className="flex items-center gap-1.5 text-sky-600 text-xs hover:underline"
+                className="flex items-center gap-1.5 text-sky-600 dark:text-sky-400 text-xs hover:underline"
               >
                 <ExternalLink size={14} strokeWidth={2} aria-hidden="true" />
                 Ver empresa
@@ -351,13 +351,13 @@ export default function Contactos() {
 /** Menú desplegable ⋮ de un contacto. Requiere un contenedor position:relative. */
 function ContactMenu({ c, onCompany, onDelete, confirming }: { c: any; onCompany: () => void; onDelete: () => void; confirming: boolean }) {
   return (
-    <div className="absolute right-0 top-8 z-30 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1">
-      <button onClick={onCompany} className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 text-sm">
+    <div className="absolute right-0 top-8 z-30 w-48 bg-white dark:bg-slate-900 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 py-1">
+      <button onClick={onCompany} className="w-full text-left px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm">
         Abrir empresa
       </button>
       <button
         onClick={onDelete}
-        className={`w-full text-left px-3 py-2 text-sm ${confirming ? "text-red-700 bg-red-50 font-medium" : "text-red-600 hover:bg-red-50"}`}
+        className={`w-full text-left px-3 py-2 text-sm ${confirming ? "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950 font-medium" : "text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"}`}
       >
         {confirming ? "¿Confirmar eliminación?" : "Eliminar"}
       </button>

@@ -37,25 +37,25 @@ export default function ProductionUpload() {
 
   return (
     <div className="space-y-4 max-w-3xl">
-      <div className="bg-white rounded-lg shadow p-6 border-2 border-dashed border-slate-300 text-center">
-        <p className="text-slate-600 mb-3">
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-6 border-2 border-dashed border-slate-300 dark:border-slate-600 text-center">
+        <p className="text-slate-600 dark:text-slate-300 mb-3">
           Sube el reporte de producción (Excel/CSV) con columnas: SKU, Etiqueta, Operario, Cliente, Medida, Kilos,
           Conductor, Observaciones.
         </p>
         <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} />
       </div>
 
-      {loading && <p className="text-slate-500">Procesando...</p>}
+      {loading && <p className="text-slate-500 dark:text-slate-400">Procesando...</p>}
 
       {preview && (
-        <div className="bg-white rounded-lg shadow p-4 space-y-3">
-          <p className="text-sm text-slate-600">
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
             {preview.filename}: {preview.totalRows} filas · {preview.validRows} válidas · {preview.invalidRows} con
             error
           </p>
           <div className="hidden sm:block overflow-x-auto max-h-80 overflow-y-auto">
             <table className="w-full text-xs">
-              <thead className="bg-slate-100 text-left">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                 <tr>
                   <th className="p-2">Fila</th>
                   <th className="p-2">SKU</th>
@@ -67,13 +67,13 @@ export default function ProductionUpload() {
               </thead>
               <tbody>
                 {preview.rows.map((r) => (
-                  <tr key={r.rowNumber} className={`border-t ${r.error ? "bg-red-50" : ""}`}>
+                  <tr key={r.rowNumber} className={`border-t ${r.error ? "bg-red-50 dark:bg-red-950" : ""}`}>
                     <td className="p-2">{r.rowNumber}</td>
                     <td className="p-2">{r.sku}</td>
                     <td className="p-2">{r.operatorName}</td>
                     <td className="p-2">{r.clientName ?? "-"}</td>
                     <td className="p-2">{r.kilos}</td>
-                    <td className="p-2 text-red-600">{r.error ?? ""}</td>
+                    <td className="p-2 text-red-600 dark:text-red-400">{r.error ?? ""}</td>
                   </tr>
                 ))}
               </tbody>
@@ -82,17 +82,17 @@ export default function ProductionUpload() {
 
           <div className="sm:hidden max-h-80 overflow-y-auto divide-y border rounded">
             {preview.rows.map((r) => (
-              <div key={r.rowNumber} className={`p-2.5 text-xs space-y-0.5 ${r.error ? "bg-red-50" : ""}`}>
+              <div key={r.rowNumber} className={`p-2.5 text-xs space-y-0.5 ${r.error ? "bg-red-50 dark:bg-red-950" : ""}`}>
                 <div className="flex items-center justify-between">
                   <p className="font-medium">
                     Fila {r.rowNumber} — {r.sku}
                   </p>
                   <p>{r.kilos} kg</p>
                 </div>
-                <p className="text-slate-500">
+                <p className="text-slate-500 dark:text-slate-400">
                   {r.operatorName} · {r.clientName ?? "-"}
                 </p>
-                {r.error && <p className="text-red-600">{r.error}</p>}
+                {r.error && <p className="text-red-600 dark:text-red-400">{r.error}</p>}
               </div>
             ))}
           </div>
@@ -112,7 +112,7 @@ export default function ProductionUpload() {
       )}
 
       {result && (
-        <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 rounded px-4 py-3 text-sm">
+        <div className="bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded px-4 py-3 text-sm">
           Importación completada: {result.processed} entradas creadas, {result.failed} filas fallidas.
         </div>
       )}

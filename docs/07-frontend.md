@@ -4,7 +4,7 @@
 
 - **React 19 + TypeScript** (SPA).
 - **Vite 8** como bundler/dev server (puerto 5173, con proxy `/api` → backend).
-- **Tailwind CSS 4** para estilos (`@import "tailwindcss"`, sin `tailwind.config`).
+- **Tailwind CSS 4** para estilos (`@import "tailwindcss"`, sin `tailwind.config`). Modo oscuro por clase (`@custom-variant dark`), ver [Modo oscuro](#modo-oscuro).
 - **lucide-react** para íconos SVG (sin emojis).
 - **TanStack Query** para estado del servidor (caché, loading, re-fetch).
 - **React Router 7** para navegación.
@@ -18,17 +18,19 @@ client/
 ├── vite.config.ts        → proxy /api + plugin Tailwind + PWA
 ├── tsconfig.json
 └── src/
-    ├── main.tsx          → proveedores (QueryClient, Auth, Router)
+    ├── main.tsx          → proveedores (QueryClient, Auth, Theme, Shortcuts, Router)
     ├── App.tsx           → rutas + guards RequireAuth, RequireRole y RequireStationRole
-    ├── index.css         → solo @import "tailwindcss"
+    ├── index.css         → @import "tailwindcss" + @custom-variant dark + fallback de color base en modo oscuro
     ├── api/
     │   └── client.ts     → objeto `api` (único helper fetch, tipado)
     ├── auth/
     │   └── AuthContext.tsx → sesión (localStorage) y tipo UserRole (11 valores)
+    ├── theme/
+    │   └── ThemeContext.tsx → preferencia de tema (claro/oscuro/sistema), persistida por usuario
     ├── lib/
     │   └── frequency.ts  → motor "Frecuentes" del lado del cliente (byFrequency, nextInteraction)
     ├── components/
-    │   ├── Layout.tsx    → shell: Sidebar (con cajón móvil) + header (con NotificationBell) + <Outlet />
+    │   ├── Layout.tsx    → shell: Sidebar (con cajón móvil) + header (con NotificationBell y ThemeToggle) + <Outlet />
     │   ├── Sidebar.tsx   → menú lateral filtrado por rol + atajos; cajón (`drawer`) en móvil
     │   ├── Sidebar.css   → variables CSS del sidebar (tema oscuro) + breakpoints móviles
     │   ├── NavIcon.tsx   → mapa clave → ícono lucide
@@ -41,6 +43,7 @@ client/
     │   ├── ContactoForm.tsx  → formulario reutilizable crear/editar contacto
     │   ├── BarcodeScanner.tsx → escaneo QR/código de barras por cámara (`html5-qrcode`), modal reutilizable
     │   ├── NotificationBell.tsx → campanita del header: no-leídas (polling 60s) + dropdown
+    │   ├── ThemeToggle.tsx   → botón sol/luna del header, alterna claro/oscuro
     │   ├── ProductoForm.tsx  → formulario crear/editar producto
     │   └── UsuarioForm.tsx   → formulario crear/editar usuario
     └── pages/
@@ -63,6 +66,7 @@ client/
         ├── Pedidos.tsx
         ├── Facturas.tsx
         ├── SecuritySettings.tsx
+        ├── Apariencia.tsx        → preferencia de tema: claro/oscuro/sistema
         ├── Productos.tsx        → CRUD de catálogo + impresión de etiquetas QR
         ├── Usuarios.tsx          → CRUD de usuarios y roles
         ├── Almacen.tsx           → ubicaciones de bodega + stock por ubicación (Almacén/WMS)
@@ -79,14 +83,18 @@ client/
 ```tsx
 <QueryClientProvider client={queryClient}>
   <AuthProvider>
-    <ShortcutsProvider>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </ShortcutsProvider>
+    <ThemeProvider>
+      <ShortcutsProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </ShortcutsProvider>
+    </ThemeProvider>
   </AuthProvider>
 </QueryClientProvider>
 ```
+
+`ThemeProvider` va **adentro** de `AuthProvider`: necesita `useAuth()` para guardar la preferencia de tema por usuario (ver [Modo oscuro](#modo-oscuro)).
 
 ## `App.tsx` — rutas
 
@@ -117,6 +125,7 @@ client/
     <Route path="facturas" element={<RequireRole roles={VENTAS}><Facturas /></RequireRole>} />
     <Route path="configuracion/autenticacion" element={<RequireRole roles={ADMIN}><SecuritySettings /></RequireRole>} />
     <Route path="configuracion/usuarios" element={<RequireRole roles={ADMIN}><Usuarios /></RequireRole>} />
+    <Route path="configuracion/apariencia" element={<Apariencia />} />  {/* sin RequireRole: preferencia personal, no algo que restringir por rol */}
     <Route path="inventario/productos" element={<RequireRole roles={PRODUCCION_GESTION}><Productos /></RequireRole>} />
     <Route path="inventario/movimientos" element={<RequireRole roles={ALMACEN}><Movimientos /></RequireRole>} />
     <Route path="almacen" element={<RequireRole roles={ALMACEN}><Almacen /></RequireRole>} />
@@ -139,7 +148,7 @@ client/
 
 La función `filterNavSections(role)` filtra secciones y entradas según el rol del usuario. `Sidebar.tsx` llama a `filterNavSections(user.role)` y dibuja solo lo que el rol puede ver. Los atajos (`useShortcuts`, `ShortcutsConfig`) aplican el mismo filtro con `buildChoices(role)`: un operario no puede marcar como atajo un módulo sin acceso.
 
-Grupos de roles nuevos en `navConfig.ts`: `TODOS` (los 11 roles — usado por la entrada "Notificaciones") e `INVENTARIO` (`ADMIN` + `almacen_despachos` + `gerente_produccion` + `planeacion` + `ventas_pedidos`, uso interno del archivo).
+Grupos de roles nuevos en `navConfig.ts`: `TODOS` (los 11 roles — usado por la entrada "Notificaciones" y por la sección "Configuración", que ahora es visible para cualquier rol; sus dos ítems internos, "Autenticación" y "Usuarios", siguen restringidos a `ADMIN` — solo el ítem "Apariencia" hereda `TODOS`) e `INVENTARIO` (`ADMIN` + `almacen_despachos` + `gerente_produccion` + `planeacion` + `ventas_pedidos`, uso interno del archivo).
 
 ## `api/client.ts` — el helper HTTP
 
@@ -312,6 +321,9 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 ### `SecuritySettings.tsx`
 - Activar/desactivar 2FA: `setup2fa` (QR) → `verify2fa` → estado activo.
 
+### `Apariencia.tsx`
+- Selector de tema con 3 opciones (Claro/Oscuro/Sistema), mismo patrón visual que `SecuritySettings.tsx`. Usa `useTheme()` para leer y fijar la preferencia. Visible para cualquier rol (ruta `configuracion/apariencia` sin `RequireRole`).
+
 ### `Productos.tsx`
 - CRUD de catálogo: `api.getAllProducts`, `createProduct`, `updateProduct`, `deactivateProduct` (soft delete), `reactivateProduct`. Modal con `ProductoForm` para crear/editar.
 - Selección múltiple + botón "Imprimir etiquetas": pide `api.getProductLabel` de cada seleccionado y abre una ventana nueva con los QR listos para imprimir (`printLabels`, con `escapeHtml` sobre el contenido para evitar XSS vía `document.write`).
@@ -349,6 +361,17 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 
 - Sidebar oscuro generado desde `navConfig`, header con nombre de usuario, `NotificationBell` y botón "Salir" (`logout`), y `<Outlet />`.
 - **Móvil**: `Sidebar` gana un cajón (`drawer`, prop `mobileOpen`/`onCloseMobile`) que se abre con un botón hamburguesa (ícono `Menu` de lucide, visible solo por debajo del breakpoint `md`) en el header. El cajón se cierra solo al navegar (`useEffect` sobre `location.pathname`).
+
+## Modo oscuro
+
+- Tailwind v4 no trae variante `dark` por defecto en modo clase: `client/src/index.css` la habilita con `@custom-variant dark (&:where(.dark, .dark *));`. La clase `.dark` se aplica sobre `<html>`.
+- `.dark body { color: #e2e8f0; }` en `index.css` da un color base a todo texto sin clase de color propia (spans y divs sueltos de listados). Evita perseguir cada elemento suelto uno por uno.
+- `theme/ThemeContext.tsx` (`ThemeProvider`/`useTheme`) expone `{ preference: "light" | "dark" | "system", resolved: "light" | "dark", setPreference }`. Si `preference` es `"system"`, resuelve con `window.matchMedia("(prefers-color-scheme: dark)")` y escucha su evento `change`.
+- **Persistencia por usuario**: la preferencia se guarda en `localStorage` bajo la key `ps_theme:<userId>` (`ps_theme:anon` si no hay sesión) — no es una preferencia de dispositivo, sino de cada usuario logueado. Al cambiar de usuario en el mismo dispositivo, cada uno ve su propia preferencia (o "Sistema" por defecto si nunca la fijó), no la del anterior.
+- `client/index.html` trae un script inline en el `<head>` que lee la misma key antes de que React monte y aplica `.dark` a `<html>` de una — evita el flash de contenido claro al cargar.
+- `components/ThemeToggle.tsx` es el ícono sol/luna del header (alterna claro/oscuro); `pages/Apariencia.tsx` da las 3 opciones completas (Claro/Oscuro/Sistema).
+- **Gráficos de Recharts** (`DashboardEjecutivo.tsx`, `DashboardIndicadores.tsx`): el color de barras y ejes es un prop JS, no una clase CSS — `dark:` no aplica ahí. Se resuelve leyendo `resolved` de `useTheme()` y eligiendo el color a mano (p. ej. `fill={resolved === "dark" ? "#38bdf8" : "#1e293b"}`).
+- Los colores de modo oscuro se validaron contra WCAG AA (contraste mínimo 4.5:1 texto normal, 3:1 texto grande/UI), no solo a ojo.
 
 ## PWA (`vite.config.ts`)
 

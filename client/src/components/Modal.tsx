@@ -5,12 +5,12 @@ export default function Modal({ title, onClose, children }: { title: string; onC
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
       <div
-        className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[85vh] overflow-y-auto"
+        className="bg-white dark:bg-slate-900 rounded-lg shadow-xl w-full max-w-md max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b px-5 py-3">
-          <h3 className="font-semibold text-slate-800">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none">
+          <h3 className="font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl leading-none">
             ×
           </button>
         </div>
