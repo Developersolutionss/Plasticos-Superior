@@ -12,7 +12,7 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={() => setPreference(isDark ? "light" : "dark")}
-      className="relative w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 transition-colors duration-200 active:scale-90"
+      className="relative w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 transition-[color,background-color,transform] duration-200 active:scale-90"
       title={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
     >
       <Sun
