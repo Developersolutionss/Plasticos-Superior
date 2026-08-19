@@ -112,9 +112,8 @@ function printRollLabel(label: { code: string; orderNumber: string; productName:
 interface MateriaPrimaRow {
   ref: string;
   pct: string;
-  /** Kg del insumo: se autocompleta al cargar % (kg = % × cantidad de la
-   * OP), pero el campo queda editable para pisarlo a mano si el real no
-   * coincide exacto (redondeos, ajustes de planta). */
+  /** Kg del insumo: campo independiente de % (no se calcula solo), se
+   * carga a mano igual que en el papel. */
   kg: string;
   lote: string;
 }
@@ -188,7 +187,6 @@ export default function OrdenProduccionDetalle() {
   const canGestion = !!user && (PRODUCCION_GESTION as UserRole[]).includes(user.role);
   const canOperate = !!user && STATION_OPERATE[station].includes(user.role);
   const canEditSpecs = canGestion && isOpen;
-  const qty = Number(headerDraft.quantityPlanned) || Number(order.quantityPlanned);
 
   const totalKg = order.rolls.reduce((acc: number, r: any) => acc + Number(r.weightKg), 0);
   const totalWaste = order.rolls.reduce((acc: number, r: any) => acc + Number(r.wasteKg), 0);
@@ -516,10 +514,9 @@ export default function OrdenProduccionDetalle() {
         </div>
 
         {/* Materia prima (solo Extrusión): las 10 filas son fijas, en el
-            mismo orden que el papel — no se agregan ni se quitan, solo se
-            completa % y lote de las que se usan. El Kg se autocompleta al
-            cargar % (kg = % × cantidad) pero queda editable por si el real
-            no coincide exacto. */}
+            mismo orden que el papel — no se agregan ni se quitan. % y Kg
+            son campos independientes, igual que en el papel: cada uno se
+            completa a mano por separado, sin cálculo automático entre sí. */}
         {template.materiaPrimaRefs && (
           <>
             <SheetBand>Materia prima</SheetBand>
@@ -544,14 +541,7 @@ export default function OrdenProduccionDetalle() {
                         value={row.pct}
                         disabled={!canEditSpecs}
                         onChange={(e) => {
-                          const pct = e.target.value;
-                          setMateriaPrima((prev) =>
-                            prev.map((r, idx) =>
-                              idx === i
-                                ? { ...r, pct, kg: pct ? String(Math.round(((Number(pct) / 100) * qty) * 100) / 100) : "" }
-                                : r
-                            )
-                          );
+                          setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, pct: e.target.value } : r)));
                           markDirty();
                         }}
                       />
@@ -563,7 +553,6 @@ export default function OrdenProduccionDetalle() {
                         step="0.01"
                         value={row.kg}
                         disabled={!canEditSpecs}
-                        title="Se autocompleta con % × cantidad, pero se puede pisar a mano"
                         onChange={(e) => {
                           setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, kg: e.target.value } : r)));
                           markDirty();
