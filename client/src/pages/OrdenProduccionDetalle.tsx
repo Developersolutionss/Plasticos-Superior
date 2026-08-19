@@ -175,6 +175,14 @@ export default function OrdenProduccionDetalle() {
 
   const totalKg = order.rolls.reduce((acc: number, r: any) => acc + Number(r.weightKg), 0);
   const totalWaste = order.rolls.reduce((acc: number, r: any) => acc + Number(r.wasteKg), 0);
+  // Acumulado hasta cada fila (columna TOTAL del papel) — order.rolls ya
+  // viene ordenado por fecha/id asc desde el backend.
+  const rollCumulative: number[] = [];
+  order.rolls.reduce((acc: number, r: any, i: number) => {
+    const next = acc + Number(r.weightKg);
+    rollCumulative[i] = next;
+    return next;
+  }, 0);
 
   function markDirty() {
     setDirty(true);
@@ -227,7 +235,10 @@ export default function OrdenProduccionDetalle() {
     }
     try {
       const created = await api.createProductionRoll(orderId, {
-        date: rollDraft.date ? new Date(rollDraft.date + "T12:00:00").toISOString() : undefined,
+        // HORA (papel de Extrusión) es la hora de este mismo campo `date`,
+        // no una columna aparte en el modelo — si no se cargó hora, se deja
+        // mediodía como antes para no perder el día en el resto de OPs.
+        date: rollDraft.date ? new Date(`${rollDraft.date}T${rollDraft.time || "12:00"}:00`).toISOString() : undefined,
         shift: rollDraft.shift || undefined,
         // El operario SIEMPRE es quien está logueado, no un campo libre —
         // así el registro queda atado a la cuenta real, no a lo que alguien
@@ -322,10 +333,16 @@ export default function OrdenProduccionDetalle() {
     }
   }
 
-  function rollCellDisplay(roll: any, col: OpRollColumn) {
+  /** `cumulative` es la suma de kg hasta esta fila inclusive (columna TOTAL
+   * del papel) — la calcula el caller recorriendo order.rolls en orden. */
+  function rollCellDisplay(roll: any, col: OpRollColumn, cumulative?: number) {
     switch (col.source) {
       case "date":
         return new Date(roll.date).toLocaleDateString();
+      case "time":
+        // 24h ("14:30") — la versión de 12h con AM/PM es muy larga para la
+        // columna angosta de HORA.
+        return new Date(roll.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
       case "shift":
         return roll.shift ?? "—";
       case "operator":
@@ -338,6 +355,8 @@ export default function OrdenProduccionDetalle() {
         return String(Number(roll.weightKg));
       case "waste":
         return String(Number(roll.wasteKg));
+      case "cumulativeWeight":
+        return String(Math.round((cumulative ?? 0) * 100) / 100);
       case "detail":
         return roll.details?.[col.detailKey!] != null && roll.details?.[col.detailKey!] !== "" ? String(roll.details[col.detailKey!]) : "—";
     }
@@ -726,12 +745,12 @@ export default function OrdenProduccionDetalle() {
             </tr>
           </thead>
           <tbody>
-            {order.rolls.map((roll: any) => (
+            {order.rolls.map((roll: any, i: number) => (
               <Fragment key={roll.id}>
                 <tr>
                   {template.rollColumns.map((col) => (
                     <td key={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-800 dark:text-slate-100`}>
-                      {rollCellDisplay(roll, col)}
+                      {rollCellDisplay(roll, col, rollCumulative[i])}
                     </td>
                   ))}
                   {canGestion && isOpen && (
@@ -774,6 +793,13 @@ export default function OrdenProduccionDetalle() {
                       </td>
                     );
                   }
+                  if (col.source === "cumulativeWeight") {
+                    return (
+                      <td key={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center`} title="Se calcula solo al guardar">
+                        —
+                      </td>
+                    );
+                  }
                   return (
                     <td key={col.label} className={`${cellBorder} px-1 py-1`}>
                       {col.kind === "siNo" ? (
@@ -785,7 +811,7 @@ export default function OrdenProduccionDetalle() {
                       ) : (
                         <input
                           className={sheetInput}
-                          type={col.source === "date" ? "date" : col.kind === "number" ? "number" : "text"}
+                          type={col.source === "date" ? "date" : col.source === "time" ? "time" : col.kind === "number" ? "number" : "text"}
                           step={col.kind === "number" ? "0.01" : undefined}
                           value={rollDraft[key] ?? ""}
                           onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}

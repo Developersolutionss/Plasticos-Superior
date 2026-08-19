@@ -22,7 +22,10 @@ export interface OpSpecSection {
 
 export interface OpRollColumn {
   label: string;
-  source: "date" | "shift" | "operator" | "machine" | "label" | "weight" | "waste" | "detail";
+  /** De dónde sale el valor: campo base de ProductionRoll, clave de details,
+   * la hora de `date` (columna HORA aparte de FECHA en el papel), o el
+   * acumulado de kg hasta esa fila (columna TOTAL, no se tipea — se calcula). */
+  source: "date" | "time" | "shift" | "operator" | "machine" | "label" | "weight" | "waste" | "cumulativeWeight" | "detail";
   detailKey?: string;
   kind?: "text" | "number" | "siNo";
 }
@@ -69,19 +72,10 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
   extrusion: {
     title: "ORDEN DE PRODUCCION EXTRUSIÓN",
     cod: "COD F-OP-01",
-    materiaPrimaRefs: [
-      "BAJA",
-      "ALTA",
-      "BIODEGRADABLE",
-      "LINEAL",
-      "CARBONATO",
-      "TERMO",
-      "PIGMENTO",
-      "SECANTE",
-      "ANTIBLOCK",
-      "AGLUTINADO",
-      "PELETIZADO",
-    ],
+    // Orden y refs exactos de la OP real 4432 (media/4432 ORIGINAL...xlsx),
+    // que es la fuente de verdad — la plantilla en blanco tenía "CARBONATO"
+    // en vez de repetir el orden real y PIGMENTO/TERMO invertidos.
+    materiaPrimaRefs: ["BAJA", "ALTA", "BIODEGRADABLE", "LINEAL", "PIGMENTO", "TERMO", "SECANTE", "ANTIBLOCK", "AGLUTINADO", "PELETIZADO"],
     sections: [
       {
         title: "FORMA DEL MATERIAL",
@@ -110,8 +104,10 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
       { label: "TURNO", source: "shift" },
       { label: "OPERARIO", source: "operator" },
       { label: "No. MAQ", source: "machine" },
+      { label: "HORA", source: "time" },
       { label: "ETIQUETA", source: "label" },
       { label: "PESO (KG)", source: "weight", kind: "number" },
+      { label: "TOTAL (KG)", source: "cumulativeWeight" },
       { label: "DESP. (KG)", source: "waste", kind: "number" },
       { label: "P. RESISTENCIA", source: "detail", detailKey: "pResistencia", kind: "siNo" },
       { label: "P. TRATADO", source: "detail", detailKey: "pTratado", kind: "siNo" },

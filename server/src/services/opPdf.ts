@@ -53,10 +53,22 @@ function fmtDate(d: Date | string) {
   return new Date(d).toLocaleDateString("es-CO");
 }
 
-function rollCellValue(roll: RollLike, col: OpRollColumn): string {
+function fmtTime(d: Date | string) {
+  // 24h y sin espacios ("14:30", no "2:30 p. m.") — la versión de 12h con
+  // "a. m."/"p. m." es lo bastante larga como para partirse en dos líneas
+  // en la columna angosta de HORA del formato de Extrusión.
+  return new Date(d).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** `cumulative` es la suma de kg hasta esta fila inclusive (columna TOTAL
+ * del papel de Extrusión) — la calcula el caller recorriendo las filas en
+ * orden, ver el `reduce` en buildOpPdf. */
+function rollCellValue(roll: RollLike, col: OpRollColumn, cumulative?: number): string {
   switch (col.source) {
     case "date":
       return fmtDate(roll.date);
+    case "time":
+      return fmtTime(roll.date);
     case "shift":
       return str(roll.shift);
     case "operator":
@@ -69,6 +81,8 @@ function rollCellValue(roll: RollLike, col: OpRollColumn): string {
       return String(num(roll.weightKg));
     case "waste":
       return String(num(roll.wasteKg));
+    case "cumulativeWeight":
+      return String(Math.round((cumulative ?? 0) * 100) / 100);
     case "detail": {
       const details = (roll.details ?? {}) as Record<string, unknown>;
       return str(details[col.detailKey!]);
@@ -246,10 +260,14 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
     doc.fillColor(MUTED).fontSize(8).text("Sin rollos registrados todavía.", M, y + 4);
     y += 20;
   } else {
+    let cumulative = 0;
     table(
       cols.map((c) => c.label),
       widths,
-      data.rolls.map((roll) => cols.map((c) => rollCellValue(roll, c)))
+      data.rolls.map((roll) => {
+        cumulative += num(roll.weightKg);
+        return cols.map((c) => rollCellValue(roll, c, cumulative));
+      })
     );
   }
   y += 8;
