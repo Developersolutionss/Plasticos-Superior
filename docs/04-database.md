@@ -272,6 +272,7 @@ Fila del **registro acumulativo de rollos/bultos** de una OP (la tabla inferior 
 | wasteKg | Decimal | `@default(0)` `@map("waste_kg")` (desperdicio) |
 | details | Json? | pruebas, color, densidad, etc. según la estación |
 | notes / createdById | String? / Int? | |
+| sourceRollId | Int? | `@map("source_roll_id")`. Self-FK → production_rolls. Rollo físico tomado como insumo, resuelto al escanear el QR pegado a ese rollo (etiqueta: `GET /:id/rolls/:rollId/label`, lookup: `GET /rolls/by-code/:code`). Como `createdById` es siempre quien está logueado al escanear, esto registra qué persona tomó el rollo sin tener que preguntar |
 | createdAt | DateTime | `@map("created_at")` |
 
 ### `production_order_attachments`
@@ -427,6 +428,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260813064611_add_notifications` | Tabla `notifications` |
 | `20260815045824_add_factura_due_date` | `facturas`: `due_date` (fecha de vencimiento opcional) |
 | `20260819001850_op_por_proceso` | Rediseño de OP: `station`, `client_id`, `specs`, `parent_order_id` en `production_orders`; nuevas `production_rolls` y `production_order_attachments`; drop de `production_stage_logs` |
+| `20260819221741_add_roll_source` | `production_rolls`: `source_roll_id` (self-FK, custodia del rollo tomado como insumo vía escaneo QR) |
 
 Para aplicar cambios nuevos:
 

@@ -114,6 +114,17 @@ export default function Trazabilidad() {
                     {[r.shift, r.operatorName, r.machine].filter(Boolean).join(" · ")}
                     {Number(r.wasteKg) > 0 && ` · desperdicio ${Number(r.wasteKg)} kg`}
                   </p>
+                  {r.createdBy?.name && r.createdBy.name !== r.operatorName && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                      Cargado desde la cuenta de {r.createdBy.name}
+                    </p>
+                  )}
+                  {r.sourceRoll && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Insumo: rollo {r.sourceRoll.label ?? `#${r.sourceRoll.id}`} ({Number(r.sourceRoll.weightKg)} kg)
+                      {r.sourceRoll.createdBy?.name && <> · producido por {r.sourceRoll.createdBy.name}</>} — escaneado por {r.createdBy?.name ?? r.operatorName}
+                    </p>
+                  )}
                 </li>
               ))}
               {(!order.rolls || order.rolls.length === 0) && (

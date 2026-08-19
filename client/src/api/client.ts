@@ -217,10 +217,16 @@ export const api = {
       wasteKg?: number;
       details?: Record<string, unknown>;
       notes?: string;
+      sourceRollId?: number;
     }
   ) => request<any>(`/production-orders/${productionOrderId}/rolls`, { method: "POST", body: JSON.stringify(data) }),
   deleteProductionRoll: (productionOrderId: number, rollId: number) =>
     request<void>(`/production-orders/${productionOrderId}/rolls/${rollId}`, { method: "DELETE" }),
+  getProductionRollLabel: (productionOrderId: number, rollId: number) =>
+    request<any>(`/production-orders/${productionOrderId}/rolls/${rollId}/label`),
+  /** Resuelve un rollo por el código de su QR (`RL-<id>`), para el escaneo
+   * de rollo de origen al cargar la OP derivada. */
+  getProductionRollByCode: (code: string) => request<any>(`/production-orders/rolls/by-code/${encodeURIComponent(code)}`),
   submitQualityCheck: (id: number, data: { result: "aprobado" | "rechazado"; observations?: string }) =>
     request<any>(`/production-orders/${id}/quality-check`, { method: "POST", body: JSON.stringify(data) }),
   /** Mismo patrón crudo que downloadFacturaPdf (fetch + blob + <a download>). */

@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FileDown, GitBranch, Lock, Paperclip, Trash2 } from "lucide-react";
+import { FileDown, GitBranch, Lock, Paperclip, ScanLine, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
+import BarcodeScanner from "../components/BarcodeScanner";
 import {
   DERIVATIONS,
   FINAL_STATIONS,
@@ -51,6 +52,63 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Mismo patrón que printLabels en Productos.tsx: ventana nueva
+ * autocontenida + @media print, con el mismo cuidado de escapar el texto
+ * interpolado y esperar a que el QR (data: URI) termine de decodificar antes
+ * de imprimir (si no, la primera impresión sale con el QR vacío). */
+function escapeHtml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function printRollLabel(label: { code: string; orderNumber: string; productName: string; weightKg: unknown; qrDataUrl: string }) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  const code = escapeHtml(label.code);
+  const info = escapeHtml(`${label.orderNumber} · ${label.productName} · ${Number(label.weightKg)} kg`);
+
+  win.document.write(`<!DOCTYPE html>
+    <html>
+      <head>
+        <title>Etiqueta de rollo</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: sans-serif; margin: 0; padding: 8mm; }
+          .label {
+            width: 6cm; min-height: 4cm; height: auto;
+            border: 1px dashed #999; border-radius: 3mm;
+            padding: 3mm; display: flex; align-items: center; gap: 3mm;
+          }
+          .label img { width: 2.6cm; height: 2.6cm; flex-shrink: 0; }
+          .label .text { overflow: hidden; min-width: 0; }
+          .label .code { font-weight: bold; font-size: 12pt; margin: 0 0 2mm; overflow-wrap: anywhere; word-break: break-word; }
+          .label .info { font-size: 8pt; margin: 0; color: #333; overflow-wrap: anywhere; }
+          @media print { body { padding: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="label">
+          <img src="${label.qrDataUrl}" alt="QR ${code}" />
+          <div class="text">
+            <p class="code">${code}</p>
+            <p class="info">${info}</p>
+          </div>
+        </div>
+      </body>
+    </html>`);
+  win.document.close();
+
+  let printed = false;
+  const doPrint = () => {
+    if (printed) return;
+    printed = true;
+    win.focus();
+    win.print();
+  };
+  win.onload = doPrint;
+  setTimeout(doPrint, 400);
+}
+
 interface MateriaPrimaRow {
   ref: string;
   pct: string;
@@ -77,6 +135,8 @@ export default function OrdenProduccionDetalle() {
   const [headerDraft, setHeaderDraft] = useState({ quantityPlanned: "", measure: "" });
   const [dirty, setDirty] = useState(false);
   const [rollDraft, setRollDraft] = useState<Record<string, string>>({ date: todayISO() });
+  const [sourceRoll, setSourceRoll] = useState<{ id: number; label: string | null; weightKg: unknown; createdBy?: { name: string } | null } | null>(null);
+  const [scanningSource, setScanningSource] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -155,8 +215,8 @@ export default function OrdenProduccionDetalle() {
   async function handleAddRoll(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!rollDraft.operator || !rollDraft.weight) {
-      setError("Completá al menos operario y peso del rollo");
+    if (!rollDraft.weight) {
+      setError("Completá el peso del rollo");
       return;
     }
     const details: Record<string, string> = {};
@@ -166,22 +226,50 @@ export default function OrdenProduccionDetalle() {
       }
     }
     try {
-      await api.createProductionRoll(orderId, {
+      const created = await api.createProductionRoll(orderId, {
         date: rollDraft.date ? new Date(rollDraft.date + "T12:00:00").toISOString() : undefined,
         shift: rollDraft.shift || undefined,
-        operatorName: rollDraft.operator,
+        // El operario SIEMPRE es quien está logueado, no un campo libre —
+        // así el registro queda atado a la cuenta real, no a lo que alguien
+        // tipee. Cada operario necesita su propia cuenta (Configuración →
+        // Usuarios) para que esto sea trazabilidad real y no una firma falsa.
+        operatorName: user!.name,
         machine: rollDraft.machine || undefined,
         label: rollDraft.label || undefined,
         weightKg: Number(rollDraft.weight),
         wasteKg: rollDraft.waste ? Number(rollDraft.waste) : undefined,
         details: Object.keys(details).length ? details : undefined,
+        sourceRollId: sourceRoll?.id,
       });
       setRollDraft({ date: todayISO() });
+      setSourceRoll(null);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
+      // Etiqueta con QR del rollo recién creado, para pegar en el rollo
+      // físico — así la estación siguiente puede escanearlo como origen.
+      const label = await api.getProductionRollLabel(orderId, created.id);
+      printRollLabel(label);
     } catch (err: any) {
       setError(err?.message?.includes("403") ? "Tu rol no puede registrar rollos en esta estación" : "No se pudo registrar el rollo");
     }
+  }
+
+  function handleScannedSource(code: string) {
+    setScanningSource(false);
+    setError(null);
+    api
+      .getProductionRollByCode(code)
+      .then((roll) => {
+        setSourceRoll(roll);
+        if (template.originRollFields) {
+          setRollDraft((d) => ({
+            ...d,
+            [`detail:${template.originRollFields!.labelDetailKey}`]: roll.label ?? roll.code,
+            [`detail:${template.originRollFields!.weightDetailKey}`]: String(Number(roll.weightKg)),
+          }));
+        }
+      })
+      .catch(() => setError('No se encontró ningún rollo con ese código. ¿Es un QR de rollo válido ("RL-...")?'));
   }
 
   async function handleDeleteRoll(rollId: number) {
@@ -600,6 +688,32 @@ export default function OrdenProduccionDetalle() {
 
         {/* Registro de rollos */}
         <SheetBand>Registro de rollos / avance</SheetBand>
+
+        {order.parentOrderId && canOperate && isOpen && (
+          <div className="px-3 py-2 border-b border-slate-300 dark:border-slate-600 flex flex-wrap items-center gap-2">
+            {!sourceRoll ? (
+              <button
+                type="button"
+                onClick={() => setScanningSource(true)}
+                className="inline-flex items-center gap-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                <ScanLine size={13} aria-hidden="true" /> Escanear rollo de origen
+              </button>
+            ) : (
+              <div className="inline-flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded px-3 py-1.5">
+                <span>
+                  Rollo de origen: <strong>{sourceRoll.label ?? `#${sourceRoll.id}`}</strong> ({Number(sourceRoll.weightKg)} kg)
+                  {sourceRoll.createdBy?.name && <> · cargado por {sourceRoll.createdBy.name}</>}
+                </span>
+                <button type="button" onClick={() => setSourceRoll(null)} title="Quitar" className="text-emerald-700 dark:text-emerald-400">
+                  <X size={13} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">Escaneá el QR pegado al rollo que estás tomando como insumo</span>
+          </div>
+        )}
+
         <table className="w-full text-xs sm:text-sm">
           <thead>
             <tr className="text-left text-[9px] sm:text-[10px] uppercase text-slate-500 dark:text-slate-400">
@@ -613,20 +727,33 @@ export default function OrdenProduccionDetalle() {
           </thead>
           <tbody>
             {order.rolls.map((roll: any) => (
-              <tr key={roll.id}>
-                {template.rollColumns.map((col) => (
-                  <td key={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-800 dark:text-slate-100`}>
-                    {rollCellDisplay(roll, col)}
-                  </td>
-                ))}
-                {canGestion && isOpen && (
-                  <td className={`${cellBorder} px-1.5 py-1 text-center`}>
-                    <button type="button" className="text-red-600 dark:text-red-400" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
-                      <Trash2 size={13} aria-hidden="true" />
-                    </button>
-                  </td>
+              <Fragment key={roll.id}>
+                <tr>
+                  {template.rollColumns.map((col) => (
+                    <td key={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-800 dark:text-slate-100`}>
+                      {rollCellDisplay(roll, col)}
+                    </td>
+                  ))}
+                  {canGestion && isOpen && (
+                    <td className={`${cellBorder} px-1.5 py-1 text-center`}>
+                      <button type="button" className="text-red-600 dark:text-red-400" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
+                        <Trash2 size={13} aria-hidden="true" />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+                {roll.sourceRoll && (
+                  <tr className="bg-slate-50 dark:bg-slate-800/60">
+                    <td
+                      colSpan={template.rollColumns.length + (canGestion && isOpen ? 1 : 0)}
+                      className={`${cellBorder} px-1.5 py-0.5 text-[10px] text-slate-500 dark:text-slate-400`}
+                    >
+                      Insumo: rollo {roll.sourceRoll.label ?? `#${roll.sourceRoll.id}`} ({Number(roll.sourceRoll.weightKg)} kg) — escaneado por{" "}
+                      {roll.createdBy?.name ?? roll.operatorName}
+                    </td>
+                  </tr>
                 )}
-              </tr>
+              </Fragment>
             ))}
             {order.rolls.length === 0 && (
               <tr>
@@ -640,6 +767,13 @@ export default function OrdenProduccionDetalle() {
               <tr className="bg-sky-50 dark:bg-slate-800">
                 {template.rollColumns.map((col) => {
                   const key = rollDraftKey(col);
+                  if (col.source === "operator") {
+                    return (
+                      <td key={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-500 dark:text-slate-400`} title="El operario es siempre la cuenta con la que iniciaste sesión">
+                        {user!.name}
+                      </td>
+                    );
+                  }
                   return (
                     <td key={col.label} className={`${cellBorder} px-1 py-1`}>
                       {col.kind === "siNo" ? (
@@ -729,6 +863,10 @@ export default function OrdenProduccionDetalle() {
           </div>
         )}
       </div>
+
+      {scanningSource && (
+        <BarcodeScanner title="Escanear rollo de origen" onDetected={handleScannedSource} onClose={() => setScanningSource(false)} />
+      )}
     </div>
   );
 }

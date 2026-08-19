@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import QRCode from "qrcode";
 import { z } from "zod";
 import type { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
@@ -97,6 +98,29 @@ productionOrdersRouter.get("/pending-planning", requireProduccionGestion, async 
   res.json(pending);
 });
 
+const ROLL_CODE_RE = /^RL-(\d+)$/;
+
+/**
+ * Resuelve un rollo por el código de su etiqueta QR (`RL-<id>`, ver
+ * GET /:id/rolls/:rollId/label). La usa el escáner al cargar un rollo en la
+ * OP derivada: quien escanea confirma qué rollo físico tomó como insumo.
+ */
+productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
+  const match = ROLL_CODE_RE.exec(req.params.code);
+  if (!match) return res.status(400).json({ error: "Código de rollo inválido" });
+
+  const roll = await prisma.productionRoll.findUnique({
+    where: { id: Number(match[1]) },
+    include: {
+      createdBy: { select: { name: true } },
+      productionOrder: { select: { id: true, orderNumber: true, station: true, product: { select: { name: true, sku: true } } } },
+    },
+  });
+  if (!roll) return res.status(404).json({ error: "Rollo no encontrado" });
+
+  res.json(roll);
+});
+
 /**
  * Detalle completo de una OP: sus rollos, adjuntos, cadena de derivación
  * (padre e hijas), el resultado de Calidad (si ya se registró) y el
@@ -111,7 +135,13 @@ productionOrdersRouter.get("/:id", async (req, res) => {
     include: {
       product: true,
       client: { select: { id: true, name: true } },
-      rolls: { orderBy: [{ date: "asc" }, { id: "asc" }], include: { createdBy: { select: { name: true } } } },
+      rolls: {
+        orderBy: [{ date: "asc" }, { id: "asc" }],
+        include: {
+          createdBy: { select: { name: true } },
+          sourceRoll: { select: { id: true, label: true, weightKg: true, createdBy: { select: { name: true } } } },
+        },
+      },
       attachments: { orderBy: { createdAt: "asc" } },
       parent: { select: { id: true, orderNumber: true, station: true, status: true } },
       derivedOrders: { select: { id: true, orderNumber: true, station: true, status: true } },
@@ -373,6 +403,10 @@ const createRollSchema = z.object({
   wasteKg: z.number().min(0).optional().default(0),
   details: z.record(z.string(), z.any()).optional(),
   notes: z.string().optional(),
+  /** Rollo físico tomado como insumo, resuelto al escanear su QR
+   * (GET /rolls/by-code/:code). Queda registrado quién lo tomó porque
+   * `createdById` es siempre el usuario logueado que hizo el POST. */
+  sourceRollId: z.number().int().optional(),
 });
 
 /**
@@ -397,6 +431,11 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     return res.status(403).json({ error: `Tu rol solo puede registrar rollos en OPs de: ${allowedStations.join(", ")}` });
   }
 
+  if (parsed.data.sourceRollId) {
+    const source = await prisma.productionRoll.findUnique({ where: { id: parsed.data.sourceRollId } });
+    if (!source) return res.status(404).json({ error: "El rollo de origen escaneado no existe" });
+  }
+
   const roll = await prisma.$transaction(async (tx) => {
     const created = await tx.productionRoll.create({
       data: {
@@ -410,6 +449,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
         wasteKg: parsed.data.wasteKg,
         details: parsed.data.details as Prisma.InputJsonValue | undefined,
         notes: parsed.data.notes,
+        sourceRollId: parsed.data.sourceRollId,
         createdById: req.user!.userId,
       },
     });
@@ -607,4 +647,34 @@ productionOrdersRouter.get("/:id/attachments/:attachmentId/download", async (req
   if (!attachment) return res.status(404).json({ error: "Adjunto no encontrado" });
 
   res.download(path.join(UPLOADS_DIR, attachment.storedName), attachment.originalName);
+});
+
+/**
+ * Etiqueta térmica imprimible de un rollo: QR con el código `RL-<id>` (mismo
+ * formato que la etiqueta de productos), para pegar en el rollo físico. Al
+ * escanearla en la OP derivada se resuelve con GET /rolls/by-code/:code.
+ */
+productionOrdersRouter.get("/:id/rolls/:rollId/label", async (req, res) => {
+  const productionOrderId = Number(req.params.id);
+  const rollId = Number(req.params.rollId);
+  if (!Number.isInteger(productionOrderId) || !Number.isInteger(rollId)) {
+    return res.status(400).json({ error: "Id inválido" });
+  }
+
+  const roll = await prisma.productionRoll.findFirst({
+    where: { id: rollId, productionOrderId },
+    include: { productionOrder: { select: { orderNumber: true, product: { select: { name: true } } } } },
+  });
+  if (!roll) return res.status(404).json({ error: "Rollo no encontrado" });
+
+  const code = `RL-${roll.id}`;
+  const qrDataUrl = await QRCode.toDataURL(code);
+  res.json({
+    code,
+    label: roll.label,
+    weightKg: roll.weightKg,
+    orderNumber: roll.productionOrder.orderNumber,
+    productName: roll.productionOrder.product.name,
+    qrDataUrl,
+  });
 });

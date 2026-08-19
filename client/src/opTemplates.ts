@@ -34,6 +34,11 @@ export interface OpTemplate {
   colores?: boolean;
   sections: OpSpecSection[];
   rollColumns: OpRollColumn[];
+  /** Qué columnas de `details` se autocompletan al escanear el QR del rollo
+   * de origen (el que se tomó como insumo de la OP padre). Si la estación no
+   * tiene columnas propias para eso, se omite — igual queda registrado
+   * `sourceRollId` aunque no haya campo visible que llenar. */
+  originRollFields?: { labelDetailKey: string; weightDetailKey: string };
 }
 
 export const STATION_LABELS: Record<OpStation, string> = {
@@ -159,6 +164,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
       { label: "DESP.", source: "waste", kind: "number" },
       { label: "P. DESPRENDIMIENTO", source: "detail", detailKey: "pDesprendimiento", kind: "siNo" },
     ],
+    originRollFields: { labelDetailKey: "etiquetaExt", weightDetailKey: "pesoExt" },
   },
 
   sellado: {

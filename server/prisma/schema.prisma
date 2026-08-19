@@ -532,6 +532,10 @@ model QualityCheck {
 /// etiqueta, peso, desperdicio). Lo que varía entre estaciones (pruebas
 /// SI/NO, color, densidad, paq×unid, etiqueta/peso de origen, etc.) va en
 /// `details` como JSON, para no tener 4 tablas casi idénticas.
+/// `sourceRollId` es el rollo físico que se tomó como insumo (se llena
+/// escaneando el QR pegado a ese rollo, ver POST /:id/rolls) — como quien
+/// escanea es quien está logueado, queda registrado qué persona lo tomó sin
+/// tener que preguntar.
 model ProductionRoll {
   id                Int             @id @default(autoincrement())
   productionOrderId Int             @map("production_order_id")
@@ -545,6 +549,9 @@ model ProductionRoll {
   wasteKg           Decimal         @default(0) @map("waste_kg") @db.Decimal(12, 2)
   details           Json?
   notes             String?
+  sourceRollId      Int?             @map("source_roll_id")
+  sourceRoll        ProductionRoll?  @relation("RollSource", fields: [sourceRollId], references: [id])
+  consumedBy        ProductionRoll[] @relation("RollSource")
   createdById       Int?            @map("created_by")
   createdBy         User?           @relation(fields: [createdById], references: [id])
   createdAt         DateTime        @default(now()) @map("created_at")
