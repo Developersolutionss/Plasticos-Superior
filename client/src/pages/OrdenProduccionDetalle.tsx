@@ -619,6 +619,71 @@ export default function OrdenProduccionDetalle() {
           </div>
         ))}
 
+        {/* Orden de <estación padre> / Orden <esta estación> (solo Sellado):
+            kilos y rollos/bultos/desperdicio calculados de los rollos reales
+            cargados, no texto libre — Unid. es el único campo manual. */}
+        {template.ordenReferencia && (
+          <>
+            <SheetBand>
+              {order.parent ? `Orden de ${STATION_LABELS[order.parent.station as OpStation]}` : "Orden de la OP padre"}
+            </SheetBand>
+            <div className="grid grid-cols-2 sm:grid-cols-3">
+              {order.parent ? (
+                <>
+                  <div className={`${cellBorder} p-2`}>
+                    <span className={cellLabel}>OP</span>
+                    <Link to={`/produccion/ordenes/${order.parent.id}`} className="text-sm text-sky-700 dark:text-sky-400 hover:underline">
+                      {order.parent.orderNumber}
+                    </Link>
+                  </div>
+                  <div className={`${cellBorder} p-2`}>
+                    <span className={cellLabel}>Kilos</span>
+                    <span className="text-sm text-slate-800 dark:text-slate-100">
+                      {Math.round((order.parent.rolls ?? []).reduce((acc: number, r: any) => acc + Number(r.weightKg), 0) * 100) / 100} kg
+                    </span>
+                  </div>
+                  <div className={`${cellBorder} p-2`}>
+                    <span className={cellLabel}>Rollos</span>
+                    <span className="text-sm text-slate-800 dark:text-slate-100">{(order.parent.rolls ?? []).length}</span>
+                  </div>
+                </>
+              ) : (
+                <div className={`${cellBorder} p-2 sm:col-span-3`}>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">Esta OP no deriva de ninguna otra.</span>
+                </div>
+              )}
+            </div>
+
+            <SheetBand>Orden {STATION_LABELS[station].toUpperCase()}</SheetBand>
+            <div className="grid grid-cols-2 sm:grid-cols-3">
+              <div className={`${cellBorder} p-2`}>
+                <span className={cellLabel}>Kilos</span>
+                <span className="text-sm text-slate-800 dark:text-slate-100">{Math.round(totalKg * 100) / 100} kg</span>
+              </div>
+              <div className={`${cellBorder} p-2`}>
+                <span className={cellLabel}>Bultos</span>
+                <span className="text-sm text-slate-800 dark:text-slate-100">{order.rolls.length}</span>
+              </div>
+              {template.ordenReferenciaUnidField && (
+                <div className={`${cellBorder} p-2`}>
+                  <span className={cellLabel}>{template.ordenReferenciaUnidField.label}</span>
+                  <input
+                    className={sheetInput}
+                    type="number"
+                    value={specsDraft[template.ordenReferenciaUnidField.key] ?? ""}
+                    disabled={!canEditSpecs}
+                    onChange={(e) => setSpec(template.ordenReferenciaUnidField!.key, e.target.value)}
+                  />
+                </div>
+              )}
+              <div className={`${cellBorder} p-2`}>
+                <span className={cellLabel}>Despr.</span>
+                <span className="text-sm text-slate-800 dark:text-slate-100">{Math.round(totalWaste * 100) / 100} kg</span>
+              </div>
+            </div>
+          </>
+        )}
+
         {/* Colores cara 1/2 (solo Impresión) */}
         {template.colores &&
           ([1, 2] as const).map((cara) => {

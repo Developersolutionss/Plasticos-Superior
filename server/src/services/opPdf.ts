@@ -1,6 +1,6 @@
 import PDFDocument from "pdfkit";
 import { COMPANY } from "./pdfDocument";
-import { OP_TEMPLATES, OpStation, OpRollColumn } from "./opTemplates";
+import { OP_TEMPLATES, OpStation, OpRollColumn, STATION_LABELS } from "./opTemplates";
 
 const BRAND = "#1e293b";
 const MUTED = "#64748b";
@@ -34,6 +34,12 @@ export interface OpPdfData {
   productName: string;
   productSku: string;
   parentOrderNumber: string | null;
+  /** Estación y totales reales de la OP padre (Extrusión/Impresión), para
+   * la caja "ORDEN DE EXTRUSIÓN / ORDEN DE X" de Sellado — no se tipean a
+   * mano, salen de los rollos que esa OP ya tiene cargados. */
+  parentStation: OpStation | null;
+  parentKilosTotales: number | null;
+  parentRollosCount: number | null;
   derivedOrderNumbers: string[];
   rolls: RollLike[];
   attachmentNames: string[];
@@ -249,6 +255,36 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
     if (pairs.every((p) => p.value === "—")) continue;
     sectionBand(section.title);
     fieldGrid(pairs);
+    y += 6;
+  }
+
+  // ---- Orden de <estación padre> / Orden <esta estación> (solo Sellado):
+  // kilos y rollos/bultos/desperdicio calculados de rollos reales, no texto
+  // libre. Unid. es el único campo manual de esta caja. ----
+  if (template.ordenReferencia) {
+    sectionBand(data.parentStation ? `ORDEN DE ${STATION_LABELS[data.parentStation].toUpperCase()}` : "ORDEN DE LA OP PADRE");
+    if (data.parentOrderNumber) {
+      fieldGrid([
+        { label: "OP", value: data.parentOrderNumber },
+        { label: "Kilos", value: `${Math.round((data.parentKilosTotales ?? 0) * 100) / 100} kg` },
+        { label: "Rollos", value: String(data.parentRollosCount ?? 0) },
+      ]);
+    } else {
+      ensureSpace(16);
+      doc.fillColor(MUTED).fontSize(8).text("Esta OP no deriva de ninguna otra.", M, y + 2);
+      y += 16;
+    }
+    y += 4;
+
+    const rollsKg = data.rolls.reduce((acc, r) => acc + num(r.weightKg), 0);
+    const rollsWaste = data.rolls.reduce((acc, r) => acc + num(r.wasteKg), 0);
+    sectionBand(`ORDEN ${template.title.split(" ").pop()}`);
+    fieldGrid([
+      { label: "Kilos", value: `${Math.round(rollsKg * 100) / 100} kg` },
+      { label: "Bultos", value: String(data.rolls.length) },
+      { label: template.ordenReferenciaUnidField?.label ?? "Unid.", value: str(specs[template.ordenReferenciaUnidField?.key ?? ""]) },
+      { label: "Despr.", value: `${Math.round(rollsWaste * 100) / 100} kg` },
+    ]);
     y += 6;
   }
 

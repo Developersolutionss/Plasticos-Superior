@@ -45,7 +45,21 @@ export interface OpTemplate {
    * tiene columnas propias para eso, se omite — igual queda registrado
    * `sourceRollId` aunque no haya campo visible que llenar. */
   originRollFields?: { labelDetailKey: string; weightDetailKey: string };
+  /** Muestra la caja "ORDEN DE <estación padre> / ORDEN <esta estación>"
+   * con kilos/rollos/bultos/desperdicio calculados (no texto libre). Solo
+   * Sellado por ahora. */
+  ordenReferencia?: boolean;
+  /** Único campo manual de esa caja (ej. "Unid." en Sellado — no se puede
+   * derivar de los rollos, ver PAQ X UNID). */
+  ordenReferenciaUnidField?: { key: string; label: string };
 }
+
+export const STATION_LABELS: Record<OpStation, string> = {
+  extrusion: "Extrusión",
+  impresion: "Impresión",
+  sellado: "Sellado",
+  precorte: "Precorte",
+};
 
 const FORMA_MATERIAL = ["Tubular", "Semitubular", "Lám. PH", "Lám. Indiv.", "Fuelles"];
 const SI_NO = ["SI", "NO"];
@@ -183,17 +197,13 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         ],
       },
       MEDIDAS_FINALES,
-      {
-        title: "REFERENCIA DE ORDENES",
-        fields: [
-          { key: "kilosExtrusion", label: "Orden extrusión — kilos", kind: "number" },
-          { key: "rollosExtrusion", label: "Orden extrusión — rollos", kind: "number" },
-          { key: "kilosSellado", label: "Orden sellado — kilos", kind: "number" },
-          { key: "bultosSellado", label: "Orden sellado — bultos", kind: "number" },
-          { key: "unidadesSellado", label: "Orden sellado — unid.", kind: "number" },
-        ],
-      },
     ],
+    // "ORDEN DE EXTRUSIÓN" (kilos/rollos de la OP padre) y "ORDEN SELLADO"
+    // (kilos/bultos/desperd. de esta misma OP) NO son texto libre — salen
+    // solas de los rollos ya cargados (ver ordenReferencia en la hoja y el
+    // PDF). Unid. es el único campo manual de esa caja, va acá.
+    ordenReferencia: true,
+    ordenReferenciaUnidField: { key: "unidadesSellado", label: "Unid." },
     rollColumns: [
       { label: "ETIQUETA TUB", source: "label" },
       { label: "PESO (KG)", source: "weight", kind: "number" },

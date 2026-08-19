@@ -42,6 +42,13 @@ export interface OpTemplate {
    * tiene columnas propias para eso, se omite — igual queda registrado
    * `sourceRollId` aunque no haya campo visible que llenar. */
   originRollFields?: { labelDetailKey: string; weightDetailKey: string };
+  /** Muestra la caja "ORDEN DE <estación padre> / ORDEN <esta estación>"
+   * con kilos/rollos/bultos/desperdicio calculados (no texto libre). Solo
+   * Sellado por ahora. */
+  ordenReferencia?: boolean;
+  /** Único campo manual de esa caja (ej. "Unid." en Sellado — no se puede
+   * derivar de los rollos, ver PAQ X UNID). */
+  ordenReferenciaUnidField?: { key: string; label: string };
 }
 
 export const STATION_LABELS: Record<OpStation, string> = {
@@ -187,17 +194,9 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         ],
       },
       MEDIDAS_FINALES,
-      {
-        title: "REFERENCIA DE ORDENES",
-        fields: [
-          { key: "kilosExtrusion", label: "Orden extrusión — kilos", kind: "number" },
-          { key: "rollosExtrusion", label: "Orden extrusión — rollos", kind: "number" },
-          { key: "kilosSellado", label: "Orden sellado — kilos", kind: "number" },
-          { key: "bultosSellado", label: "Orden sellado — bultos", kind: "number" },
-          { key: "unidadesSellado", label: "Orden sellado — unid.", kind: "number" },
-        ],
-      },
     ],
+    ordenReferencia: true,
+    ordenReferenciaUnidField: { key: "unidadesSellado", label: "Unid." },
     rollColumns: [
       { label: "ETIQUETA TUB", source: "label" },
       { label: "PESO (KG)", source: "weight", kind: "number" },

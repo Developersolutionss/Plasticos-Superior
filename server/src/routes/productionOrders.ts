@@ -143,7 +143,12 @@ productionOrdersRouter.get("/:id", async (req, res) => {
         },
       },
       attachments: { orderBy: { createdAt: "asc" } },
-      parent: { select: { id: true, orderNumber: true, station: true, status: true } },
+      // rolls acá es solo para que Sellado/Precorte puedan mostrar los
+      // totales reales de "Orden de Extrusión/Impresión" (kilos y rollos
+      // que produjo la OP padre) sin que nadie los tipee a mano.
+      parent: {
+        select: { id: true, orderNumber: true, station: true, status: true, rolls: { select: { weightKg: true } } },
+      },
       derivedOrders: { select: { id: true, orderNumber: true, station: true, status: true } },
       qualityCheck: { include: { createdBy: { select: { name: true } } } },
       pedidoVersionItem: {
@@ -571,7 +576,9 @@ productionOrdersRouter.get("/:id/report.pdf", async (req, res) => {
       client: { select: { name: true } },
       rolls: { orderBy: [{ date: "asc" }, { id: "asc" }] },
       attachments: { select: { originalName: true } },
-      parent: { select: { orderNumber: true } },
+      parent: {
+        select: { orderNumber: true, station: true, rolls: { select: { weightKg: true } } },
+      },
       derivedOrders: { select: { orderNumber: true } },
     },
   });
@@ -590,6 +597,9 @@ productionOrdersRouter.get("/:id/report.pdf", async (req, res) => {
     productName: order.product.name,
     productSku: order.product.sku,
     parentOrderNumber: order.parent?.orderNumber ?? null,
+    parentStation: (order.parent?.station as OpStation) ?? null,
+    parentKilosTotales: order.parent ? order.parent.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0) : null,
+    parentRollosCount: order.parent ? order.parent.rolls.length : null,
     derivedOrderNumbers: order.derivedOrders.map((d) => d.orderNumber),
     rolls: order.rolls,
     attachmentNames: order.attachments.map((a) => a.originalName),
