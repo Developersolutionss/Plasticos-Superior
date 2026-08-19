@@ -212,6 +212,14 @@ describe("inventario", () => {
     assert.ok(Array.isArray(alerts));
   });
 
+  it("un operario de planta no puede ver Existencias/alertas/catálogo (solo su rol de estación)", async () => {
+    const routes = ["/api/inventory", "/api/inventory/alerts", "/api/inventory/products"];
+    for (const route of routes) {
+      const res = await fetch(`${baseUrl}${route}`, { headers: headersFor("operario_extrusion") });
+      assert.equal(res.status, 403, `${route} debería rechazar a un operario`);
+    }
+  });
+
   it("GET /movements exige rol de almacén y devuelve paginado", async () => {
     const denied = await fetch(`${baseUrl}/api/inventory/movements`, { headers: headersFor("ventas") });
     assert.equal(denied.status, 403);

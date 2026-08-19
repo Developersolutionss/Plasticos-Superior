@@ -68,6 +68,11 @@ export const ROLES = {
   ] as UserRole[],
   CALIDAD: ["super_admin", "admin", "calidad"] as UserRole[],
   AUDITORIA: ["super_admin", "admin", "auditor"] as UserRole[],
+  // Espejo exacto del grupo INVENTARIO de client/src/components/navConfig.ts
+  // (quién ve "Existencias" en el menú) — antes GET /inventory, /alerts y
+  // /products no tenían ningún guard de rol, así que un operario de planta
+  // veía el inventario completo con solo estar logueado.
+  INVENTARIO: ["super_admin", "admin", "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"] as UserRole[],
 };
 
 /**

@@ -29,7 +29,7 @@ export const OP_IMPRESION: UserRole[] = [...PRODUCCION_GESTION, "operario_impres
 export const OP_SELLADO: UserRole[] = [...PRODUCCION_GESTION, "operario_sellado_precorte"];
 export const CALIDAD: UserRole[] = [...ADMIN, "calidad"];
 export const AUDITORIA: UserRole[] = [...ADMIN, "auditor"];
-const INVENTARIO: UserRole[] = [...ADMIN, "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"];
+export const INVENTARIO: UserRole[] = [...ADMIN, "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"];
 const TODOS: UserRole[] = [
   "super_admin",
   "admin",

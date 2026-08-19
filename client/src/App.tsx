@@ -43,6 +43,7 @@ import {
   OP_SELLADO,
   CALIDAD,
   AUDITORIA,
+  INVENTARIO,
 } from "./components/navConfig";
 
 /** La hoja de una OP la ven todos los que participan del ciclo: operarios y
@@ -53,6 +54,28 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   return children;
+}
+
+/** A dónde manda "/" a un rol que no ve Existencias (INVENTARIO) — su
+ * pantalla de trabajo habitual, para no dejarlo varado en una página vacía
+ * ni mostrarle el inventario completo solo por estar logueado. */
+const DEFAULT_ROUTE_FOR_ROLE: Partial<Record<UserRole, string>> = {
+  operario_extrusion: "/produccion/estacion/extrusion",
+  operario_impresion: "/produccion/estacion/impresion",
+  operario_sellado_precorte: "/produccion/estacion/sellado",
+  calidad: "/calidad",
+  auditor: "/auditoria",
+};
+
+/** Índice ("/"): Existencias para quien puede verlas (ver ROLES.INVENTARIO
+ * en el backend, mismo criterio acá); el resto va a su pantalla habitual. */
+function IndexRoute() {
+  const { user } = useAuth();
+  if (user && !(INVENTARIO as UserRole[]).includes(user.role)) {
+    const to = DEFAULT_ROUTE_FOR_ROLE[user.role];
+    if (to) return <Navigate to={to} replace />;
+  }
+  return <InventoryDashboard />;
 }
 
 /** Además de ocultarse en el menú, cada ruta valida el rol acá — así nadie
@@ -94,7 +117,7 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<InventoryDashboard />} />
+        <Route index element={<IndexRoute />} />
         <Route path="notificaciones" element={<Notificaciones />} />
         <Route
           path="despachos"
