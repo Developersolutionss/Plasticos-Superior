@@ -151,8 +151,16 @@ export default function OrdenProduccionDetalle() {
     if (!order) return;
     const specs = order.specs ?? {};
     setSpecsDraft(specs);
+    // Las filas de materia prima son fijas (las mismas 10 refs impresas en
+    // el papel, en su mismo orden) — no una lista donde se van agregando;
+    // se guardan solo las que tengan % cargado (ver handleSaveSpecs).
+    const savedRows = (specs.materiaPrima as any[]) ?? [];
+    const refs = OP_TEMPLATES[order.station as OpStation].materiaPrimaRefs ?? [];
     setMateriaPrima(
-      ((specs.materiaPrima as any[]) ?? []).map((r) => ({ ref: String(r.ref ?? ""), pct: String(r.pct ?? ""), lote: String(r.lote ?? "") }))
+      refs.map((ref) => {
+        const saved = savedRows.find((r) => r.ref === ref);
+        return { ref, pct: saved ? String(saved.pct ?? "") : "", lote: saved ? String(saved.lote ?? "") : "" };
+      })
     );
     setColores({
       cara1: ((specs.coloresCara1 as any[]) ?? []).map((c) => ({ unidad: String(c.unidad ?? ""), color: String(c.color ?? ""), lote: String(c.lote ?? "") })),
@@ -493,7 +501,9 @@ export default function OrdenProduccionDetalle() {
           )}
         </div>
 
-        {/* Materia prima (solo Extrusión): kg = % × cantidad, como el Excel */}
+        {/* Materia prima (solo Extrusión): las 10 filas son fijas, en el
+            mismo orden que el papel — no se agregan ni se quitan, solo se
+            completa % y lote de las que se usan. Kg = % × cantidad. */}
         {template.materiaPrimaRefs && (
           <>
             <SheetBand>Materia prima</SheetBand>
@@ -504,33 +514,12 @@ export default function OrdenProduccionDetalle() {
                   <th className={`${cellBorder} px-2 py-1 w-24`}>%</th>
                   <th className={`${cellBorder} px-2 py-1 w-28`}>Kg</th>
                   <th className={`${cellBorder} px-2 py-1 w-32`}>Lote</th>
-                  {canEditSpecs && <th className={`${cellBorder} px-2 py-1 w-10`} />}
                 </tr>
               </thead>
               <tbody>
                 {materiaPrima.map((row, i) => (
-                  <tr key={i}>
-                    <td className={`${cellBorder} px-2 py-1`}>
-                      {canEditSpecs ? (
-                        <select
-                          className={sheetInput}
-                          value={row.ref}
-                          onChange={(e) => {
-                            setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, ref: e.target.value } : r)));
-                            markDirty();
-                          }}
-                        >
-                          <option value="">Ref...</option>
-                          {template.materiaPrimaRefs!.map((ref) => (
-                            <option key={ref} value={ref}>
-                              {ref}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        row.ref || "—"
-                      )}
-                    </td>
+                  <tr key={row.ref}>
+                    <td className={`${cellBorder} px-2 py-1 font-medium`}>{row.ref}</td>
                     <td className={`${cellBorder} px-2 py-1`}>
                       <input
                         className={sheetInput}
@@ -558,20 +547,6 @@ export default function OrdenProduccionDetalle() {
                         }}
                       />
                     </td>
-                    {canEditSpecs && (
-                      <td className={`${cellBorder} px-2 py-1 text-center`}>
-                        <button
-                          type="button"
-                          className="text-red-600 dark:text-red-400"
-                          onClick={() => {
-                            setMateriaPrima((prev) => prev.filter((_, idx) => idx !== i));
-                            markDirty();
-                          }}
-                        >
-                          <Trash2 size={13} aria-hidden="true" />
-                        </button>
-                      </td>
-                    )}
                   </tr>
                 ))}
                 <tr className="font-semibold">
@@ -579,20 +554,15 @@ export default function OrdenProduccionDetalle() {
                   <td className={`${cellBorder} px-2 py-1`}>
                     {Math.round(materiaPrima.reduce((acc, r) => acc + (Number(r.pct) || 0), 0) * 100) / 100}%
                   </td>
-                  <td className={`${cellBorder} px-2 py-1`}>{qty}</td>
-                  <td className={`${cellBorder} px-2 py-1`} colSpan={canEditSpecs ? 2 : 1} />
+                  <td className={`${cellBorder} px-2 py-1`}>
+                    {Math.round(
+                      materiaPrima.reduce((acc, r) => acc + ((Number(r.pct) || 0) / 100) * qty, 0) * 100
+                    ) / 100}
+                  </td>
+                  <td className={`${cellBorder} px-2 py-1`} />
                 </tr>
               </tbody>
             </table>
-            {canEditSpecs && (
-              <button
-                type="button"
-                className="text-xs text-sky-700 dark:text-sky-400 hover:underline px-3 py-1.5"
-                onClick={() => setMateriaPrima((prev) => [...prev, { ref: "", pct: "", lote: "" }])}
-              >
-                + Agregar materia prima
-              </button>
-            )}
           </>
         )}
 
