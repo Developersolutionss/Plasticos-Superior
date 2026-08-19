@@ -53,6 +53,25 @@ function fmtDate(d: Date | string) {
   return new Date(d).toLocaleDateString("es-CO");
 }
 
+/**
+ * Trunca `text` a lo que entre en `maxWidth` con el font/tamaño ya seteado
+ * en `doc`, agregando "…". pdfkit's `{ ellipsis: true, lineBreak: false }`
+ * no siempre respeta el ancho en celdas angostas (texto largo terminaba
+ * envolviendo a dos líneas y pisando la fila de abajo) — medir con
+ * `widthOfString` y cortar a mano es lo único confiable acá.
+ */
+function fitText(doc: PDFKit.PDFDocument, text: string, maxWidth: number): string {
+  if (doc.widthOfString(text) <= maxWidth) return text;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (doc.widthOfString(text.slice(0, mid) + "…") <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo) + "…";
+}
+
 function fmtTime(d: Date | string) {
   // 24h y sin espacios ("14:30", no "2:30 p. m.") — la versión de 12h con
   // "a. m."/"p. m." es lo bastante larga como para partirse en dos líneas
@@ -128,9 +147,12 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
       const row = pairs.slice(i, i + cols);
       row.forEach((pair, j) => {
         const x = M + j * cellW;
+        const innerW = cellW - 8;
         doc.rect(x, y, cellW, cellH).stroke(BORDER);
-        doc.fillColor(MUTED).fontSize(7).text(pair.label.toUpperCase(), x + 4, y + 3, { width: cellW - 8, ellipsis: true, lineBreak: false });
-        doc.fillColor(BRAND).fontSize(9).text(pair.value, x + 4, y + 9, { width: cellW - 8, ellipsis: true, lineBreak: false });
+        doc.fillColor(MUTED).fontSize(7);
+        doc.text(fitText(doc, pair.label.toUpperCase(), innerW), x + 4, y + 3, { lineBreak: false });
+        doc.fillColor(BRAND).fontSize(9);
+        doc.text(fitText(doc, pair.value, innerW), x + 4, y + 9, { lineBreak: false });
       });
       // Completa la fila con celdas vacías para que la grilla quede pareja.
       for (let j = row.length; j < cols; j++) {
@@ -148,7 +170,7 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
       let x = M;
       doc.fillColor("#ffffff").fontSize(6.5).font("Helvetica-Bold");
       headers.forEach((h, i) => {
-        doc.text(h, x + 3, y + 5, { width: widths[i] - 6, ellipsis: true, lineBreak: false });
+        doc.text(fitText(doc, h, widths[i] - 6), x + 3, y + 5, { lineBreak: false });
         x += widths[i];
       });
       doc.font("Helvetica");
@@ -167,7 +189,7 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
       doc.fillColor(BRAND).fontSize(7.5).font(bold ? "Helvetica-Bold" : "Helvetica");
       row.forEach((cell, i) => {
         doc.rect(x, y, widths[i], rowH).stroke(BORDER);
-        doc.text(cell, x + 3, y + 4, { width: widths[i] - 6, ellipsis: true, lineBreak: false });
+        doc.text(fitText(doc, cell, widths[i] - 6), x + 3, y + 4, { lineBreak: false });
         x += widths[i];
       });
       doc.font("Helvetica");
