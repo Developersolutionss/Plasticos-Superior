@@ -10,6 +10,7 @@ import Clients from "./pages/Clients";
 import Contactos from "./pages/Contactos";
 import NuevoCliente from "./pages/NuevoCliente";
 import OrdenesProduccion from "./pages/OrdenesProduccion";
+import OrdenProduccionDetalle from "./pages/OrdenProduccionDetalle";
 import Planeacion from "./pages/Planeacion";
 import Calidad from "./pages/Calidad";
 import Trazabilidad from "./pages/Trazabilidad";
@@ -36,12 +37,17 @@ import {
   ALMACEN,
   VENTAS,
   PRODUCCION_GESTION,
+  OPERARIOS,
   OP_EXTRUSION,
   OP_IMPRESION,
   OP_SELLADO,
   CALIDAD,
   AUDITORIA,
 } from "./components/navConfig";
+
+/** La hoja de una OP la ven todos los que participan del ciclo: operarios y
+ * gestión (cargan rollos / editan), Calidad (revisa) y Auditoría (traza). */
+const OP_DETALLE: UserRole[] = [...new Set([...OPERARIOS, ...CALIDAD, ...AUDITORIA])];
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -215,6 +221,14 @@ export default function App() {
           element={
             <RequireRole roles={PRODUCCION_GESTION}>
               <OrdenesProduccion />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="produccion/ordenes/:id"
+          element={
+            <RequireRole roles={OP_DETALLE}>
+              <OrdenProduccionDetalle />
             </RequireRole>
           }
         />

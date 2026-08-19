@@ -49,11 +49,11 @@ El avance real frente al plan se detalla a continuación.
 | # | Módulo | Estado |
 |---|---|---|
 | 5 | Planeación | ✅ Implementado (cola de ítems de pedidos aprobados/en producción sin OP y generación de OP desde cada ítem) |
-| 6 | Órdenes de producción | ✅ Implementado (OP-00001, estado y paso por estación) |
-| 7 | Extrusión | ✅ Implementado (registro de etapa en `production_stage_logs`) |
-| 8 | Impresión | ✅ Implementado (registro de etapa) |
-| 9 | Sellado | ✅ Implementado (registro de etapa) |
-| 10 | Precorte | ✅ Implementado (registro de etapa; deja la OP `pendiente_calidad` — la entrada de inventario la genera Calidad al aprobar) |
+| 6 | Órdenes de producción | ✅ Implementado (OP-00001; una OP por proceso con plantilla propia tipo formato en papel, derivación Extrusión → Impresión/Sellado/Precorte, registro acumulativo de rollos, reporte PDF consolidado y adjuntos) |
+| 7 | Extrusión | ✅ Implementado (plantilla F-OP-01: materia prima con % y kg calculados, forma del material, registro de rollos) |
+| 8 | Impresión | ✅ Implementado (plantilla flexografía: montaje, colores cara 1/2, registro de rollos) |
+| 9 | Sellado | ✅ Implementado (plantilla con medidas finales; su cierre deja la OP `pendiente_calidad`) |
+| 10 | Precorte | ✅ Implementado (plantilla con medidas finales; su cierre deja la OP `pendiente_calidad` — la entrada de inventario la genera Calidad al aprobar, con la suma de kg de los rollos) |
 | 11 | Trazabilidad básica | ✅ Implementado (historial completo de la OP: pasos por estación, resultado de Calidad y pedido/cliente de origen) |
 
 ### Fase 3 (semanas 17-20)

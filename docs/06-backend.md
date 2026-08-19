@@ -284,8 +284,8 @@ Use transacciones donde la operación debe ser atómica (todo o nada). Operacion
 
 - **Alta de producción** (`createProductionEntry`): crea `production_entry` + `applyMovement` de entrada.
 - **Despacho** (PATCH de ítem): actualiza ítem + `applyMovement` de salida + estado del despacho. Si esa actualización deja el despacho `despachado` (y no lo estaba ya), **fuera** de la transacción intenta avisar por WhatsApp al cliente (ver `services/whatsapp.ts`).
-- **Etapa de producción** (`POST /:id/stages`): crea la etapa; si la estación es `precorte`, deja la OP `pendiente_calidad` (no mueve stock todavía).
-- **Control de calidad** (`POST /:id/quality-check`): crea el `quality_check`; si aprueba, `applyMovement` de entrada (con el kilaje del precorte) + marca la OP `finalizada`; si rechaza, deja la OP `detenida`.
+- **Rollo de producción** (`POST /:id/rolls`): crea la fila del registro acumulativo; si la OP estaba `pendiente`, pasa a `en_proceso`.
+- **Control de calidad** (`POST /:id/quality-check`): crea el `quality_check`; si aprueba, `applyMovement` de entrada (con la **suma de kg de los rollos** de la OP) + marca la OP `finalizada`; si rechaza, deja la OP `detenida`.
 - **Contactos/direcciones principal**: desmarca el anterior + crea el nuevo.
 - **Numeración consecutiva** (`OP-`, `COT-`, `PED-`, `FAC-`): el `count()` y el `create` corren en la misma transacción, envuelta en `withSequentialNumberRetry`. Si dos requests calculan el mismo número y chocan contra el `@unique` (P2002), el servicio reintenta la transacción, hasta **8 intentos**, con backoff creciente y jitter (`delayMs = 10 * intento + Math.random() * 30`) para que varios requests trabados no vuelvan a chocar en el mismo instante.
 - **OP desde Planeación** (`POST /from-pedido-item/:id`): valida que el ítem no tenga OP, la crea con numeración y enlaza `pedidoVersionItemId`.

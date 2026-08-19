@@ -120,29 +120,125 @@ async function main() {
     }
   }
 
-  // OP demo ya con su paso de precorte cargado y en pendiente_calidad, para
-  // que la cola del módulo de Calidad no esté vacía al entrar. orderNumber
+  // Cadena demo de OPs por proceso (modelo nuevo: una OP por estación con
+  // derivaciones): Extrusión finalizada → deriva en una de Sellado en
+  // pendiente_calidad (para que la cola de Calidad no esté vacía) y una de
+  // Impresión en proceso (para ver la derivación con dos hijas). orderNumber
   // fijo (mismo criterio que PED-SEED-PLANEACION) para poder chequear
   // existencia sin pisar la numeración real OP-00001, OP-00002... de la app.
-  if (bulto) {
-    const existingSeedOp = await prisma.productionOrder.findUnique({ where: { orderNumber: "OP-SEED-CALIDAD" } });
-    if (!existingSeedOp) {
+  if (bulto && acme) {
+    const existingSeedExtrusion = await prisma.productionOrder.findUnique({
+      where: { orderNumber: "OP-SEED-EXTRUSION" },
+    });
+    if (!existingSeedExtrusion) {
+      const extrusionOp = await prisma.productionOrder.create({
+        data: {
+          orderNumber: "OP-SEED-EXTRUSION",
+          station: "extrusion",
+          productId: bulto.id,
+          clientId: acme.id,
+          quantityPlanned: 100,
+          measure: bulto.measure,
+          status: "finalizada",
+          specs: {
+            formaMaterial: "Tubular",
+            materialPara: "SELLADO",
+            materiaPrima: [
+              { ref: "ALTA", pct: 69, lote: "L-2301" },
+              { ref: "LINEAL", pct: 30, lote: "L-2302" },
+              { ref: "BIODEGRADABLE", pct: 1, lote: "L-2303" },
+            ],
+            ancho: "14",
+            anchoUnidad: "Pulgadas",
+            calibre: "0.45",
+            densidad: "ALTA",
+            color: "TRANSP",
+            tratado: "NO",
+            grafilado: "NO",
+            maquina: "Extrusora 1",
+            observaciones: "Por favor bien calibrados - no arrugados",
+          },
+          rolls: {
+            create: [
+              {
+                shift: "Turno 1",
+                operatorName: "Operario Demo",
+                machine: "1",
+                label: "R-001",
+                weightKg: 48,
+                wasteKg: 1.5,
+                details: { pResistencia: "SI", pTratado: "NO" },
+              },
+              {
+                shift: "Turno 2",
+                operatorName: "Operaria Demo 2",
+                machine: "1",
+                label: "R-002",
+                weightKg: 52,
+                wasteKg: 0.8,
+                details: { pResistencia: "SI", pTratado: "NO" },
+              },
+            ],
+          },
+        },
+      });
+
       await prisma.productionOrder.create({
         data: {
           orderNumber: "OP-SEED-CALIDAD",
+          station: "sellado",
           productId: bulto.id,
+          clientId: acme.id,
           quantityPlanned: 30,
           measure: bulto.measure,
           status: "pendiente_calidad",
-          stages: {
-            create: {
-              station: "precorte",
-              machine: "Cortadora 1",
-              operatorName: "Operario Demo",
-              startTime: new Date(),
-              kilosProduced: 30,
-              notes: "Paso de precorte demo para probar el módulo de Calidad",
-            },
+          parentOrderId: extrusionOp.id,
+          specs: { tipoMaterial: "Tubular", materialDensidad: "ALTA", medidasUnidad: "Pulgadas", medAncho: "14", medLargo: "20" },
+          rolls: {
+            create: [
+              {
+                shift: "Turno 1",
+                operatorName: "Operario Demo",
+                machine: "Selladora 1",
+                label: "B-001",
+                weightKg: 30,
+                details: { eBulto: "B-001", pBulto: 30, paqXUnid: "20x100", pResistencia: "SI" },
+                notes: "Bulto demo para probar el módulo de Calidad",
+              },
+            ],
+          },
+        },
+      });
+
+      await prisma.productionOrder.create({
+        data: {
+          orderNumber: "OP-SEED-IMPRESION",
+          station: "impresion",
+          productId: bulto.id,
+          clientId: acme.id,
+          quantityPlanned: 40,
+          measure: bulto.measure,
+          status: "en_proceso",
+          parentOrderId: extrusionOp.id,
+          specs: {
+            tipoMaterial: "Tubular",
+            repeticionesAlAncho: "2",
+            coloresCara1: [
+              { unidad: 1, color: "Azul pantone 2935", lote: "T-101" },
+              { unidad: 2, color: "Blanco", lote: "T-102" },
+            ],
+          },
+          rolls: {
+            create: [
+              {
+                shift: "Turno 1",
+                operatorName: "Operario Demo",
+                machine: "Flexo 1",
+                label: "RI-001",
+                weightKg: 18,
+                details: { etiquetaExt: "R-001", pesoExt: 20, pDesprendimiento: "SI" },
+              },
+            ],
           },
         },
       });
@@ -212,19 +308,18 @@ async function main() {
       const op = await prisma.productionOrder.create({
         data: {
           orderNumber: seedOp.orderNumber,
+          station: "precorte",
           productId: bulto.id,
           quantityPlanned: 15,
           measure: bulto.measure,
           status: seedOp.result === "aprobado" ? "finalizada" : "detenida",
-          stages: {
+          rolls: {
             create: {
-              station: "precorte",
+              date: new Date(Date.now() - 2 * 60 * 60 * 1000),
               machine: "Cortadora 1",
               operatorName: "Operario Demo",
-              startTime: new Date(Date.now() - 2 * 60 * 60 * 1000),
-              endTime: new Date(),
-              kilosProduced: 15,
-              notes: "Paso de precorte demo para probar el módulo de Indicadores",
+              weightKg: 15,
+              notes: "Rollo de precorte demo para probar el módulo de Indicadores",
             },
           },
         },

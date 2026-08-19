@@ -89,7 +89,7 @@ export default function Calidad() {
 
   const { data: pending, isLoading } = useQuery({
     queryKey: ["productionOrders", "pendiente_calidad"],
-    queryFn: () => api.getProductionOrders("pendiente_calidad"),
+    queryFn: () => api.getProductionOrders({ status: "pendiente_calidad" }),
   });
 
   async function handleSubmit(orderId: number, result: "aprobado" | "rechazado") {
@@ -107,16 +107,19 @@ export default function Calidad() {
     }
   }
 
-  function precorteKg(order: any) {
-    const precorte = (order.stages ?? []).filter((s: any) => s.station === "precorte").at(-1);
-    return precorte?.kilosProduced;
+  // Los kg que entrarían al inventario si se aprueba: la suma de los rollos
+  // registrados en la OP (mismo cálculo que hace el backend al aprobar).
+  function rollosKg(order: any) {
+    const rolls = order.rolls ?? [];
+    if (rolls.length === 0) return null;
+    return rolls.reduce((acc: number, r: any) => acc + Number(r.weightKg), 0);
   }
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Calidad</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Órdenes de producción que ya pasaron por precorte, pendientes de aprobar</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">OPs finales (Sellado/Precorte) ya cerradas, pendientes de aprobar</p>
       </div>
 
       {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
@@ -137,7 +140,7 @@ export default function Calidad() {
                   <th className="p-3">OP</th>
                   <th className="p-3">Producto</th>
                   <th className="p-3">Cant. planificada</th>
-                  <th className="p-3">Kg en precorte</th>
+                  <th className="p-3">Kg en rollos</th>
                   <th className="p-3"></th>
                 </tr>
               </thead>
@@ -149,7 +152,7 @@ export default function Calidad() {
                     <td className="p-3">
                       {order.quantityPlanned} {order.product.unit}
                     </td>
-                    <td className="p-3">{precorteKg(order) ?? "—"}</td>
+                    <td className="p-3">{rollosKg(order) ?? "—"}</td>
                     <td className="p-3">
                       <Actions
                         order={order}
@@ -175,7 +178,7 @@ export default function Calidad() {
                   <p className="font-medium text-slate-800 dark:text-slate-100">{order.orderNumber}</p>
                   <p className="text-sm text-slate-600 dark:text-slate-300">{order.product.name}</p>
                   <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Planificado: {order.quantityPlanned} {order.product.unit} · Precorte: {precorteKg(order) ?? "—"}
+                    Planificado: {order.quantityPlanned} {order.product.unit} · Rollos: {rollosKg(order) ?? "—"}
                   </p>
                 </div>
                 <Actions

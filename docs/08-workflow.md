@@ -59,14 +59,14 @@ La OP es la unidad de trabajo. Cada OP pasa por las **cuatro estaciones** en ord
 Extrusión → Impresión → Sellado → Precorte
 ```
 
-- `POST /api/production-orders` crea la OP (`OP-00001`) con `status: pendiente`.
-- `POST /api/production-orders/:id/stages` registra el paso por una estación:
-  - Crea el `production_stage_log` (máquina, operario, kilos, merma, tiempos, `details` JSON).
-  - Si la OP está `pendiente`, pasa a `en_proceso`.
-  - **Cuando la estación es `precorte`** (la última), la OP queda `pendiente_calidad`. Todavía **no** genera inventario: recién se mueve el stock cuando Calidad aprueba el lote.
-- Un operario solo puede registrar **su** estación (definido por `OPERARIO_STATIONS`). Gestión de producción puede registrar cualquier estación.
-- Estados de OP: `pendiente` → `en_proceso` → `pendiente_calidad` → `finalizada` (o `detenida` / `cancelada`, control evolutivo por `PATCH /status`).
-- Cuando la etapa de `precorte` deja la OP `pendiente_calidad`, el sistema notifica a `ROLES.CALIDAD` (`notifyRoles`, ver más abajo).
+- Cada **proceso** tiene su propia OP con su plantilla (formatos en papel del cliente): `POST /api/production-orders` crea la OP (`OP-00001`, con `station` y `specs`) en `status: pendiente`.
+- **Extrusión es el proceso base**: de una OP de Extrusión se derivan (`POST /:id/derive`) las OPs de Impresión, Sellado o Precorte; de Impresión se derivan Sellado o Precorte. La cadena queda en `parentOrderId`.
+- `POST /api/production-orders/:id/rolls` agrega una fila al **registro acumulativo de rollos** (fecha, turno, operario, máquina, etiqueta, peso, desperdicio, pruebas en `details`). Si la OP está `pendiente`, pasa a `en_proceso`.
+- Un operario solo carga rollos en OPs de **su** estación (definido por `OPERARIO_STATIONS`). Gestión de producción puede cargar en cualquiera.
+- `POST /api/production-orders/:id/close` cierra la OP (requiere ≥1 rollo): Extrusión/Impresión quedan `finalizada` directo (su material sigue en las OPs derivadas, sin mover stock); **Sellado/Precorte** (procesos finales) quedan `pendiente_calidad` — todavía **no** generan inventario: el stock se mueve recién cuando Calidad aprueba el lote (con la suma de kg de los rollos).
+- Estados de OP: `pendiente` → `en_proceso` → (`finalizada` | `pendiente_calidad` → `finalizada`) (o `detenida` / `cancelada`, control manual por `PATCH /status`).
+- Cuando el cierre deja la OP `pendiente_calidad`, el sistema notifica a `ROLES.CALIDAD` (`notifyRoles`, ver más abajo).
+- `GET /:id/report.pdf` emite el **reporte consolidado** de la OP con el layout del formato en papel (rollos, kilos totales, insumos, operarios por turno, adjuntos).
 
 ### Control de calidad
 

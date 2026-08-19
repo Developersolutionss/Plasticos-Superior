@@ -38,7 +38,7 @@ export default function Trazabilidad() {
           <option value="">Orden de producción (OP)...</option>
           {orders?.map((o: any) => (
             <option key={o.id} value={o.id}>
-              {o.orderNumber} — {o.product.name}
+              {o.orderNumber} ({STATION_LABELS[o.station] ?? o.station}) — {o.product.name}
             </option>
           ))}
         </select>
@@ -66,35 +66,58 @@ export default function Trazabilidad() {
                   {order.quantityPlanned} {order.product.unit}
                 </span>
               </div>
+              <div>
+                <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">Proceso</span>
+                <span className="text-slate-800 dark:text-slate-100">{STATION_LABELS[order.station] ?? order.station}</span>
+              </div>
+              <div>
+                <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">Cliente</span>
+                <span className="text-slate-800 dark:text-slate-100">{order.client?.name ?? "—"}</span>
+              </div>
               <div className="sm:col-span-2">
                 <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">Origen</span>
                 <span className="text-slate-800 dark:text-slate-100">
                   {origin ? `Pedido ${origin.orderNumber} — ${origin.client.name}` : "Producción a stock (sin pedido de origen)"}
                 </span>
               </div>
+              {(order.parent || order.derivedOrders?.length > 0) && (
+                <div className="sm:col-span-2">
+                  <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">Cadena de derivación</span>
+                  <span className="text-slate-800 dark:text-slate-100">
+                    {order.parent && `Derivada de ${order.parent.orderNumber} (${STATION_LABELS[order.parent.station] ?? order.parent.station})`}
+                    {order.parent && order.derivedOrders?.length > 0 && " · "}
+                    {order.derivedOrders?.length > 0 &&
+                      `Deriva en ${order.derivedOrders
+                        .map((d: any) => `${d.orderNumber} (${STATION_LABELS[d.station] ?? d.station})`)
+                        .join(", ")}`}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 dark:border-slate-700">
               <Factory size={16} strokeWidth={2} className="text-slate-500 dark:text-slate-400" aria-hidden="true" />
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Pasos por estación</p>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Registro de rollos</p>
             </div>
             <ul className="divide-y divide-slate-100 dark:divide-slate-700 text-sm">
-              {order.stages?.map((s: any) => (
-                <li key={s.id} className="px-5 py-3">
+              {order.rolls?.map((r: any) => (
+                <li key={r.id} className="px-5 py-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-medium text-slate-800 dark:text-slate-100">{STATION_LABELS[s.station] ?? s.station}</span>
-                    <span className="text-slate-500 dark:text-slate-400">{new Date(s.startTime).toLocaleString()}</span>
+                    <span className="font-medium text-slate-800 dark:text-slate-100">
+                      {r.label ?? "Rollo"} · {Number(r.weightKg)} kg
+                    </span>
+                    <span className="text-slate-500 dark:text-slate-400">{new Date(r.date).toLocaleDateString()}</span>
                   </div>
                   <p className="text-slate-600 dark:text-slate-300 mt-0.5">
-                    {s.machine} · {s.operatorName} · {s.kilosProduced} kg
-                    {Number(s.mermaKg) > 0 && ` · merma ${s.mermaKg} kg`}
+                    {[r.shift, r.operatorName, r.machine].filter(Boolean).join(" · ")}
+                    {Number(r.wasteKg) > 0 && ` · desperdicio ${Number(r.wasteKg)} kg`}
                   </p>
                 </li>
               ))}
-              {(!order.stages || order.stages.length === 0) && (
-                <li className="px-5 py-4 text-slate-500 dark:text-slate-400">Todavía no pasó por ninguna estación.</li>
+              {(!order.rolls || order.rolls.length === 0) && (
+                <li className="px-5 py-4 text-slate-500 dark:text-slate-400">Todavía no tiene rollos registrados.</li>
               )}
             </ul>
           </div>

@@ -134,7 +134,7 @@ dashboardRouter.get("/indicadores", async (req, res) => {
     }),
     prisma.qualityCheck.findMany({
       where: { createdAt: { gte: from, lte: to } },
-      include: { productionOrder: { include: { stages: { select: { startTime: true } } } } },
+      include: { productionOrder: { include: { rolls: { select: { date: true } } } } },
     }),
   ]);
 
@@ -161,7 +161,7 @@ dashboardRouter.get("/indicadores", async (req, res) => {
 
   const duracionesHoras: number[] = [];
   for (const q of qualityChecks) {
-    const starts = q.productionOrder.stages.map((s) => s.startTime.getTime());
+    const starts = q.productionOrder.rolls.map((r) => r.date.getTime());
     if (starts.length === 0) continue;
     const inicio = Math.min(...starts);
     duracionesHoras.push((q.createdAt.getTime() - inicio) / (1000 * 60 * 60));

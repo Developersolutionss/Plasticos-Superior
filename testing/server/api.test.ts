@@ -353,7 +353,7 @@ describe("producción · alta manual e importación", () => {
   });
 });
 
-describe("órdenes de producción · ciclo completo (estaciones, calidad, planeación)", () => {
+describe("órdenes de producción · una OP por proceso (derivación, rollos, calidad, planeación)", () => {
   let productId = 0;
 
   before(async () => {
@@ -366,62 +366,145 @@ describe("órdenes de producción · ciclo completo (estaciones, calidad, planea
     assert.equal(res.status, 403);
   });
 
-  it("crea una OP con numeración OP-XXXXX", async () => {
+  it("crea una OP con numeración OP-XXXXX, estación y specs de plantilla", async () => {
     const res = await fetch(`${baseUrl}/api/production-orders`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ productId, quantityPlanned: 50 }),
+      body: JSON.stringify({
+        station: "extrusion",
+        productId,
+        quantityPlanned: 50,
+        specs: { formaMaterial: "Tubular", materiaPrima: [{ ref: "ALTA", pct: 70 }] },
+      }),
     });
     assert.equal(res.status, 201);
-    const order = (await res.json()) as { id: number; orderNumber: string; status: string };
+    const order = (await res.json()) as { id: number; orderNumber: string; status: string; station: string; specs: any };
     assert.match(order.orderNumber, /^OP-\d{5}$/);
     assert.equal(order.status, "pendiente");
+    assert.equal(order.station, "extrusion");
+    assert.equal(order.specs.formaMaterial, "Tubular");
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
-  it("un operario no puede registrar la etapa de otra estación", async () => {
+  it("un operario no puede registrar rollos en una OP de otra estación", async () => {
     const order = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 10 },
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "impresion", productId, quantityPlanned: 10 },
     });
-    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/stages`, {
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
       method: "POST",
       headers: headersFor("operario_extrusion"),
-      body: JSON.stringify({
-        station: "impresion",
-        machine: "IMP-1",
-        operatorName: "Op",
-        startTime: new Date().toISOString(),
-        kilosProduced: 5,
-      }),
+      body: JSON.stringify({ operatorName: "Op", weightKg: 5 }),
     });
     assert.equal(res.status, 403);
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
-  it("registrar la etapa de precorte deja la OP pendiente_calidad y notifica a Calidad (sin mover stock)", async () => {
+  it("cargar un rollo pasa la OP a en_proceso; gestión puede borrarlo", async () => {
     const order = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 10 },
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10 },
     });
-    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId } });
-
-    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/stages`, {
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
       method: "POST",
-      headers: headersFor("produccion"),
-      body: JSON.stringify({
-        station: "precorte",
-        machine: "PRE-1",
-        operatorName: "Op",
-        startTime: new Date().toISOString(),
-        kilosProduced: 12,
-      }),
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ shift: "Turno 1", operatorName: "Op", label: "R-1", weightKg: 5, wasteKg: 0.5, details: { pResistencia: "SI" } }),
     });
     assert.equal(res.status, 201);
+    const roll = (await res.json()) as { id: number };
+
+    const updated = await prisma.productionOrder.findUnique({ where: { id: order.id } });
+    assert.equal(updated!.status, "en_proceso");
+
+    const del = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls/${roll.id}`, {
+      method: "DELETE",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(del.status, 204);
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("derivación: extrusión → sellado hereda producto/cantidad; sellado no deriva (400)", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
+    });
+
+    const bad = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "extrusion" }),
+    });
+    assert.equal(bad.status, 400, "extrusión no puede derivar a extrusión");
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(res.status, 201);
+    const derived = (await res.json()) as { id: number; station: string; parentOrderId: number; productId: number; quantityPlanned: unknown };
+    assert.equal(derived.station, "sellado");
+    assert.equal(derived.parentOrderId, parent.id);
+    assert.equal(derived.productId, productId);
+    assert.equal(Number(derived.quantityPlanned), 40);
+
+    const badFinal = await fetch(`${baseUrl}/api/production-orders/${derived.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "precorte" }),
+    });
+    assert.equal(badFinal.status, 400, "una OP de sellado es proceso final, no deriva");
+
+    await prisma.productionOrder.delete({ where: { id: derived.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
+  it("cerrar una OP de extrusión la finaliza directo sin mover stock; sin rollos se rechaza", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10 },
+    });
+
+    const sinRollos = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(sinRollos.status, 400, "no se cierra una OP sin rollos");
+
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 10 } });
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId } });
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(res.status, 200);
+    const closed = (await res.json()) as { status: string };
+    assert.equal(closed.status, "finalizada", "extrusión no pasa por calidad");
+
+    const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId } });
+    assert.equal(Number(stockDespues?.currentQuantity ?? 0), Number(stockAntes?.currentQuantity ?? 0), "extrusión no mueve stock");
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("cerrar una OP final (sellado) la deja pendiente_calidad y notifica a Calidad (sin mover stock)", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10 },
+    });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 12 } });
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId } });
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(res.status, 200);
 
     const updated = await prisma.productionOrder.findUnique({ where: { id: order.id } });
     assert.equal(updated!.status, "pendiente_calidad");
 
     const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId } });
-    assert.equal(Number(stockDespues?.currentQuantity ?? 0), Number(stockAntes?.currentQuantity ?? 0), "el precorte no mueve stock todavía");
+    assert.equal(Number(stockDespues?.currentQuantity ?? 0), Number(stockAntes?.currentQuantity ?? 0), "el cierre no mueve stock todavía");
 
     const notif = await prisma.notification.findFirst({
       where: { type: "op_pendiente_calidad", message: { contains: order.orderNumber } },
@@ -431,17 +514,16 @@ describe("órdenes de producción · ciclo completo (estaciones, calidad, planea
     assert.equal(notif!.link, "/calidad");
 
     await prisma.notification.delete({ where: { id: notif!.id } });
-    await prisma.productionStageLog.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
-  it("Calidad aprueba: genera la entrada de inventario con el kilaje del precorte y finaliza la OP", async () => {
+  it("Calidad aprueba: genera la entrada de inventario con la suma de kg de los rollos y finaliza la OP", async () => {
     const order = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 10, status: "pendiente_calidad" },
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "precorte", productId, quantityPlanned: 10, status: "pendiente_calidad" },
     });
-    await prisma.productionStageLog.create({
-      data: { productionOrderId: order.id, station: "precorte", machine: "PRE-1", operatorName: "Op", startTime: new Date(), kilosProduced: 8 },
-    });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 5 } });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 3 } });
     const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId } });
 
     const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
@@ -452,7 +534,7 @@ describe("órdenes de producción · ciclo completo (estaciones, calidad, planea
     assert.equal(res.status, 201);
 
     const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId } });
-    assert.equal(Number(stockDespues!.currentQuantity), Number(stockAntes?.currentQuantity ?? 0) + 8);
+    assert.equal(Number(stockDespues!.currentQuantity), Number(stockAntes?.currentQuantity ?? 0) + 8, "entra la suma de los rollos (5+3)");
 
     const updated = await prisma.productionOrder.findUnique({ where: { id: order.id } });
     assert.equal(updated!.status, "finalizada");
@@ -467,7 +549,7 @@ describe("órdenes de producción · ciclo completo (estaciones, calidad, planea
 
     await prisma.qualityCheck.deleteMany({ where: { productionOrderId: order.id } });
     await prisma.inventoryMovement.deleteMany({ where: { referenceType: "manual_adjustment", productId, createdAt: { gte: order.createdAt } } });
-    await prisma.productionStageLog.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
     await prisma.productionOrder.delete({ where: { id: order.id } });
     await prisma.inventoryStock.update({ where: { productId }, data: { currentQuantity: stockAntes?.currentQuantity ?? 0 } });
   });
@@ -515,8 +597,10 @@ describe("órdenes de producción · ciclo completo (estaciones, calidad, planea
       headers: headersFor("planeacion"),
     });
     assert.equal(generate.status, 201);
-    const order = (await generate.json()) as { id: number; pedidoVersionItemId: number };
+    const order = (await generate.json()) as { id: number; pedidoVersionItemId: number; station: string; clientId: number | null };
     assert.equal(order.pedidoVersionItemId, target.pedidoVersionItemId);
+    assert.equal(order.station, "extrusion", "la OP de Planeación nace como el proceso base");
+    assert.ok(order.clientId, "hereda el cliente del pedido");
 
     const dup = await fetch(`${baseUrl}/api/production-orders/from-pedido-item/${target.pedidoVersionItemId}`, {
       method: "POST",
@@ -556,19 +640,72 @@ describe("órdenes de producción · ciclo completo (estaciones, calidad, planea
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
-  it("GET /:id (Trazabilidad) devuelve el detalle completo y 404 si no existe", async () => {
+  it("GET /:id (Trazabilidad) devuelve el detalle completo (rollos, derivación) y 404 si no existe", async () => {
     const order = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 10 },
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10 },
     });
     const res = await fetch(`${baseUrl}/api/production-orders/${order.id}`, { headers: headersFor("auditor") });
     assert.equal(res.status, 200);
-    const body = (await res.json()) as { id: number; product: { sku: string }; stages: unknown[] };
+    const body = (await res.json()) as { id: number; product: { sku: string }; rolls: unknown[]; derivedOrders: unknown[]; attachments: unknown[] };
     assert.equal(body.id, order.id);
     assert.equal(body.product.sku, "BUL-001");
-    assert.ok(Array.isArray(body.stages));
+    assert.ok(Array.isArray(body.rolls));
+    assert.ok(Array.isArray(body.derivedOrders));
+    assert.ok(Array.isArray(body.attachments));
 
     const notFound = await fetch(`${baseUrl}/api/production-orders/999999999`, { headers: headersFor("auditor") });
     assert.equal(notFound.status, 404);
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("GET /:id/report.pdf devuelve el reporte consolidado en PDF", async () => {
+    const order = await prisma.productionOrder.create({
+      data: {
+        orderNumber: `OP-TEST-${Date.now()}`,
+        station: "extrusion",
+        productId,
+        quantityPlanned: 100,
+        specs: { formaMaterial: "Tubular", materiaPrima: [{ ref: "ALTA", pct: 70, lote: "L-1" }], maquina: "Extrusora 1" },
+      },
+    });
+    await prisma.productionRoll.create({
+      data: { productionOrderId: order.id, shift: "Turno 1", operatorName: "Op", label: "R-1", weightKg: 50, details: { pResistencia: "SI" } },
+    });
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/report.pdf`, { headers: headersFor("produccion") });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /application\/pdf/);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    assert.equal(buffer.subarray(0, 4).toString(), "%PDF");
+    assert.ok(buffer.length > 1000, "el PDF debe tener contenido real");
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("PATCH /:id edita specs solo mientras la OP está abierta", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10, specs: { tipoMaterial: "Tubular" } },
+    });
+
+    const ok = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ specs: { tipoMaterial: "Semitubular", medAncho: "14" }, quantityPlanned: 20 }),
+    });
+    assert.equal(ok.status, 200);
+    const updated = (await ok.json()) as { specs: any; quantityPlanned: unknown };
+    assert.equal(updated.specs.medAncho, "14");
+    assert.equal(Number(updated.quantityPlanned), 20);
+
+    await prisma.productionOrder.update({ where: { id: order.id }, data: { status: "finalizada" } });
+    const cerrada = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ specs: { tipoMaterial: "Tubular" } }),
+    });
+    assert.equal(cerrada.status, 400, "una OP cerrada no se edita");
 
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });

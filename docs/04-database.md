@@ -43,7 +43,9 @@ clients 1───N dispatches / production_entries / facturas / pedidos
 products 1───1 inventory_stock
 products 1───N production_entries / dispatch_items / inventory_movements / stock_locations
 warehouse_locations 1───N stock_locations
-production_orders 1───N production_stage_logs
+production_orders 1───N production_rolls / production_order_attachments
+production_orders 0..1───N production_orders (derivación: parent_order_id)
+clients 1───N production_orders (cliente asociado, opcional)
 pedido_version_items 0..1───0..1 production_orders (vínculo opcional, módulo Planeación)
 cotizaciones 1───N cotizacion_items · 1───0..N pedidos
 pedidos 1───N pedido_versions 1───N pedido_version_items
@@ -207,23 +209,27 @@ Notificación in-app. `type` es texto libre (p. ej. `op_pendiente_calidad`) para
 
 ### `production_orders`
 
-**Orden de Producción (OP)**: la unidad de trabajo que se mueve por las estaciones.
+**Orden de Producción (OP)**: una por proceso de planta (formatos en papel del cliente). Extrusión es el proceso base; las OPs de los procesos siguientes se derivan de ella (`parent_order_id`).
 
 | id | Int | PK |
 | orderNumber | String | `@unique`, formato `OP-00001` (numeración consecutiva en transacción) |
+| station | `ProductionStation` | `extrusion` / `impresion` / `sellado` / `precorte`. El proceso de esta OP |
 | productId | Int | FK → products |
+| clientId | Int? | `@map("client_id")`. FK → clients. Cliente asociado (del pedido en Planeación, o manual) |
 | quantityPlanned | Decimal | `@map("quantity_planned")` |
 | measure | String? | hereda del producto si no se indica |
 | status | `ProductionOrderStatus` | `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada` |
+| specs | Json? | Encabezado de la plantilla de la estación (materia prima con %, medidas, montaje, colores, etc. — ver `services/opTemplates.ts`) |
+| parentOrderId | Int? | `@map("parent_order_id")`. Self-FK → production_orders. OP de la que se derivó (cadena Extrusión → …) |
 | pedidoVersionItemId | Int? | `@unique` `@map("pedido_version_item_id")`. FK → pedido_version_items. Vínculo opcional con el ítem del pedido que originó la OP (módulo Planeación). `NULL` en las OPs manuales |
 | notes | String? | |
 | createdById | Int? | |
 | createdAt | DateTime | `@map("created_at")` |
-| qualityCheck | QualityCheck? | 1:1. Registra el control de calidad de la OP (una sola vez, tras precorte) |
+| qualityCheck | QualityCheck? | 1:1. Registra el control de calidad de una OP final (una sola vez, al cerrarse) |
 
 ### `quality_checks`
 
-Control de calidad de una OP. Se registra **una sola vez**: después del paso de precorte y antes de que la OP se finalice.
+Control de calidad de una OP final (Sellado/Precorte). Se registra **una sola vez**, al cerrarse la OP y antes de que se finalice.
 
 | Campo | Tipo | Notas |
 |---|---|---|
@@ -249,25 +255,35 @@ Bitácora forense genérica: registra `create`/`update`/`delete` sobre las tabla
 | ipAddress / userAgent | String? | Desde dónde se hizo |
 | createdAt | DateTime | `@map("created_at")` |
 
-### `production_stage_logs`
+### `production_rolls`
 
-Registro del paso de una OP por una estación. Los detalles específicos de cada estación van en `details` (JSON), para no tener 4 tablas casi idénticas.
+Fila del **registro acumulativo de rollos/bultos** de una OP (la tabla inferior de los formatos en papel). Lo que varía entre estaciones (pruebas SI/NO, color, densidad, paq×unid, etiqueta/peso de origen) va en `details` (JSON). Reemplaza a la antigua `production_stage_logs` (dropeada en `20260819001850_op_por_proceso`).
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | Int | PK |
 | productionOrderId | Int | FK → production_orders |
-| station | `ProductionStation` | `extrusion` / `impresion` / `sellado` / `precorte` |
-| machine | String | |
+| date | DateTime | `@default(now())` |
+| shift | String? | Turno |
 | operatorName | String | `@map("operator_name")` |
-| startTime | DateTime | `@map("start_time")` |
-| endTime | DateTime? | `@map("end_time")` |
-| kilosProduced | Decimal | `@map("kilos_produced")` |
-| mermaKg | Decimal | `@default(0)` `@map("merma_kg")` |
-| downtimeMinutes | Int | `@default(0)` `@map("downtime_minutes")` |
-| downtimeReason | String? | `@map("downtime_reason")` |
-| details | Json? | materia prima, tintas, tipo de sellado, etc. |
+| machine | String? | |
+| label | String? | Etiqueta del rollo/bulto |
+| weightKg | Decimal | `@map("weight_kg")` |
+| wasteKg | Decimal | `@default(0)` `@map("waste_kg")` (desperdicio) |
+| details | Json? | pruebas, color, densidad, etc. según la estación |
 | notes / createdById | String? / Int? | |
+| createdAt | DateTime | `@map("created_at")` |
+
+### `production_order_attachments`
+
+Adjuntos de una OP (fotos, fichas técnicas, artes). Espejo del patrón de `pedido_attachments`; los archivos viven en `uploads/produccion`.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| productionOrderId | Int | FK → production_orders |
+| storedName / originalName / mimeType / sizeBytes | String / String / String / Int | mismos campos que `pedido_attachments` |
+| uploadedById | Int? | FK → users |
 | createdAt | DateTime | `@map("created_at")` |
 
 ### `dispatches`
@@ -410,6 +426,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260813063722_add_user_active` | `users`: `active` (soft delete, bloquea login) |
 | `20260813064611_add_notifications` | Tabla `notifications` |
 | `20260815045824_add_factura_due_date` | `facturas`: `due_date` (fecha de vencimiento opcional) |
+| `20260819001850_op_por_proceso` | Rediseño de OP: `station`, `client_id`, `specs`, `parent_order_id` en `production_orders`; nuevas `production_rolls` y `production_order_attachments`; drop de `production_stage_logs` |
 
 Para aplicar cambios nuevos:
 

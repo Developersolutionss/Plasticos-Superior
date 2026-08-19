@@ -78,7 +78,7 @@ El token define **quién es** el usuario. Después del login, las rutas sensible
 
 `requireAuth` además captura quién hace la petición (usuario, IP y user-agent) y lo propaga con `AsyncLocalStorage` (`server/src/services/auditContext.ts`). La extensión de Prisma de auditoría usa ese contexto al registrar cambios (ver "Configuración compartida").
 
-Ejemplo: `POST /api/cotizaciones` exige rol de ventas; `POST /api/production-orders/:id/stages` exige un rol de operario, y el operario solo registra su estación (mediante `OPERARIO_STATIONS`).
+Ejemplo: `POST /api/cotizaciones` exige rol de ventas; `POST /api/production-orders/:id/rolls` exige un rol de operario, y el operario solo carga rollos en OPs de su estación (mediante `OPERARIO_STATIONS`).
 
 ### Formato de errores
 

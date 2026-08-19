@@ -166,7 +166,8 @@ model User {
   dispatches        Dispatch[]
   importLogs        ImportLog[]
   productionOrders     ProductionOrder[]
-  productionStageLogs  ProductionStageLog[]
+  productionRolls      ProductionRoll[]
+  productionOrderAttachments ProductionOrderAttachment[]
   clientInteractions   ClientInteraction[]
   cotizaciones         Cotizacion[]
   pedidos              Pedido[]
@@ -253,6 +254,7 @@ model Client {
   cotizaciones      Cotizacion[]
   pedidos           Pedido[]
   facturas          Factura[]
+  productionOrders  ProductionOrder[]
 
   @@map("clients")
 }
@@ -470,35 +472,48 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-/// Orden de Producción (OP): la unidad de trabajo que se mueve por las
-/// estaciones de planta (Extrusión → Impresión → Sellado → Precorte).
+/// Orden de Producción (OP): una por proceso de planta (los formatos en papel
+/// del cliente: F-OP-01 Extrusión, F-SE-01 Impresión/Sellado/Precorte). La
+/// Extrusión es el proceso base; de ella se derivan OPs de Impresión, Sellado
+/// o Precorte (y de Impresión, Sellado o Precorte) — `parentOrderId` guarda
+/// esa cadena. `specs` lleva el encabezado de la plantilla de cada estación
+/// (materia prima con %, medidas, montaje, colores, etc.) como JSON porque
+/// cada formato tiene campos distintos.
 /// `pedidoVersionItemId` es opcional: las OP creadas manualmente (sin pasar
 /// por Planeación) siguen sin vínculo, igual que hasta ahora.
 model ProductionOrder {
   id                  Int                   @id @default(autoincrement())
   orderNumber         String                @unique @map("order_number")
+  station             ProductionStation     @default(extrusion)
   productId           Int                   @map("product_id")
   product             Product               @relation(fields: [productId], references: [id])
+  clientId            Int?                  @map("client_id")
+  client              Client?               @relation(fields: [clientId], references: [id])
   quantityPlanned     Decimal               @map("quantity_planned") @db.Decimal(12, 2)
   measure             String?
   status              ProductionOrderStatus @default(pendiente)
+  specs               Json?
   notes               String?
+  parentOrderId       Int?                  @map("parent_order_id")
+  parent              ProductionOrder?      @relation("OrderDerivation", fields: [parentOrderId], references: [id])
+  derivedOrders       ProductionOrder[]     @relation("OrderDerivation")
   pedidoVersionItemId Int?                  @unique @map("pedido_version_item_id")
   pedidoVersionItem   PedidoVersionItem?    @relation(fields: [pedidoVersionItemId], references: [id])
   createdById         Int?                  @map("created_by")
   createdBy           User?                 @relation(fields: [createdById], references: [id])
   createdAt           DateTime              @default(now()) @map("created_at")
 
-  stages       ProductionStageLog[]
+  rolls        ProductionRoll[]
+  attachments  ProductionOrderAttachment[]
   qualityCheck QualityCheck?
 
   @@map("production_orders")
 }
 
-/// Control de calidad de una OP: se registra una sola vez, después del paso
-/// de precorte y antes de que la OP se finalice. Si es "rechazado", la OP
-/// queda "detenida" y no se genera la entrada de inventario (ver
-/// productionOrders.ts, endpoint POST /:id/quality-check).
+/// Control de calidad de una OP final (Sellado/Precorte): se registra una
+/// sola vez, al cerrarse la OP. Si es "rechazado", la OP queda "detenida" y
+/// no se genera la entrada de inventario (ver productionOrders.ts, endpoint
+/// POST /:id/quality-check).
 model QualityCheck {
   id                Int             @id @default(autoincrement())
   productionOrderId Int             @unique @map("production_order_id")
@@ -512,30 +527,47 @@ model QualityCheck {
   @@map("quality_checks")
 }
 
-/// Registro de paso de una OP por una estación de planta. Los 4 tipos de
-/// estación comparten estos campos comunes; lo que cada una necesita de
-/// especial (materia prima, tintas, tipo de sellado, etc.) va en `details`
-/// como JSON, para no tener 4 tablas casi idénticas.
-model ProductionStageLog {
-  id                Int               @id @default(autoincrement())
-  productionOrderId Int               @map("production_order_id")
-  productionOrder   ProductionOrder   @relation(fields: [productionOrderId], references: [id])
-  station           ProductionStation
-  machine           String
-  operatorName      String            @map("operator_name")
-  startTime         DateTime          @map("start_time")
-  endTime           DateTime?         @map("end_time")
-  kilosProduced     Decimal           @map("kilos_produced") @db.Decimal(12, 2)
-  mermaKg           Decimal           @default(0) @map("merma_kg") @db.Decimal(12, 2)
-  downtimeMinutes   Int               @default(0) @map("downtime_minutes")
-  downtimeReason    String?           @map("downtime_reason")
+/// Fila del registro acumulativo de rollos/bultos de una OP (la tabla
+/// inferior de los formatos en papel: fecha, turno, operario, máquina,
+/// etiqueta, peso, desperdicio). Lo que varía entre estaciones (pruebas
+/// SI/NO, color, densidad, paq×unid, etiqueta/peso de origen, etc.) va en
+/// `details` como JSON, para no tener 4 tablas casi idénticas.
+model ProductionRoll {
+  id                Int             @id @default(autoincrement())
+  productionOrderId Int             @map("production_order_id")
+  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  date              DateTime        @default(now())
+  shift             String?
+  operatorName      String          @map("operator_name")
+  machine           String?
+  label             String?
+  weightKg          Decimal         @map("weight_kg") @db.Decimal(12, 2)
+  wasteKg           Decimal         @default(0) @map("waste_kg") @db.Decimal(12, 2)
   details           Json?
   notes             String?
-  createdById       Int?              @map("created_by")
-  createdBy         User?             @relation(fields: [createdById], references: [id])
-  createdAt         DateTime          @default(now()) @map("created_at")
+  createdById       Int?            @map("created_by")
+  createdBy         User?           @relation(fields: [createdById], references: [id])
+  createdAt         DateTime        @default(now()) @map("created_at")
 
-  @@map("production_stage_logs")
+  @@map("production_rolls")
+}
+
+/// Adjuntos de una OP (fotos del rollo, fichas técnicas, artes de impresión).
+/// Espejo del patrón de PedidoAttachment; los archivos viven en
+/// uploads/produccion (ver routes/productionOrders.ts).
+model ProductionOrderAttachment {
+  id                Int             @id @default(autoincrement())
+  productionOrderId Int             @map("production_order_id")
+  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  storedName        String          @map("stored_name")
+  originalName      String          @map("original_name")
+  mimeType          String          @map("mime_type")
+  sizeBytes         Int             @map("size_bytes")
+  uploadedById      Int?            @map("uploaded_by")
+  uploadedBy        User?           @relation(fields: [uploadedById], references: [id])
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  @@map("production_order_attachments")
 }
 
 /// Cotización comercial. No tiene versionamiento formal (a diferencia de

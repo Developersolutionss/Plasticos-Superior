@@ -72,7 +72,7 @@ export const ROLES = {
 
 /**
  * Estaciones de planta que le corresponden a cada rol de operario (para
- * /production-orders/:id/stages) — "operario_sellado_precorte" es un solo
+ * /production-orders/:id/rolls y /close) — "operario_sellado_precorte" es un solo
  * rol que cubre las dos últimas estaciones, tal como lo nombra la propuesta
  * original ("Operario Sellado-Precorte").
  */

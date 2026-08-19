@@ -174,35 +174,90 @@ export const api = {
       body: JSON.stringify({ quantityDispatched }),
     }),
 
-  getProductionOrders: (status?: string) =>
-    request<any[]>(`/production-orders${status ? `?status=${status}` : ""}`),
+  getProductionOrders: (params?: { status?: string; station?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set("status", params.status);
+    if (params?.station) qs.set("station", params.station);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<any[]>(`/production-orders${suffix}`);
+  },
   getProductionOrder: (id: number) => request<any>(`/production-orders/${id}`),
-  createProductionOrder: (data: { productId: number; quantityPlanned: number; measure?: string; notes?: string }) =>
-    request<any>("/production-orders", { method: "POST", body: JSON.stringify(data) }),
+  createProductionOrder: (data: {
+    station: string;
+    productId: number;
+    clientId?: number;
+    quantityPlanned: number;
+    measure?: string;
+    specs?: Record<string, unknown>;
+    notes?: string;
+  }) => request<any>("/production-orders", { method: "POST", body: JSON.stringify(data) }),
+  deriveProductionOrder: (
+    id: number,
+    data: { station: string; quantityPlanned?: number; measure?: string; specs?: Record<string, unknown>; notes?: string }
+  ) => request<any>(`/production-orders/${id}/derive`, { method: "POST", body: JSON.stringify(data) }),
+  updateProductionOrder: (
+    id: number,
+    data: { specs?: Record<string, unknown>; measure?: string; quantityPlanned?: number; clientId?: number | null; notes?: string }
+  ) => request<any>(`/production-orders/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   getPendingPlanning: () => request<any[]>("/production-orders/pending-planning"),
   createProductionOrderFromPedidoItem: (pedidoVersionItemId: number) =>
     request<any>(`/production-orders/from-pedido-item/${pedidoVersionItemId}`, { method: "POST" }),
   updateProductionOrderStatus: (id: number, status: string) =>
     request<any>(`/production-orders/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
-  getProductionOrderStages: (id: number) => request<any[]>(`/production-orders/${id}/stages`),
-  createProductionStageLog: (
+  closeProductionOrder: (id: number) => request<any>(`/production-orders/${id}/close`, { method: "POST" }),
+  createProductionRoll: (
     productionOrderId: number,
     data: {
-      station: "extrusion" | "impresion" | "sellado" | "precorte";
-      machine: string;
+      date?: string;
+      shift?: string;
       operatorName: string;
-      startTime: string;
-      endTime?: string;
-      kilosProduced: number;
-      mermaKg?: number;
-      downtimeMinutes?: number;
-      downtimeReason?: string;
+      machine?: string;
+      label?: string;
+      weightKg: number;
+      wasteKg?: number;
       details?: Record<string, unknown>;
       notes?: string;
     }
-  ) => request<any>(`/production-orders/${productionOrderId}/stages`, { method: "POST", body: JSON.stringify(data) }),
+  ) => request<any>(`/production-orders/${productionOrderId}/rolls`, { method: "POST", body: JSON.stringify(data) }),
+  deleteProductionRoll: (productionOrderId: number, rollId: number) =>
+    request<void>(`/production-orders/${productionOrderId}/rolls/${rollId}`, { method: "DELETE" }),
   submitQualityCheck: (id: number, data: { result: "aprobado" | "rechazado"; observations?: string }) =>
     request<any>(`/production-orders/${id}/quality-check`, { method: "POST", body: JSON.stringify(data) }),
+  /** Mismo patrón crudo que downloadFacturaPdf (fetch + blob + <a download>). */
+  downloadProductionOrderPdf: async (id: number, filename: string) => {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/production-orders/${id}/report.pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filename}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  getProductionOrderAttachments: (id: number) => request<any[]>(`/production-orders/${id}/attachments`),
+  uploadProductionOrderAttachment: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<any>(`/production-orders/${id}/attachments`, { method: "POST", body: form });
+  },
+  downloadProductionOrderAttachment: async (id: number, attachmentId: number, filename: string) => {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/production-orders/${id}/attachments/${attachmentId}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 
   getCotizaciones: (clientId?: number) =>
     request<any[]>(`/cotizaciones${clientId ? `?clientId=${clientId}` : ""}`),

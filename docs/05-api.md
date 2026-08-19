@@ -149,22 +149,31 @@ curl -X POST http://localhost:4000/api/production/import/preview \
 
 ### Órdenes de producción (OP)
 
+Modelo (desde el rediseño de agosto 2026): **una OP por proceso** (Extrusión / Impresión / Sellado / Precorte), replicando los formatos en papel del cliente. Extrusión es el proceso base; de ella se **derivan** las OPs de los procesos siguientes (`parentOrderId`). Cada OP lleva sus specs de plantilla (`specs`, JSON — ver `services/opTemplates.ts`) y su **registro acumulativo de rollos** (`production_rolls`).
+
 | Método | Ruta | Cuerpo | Descripción |
 |---|---|---|---|
-| GET | `/api/production-orders` | `?status=` (opcional) | Lista OPs con producto y etapas, por fecha desc |
-| POST | `/api/production-orders` | `{ productId, quantityPlanned, measure?, notes? }` | Crea una OP con numeración `OP-00001` (gestión de producción) |
+| GET | `/api/production-orders` | `?status=` `?station=` (opcionales) | Lista OPs con producto, cliente, rollos (para sumar kg), OP padre y derivadas, por fecha desc |
+| POST | `/api/production-orders` | `{ station, productId, clientId?, quantityPlanned, measure?, specs?, notes? }` | Crea una OP del proceso indicado con numeración `OP-00001` (gestión de producción) |
+| POST | `/api/production-orders/:id/derive` | `{ station, quantityPlanned?, measure?, specs?, notes? }` | **Deriva** una OP hija. Grafo válido: extrusión → impresión/sellado/precorte; impresión → sellado/precorte. Hereda producto, cliente, medida y cantidad del padre. `400` si la derivación no es válida |
 | GET | `/api/production-orders/pending-planning` | — | **Cola de Planeación**: ítems de pedidos `aprobado`/`en_produccion` que aún no tienen OP. Devuelve `pedidoVersionItemId`, `pedidoId`, `pedidoOrderNumber`, `clientName`, `productId`, `productName`, `productSku`, `quantity`, `measure` |
-| POST | `/api/production-orders/from-pedido-item/:pedidoVersionItemId` | — | Genera la OP de un ítem de pedido (gestiona la cola). `404` si el ítem no existe; `400` si ya tiene OP. Crea la OP con `OP-00001`, `quantityPlanned = item.quantity` y enlaza `pedidoVersionItemId` |
-| PATCH | `/api/production-orders/:id/status` | `{ status }` | Cambia el estado (`pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada`) |
-| GET | `/api/production-orders/:id` | — | **Trazabilidad**: detalle completo de la OP (producto, pasos por estación, resultado de Calidad y pedido/cliente de origen si vino de Planeación). Solo lectura |
-| GET | `/api/production-orders/:id/stages` | — | Etapas registradas de la OP |
-| POST | `/api/production-orders/:id/stages` | `{ station, machine, operatorName, startTime, endTime?, kilosProduced, mermaKg?, downtimeMinutes?, downtimeReason?, details?, notes? }` | Registra el paso por estación. Un operario solo puede usar **su** estación (`OPERARIO_STATIONS`). Si la estación es `precorte`, la OP queda `pendiente_calidad` (sin mover stock todavía) |
-| POST | `/api/production-orders/:id/quality-check` | `{ result: "aprobado" \| "rechazado", observations? }` | **Calidad**: aprueba o rechaza el lote de una OP en `pendiente_calidad`. Si aprueba, genera la entrada de inventario (con el kilaje del precorte) y finaliza la OP; si rechaza, la OP queda `detenida` sin tocar stock. `400` si la OP no está `pendiente_calidad` o ya tiene control registrado |
+| POST | `/api/production-orders/from-pedido-item/:pedidoVersionItemId` | — | Genera la OP de un ítem de pedido. Nace como OP de **Extrusión** (el proceso base) con el cliente del pedido. `404` si el ítem no existe; `400` si ya tiene OP |
+| PATCH | `/api/production-orders/:id` | `{ specs?, measure?, quantityPlanned?, clientId?, notes? }` | Edita el encabezado/specs mientras la OP esté abierta (`pendiente`/`en_proceso`) |
+| PATCH | `/api/production-orders/:id/status` | `{ status }` | Cambio manual de estado (gestión): `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada` |
+| POST | `/api/production-orders/:id/close` | — | **Cierra** la OP (requiere ≥1 rollo). Extrusión/Impresión → `finalizada` directo (no mueven stock); Sellado/Precorte (procesos finales) → `pendiente_calidad` + notificación a Calidad |
+| GET | `/api/production-orders/:id` | — | **Detalle completo**: producto, cliente, rollos, adjuntos, OP padre y derivadas, resultado de Calidad y pedido de origen |
+| POST | `/api/production-orders/:id/rolls` | `{ date?, shift?, operatorName, machine?, label?, weightKg, wasteKg?, details?, notes? }` | Agrega una fila al **registro acumulativo de rollos**. Un operario solo carga en OPs de **su** estación (`OPERARIO_STATIONS`); `400` si la OP no está abierta |
+| DELETE | `/api/production-orders/:id/rolls/:rollId` | — | Borra un rollo cargado por error (gestión, solo OP abierta) |
+| POST | `/api/production-orders/:id/quality-check` | `{ result: "aprobado" \| "rechazado", observations? }` | **Calidad**: aprueba o rechaza una OP final en `pendiente_calidad`. Si aprueba, genera la entrada de inventario con la **suma de kg de los rollos** y finaliza la OP; si rechaza, queda `detenida` sin tocar stock |
+| GET | `/api/production-orders/:id/report.pdf` | — | **Reporte consolidado** en PDF con el layout del formato en papel (encabezado, materia prima con kg calculados, specs, rollos, totales, operarios por turno, adjuntos) |
+| GET | `/api/production-orders/:id/attachments` | — | Adjuntos de la OP |
+| POST | `/api/production-orders/:id/attachments` | multipart `file` | Sube un adjunto (máx 10 MB) |
+| GET | `/api/production-orders/:id/attachments/:attachmentId/download` | — | Descarga un adjunto |
 
 ```bash
-curl -X POST http://localhost:4000/api/production-orders/1/stages \
+curl -X POST http://localhost:4000/api/production-orders/1/rolls \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
-  -d '{"station":"impresion","machine":"IMP-02","operatorName":"Juan","startTime":"2026-08-01T08:00:00Z","kilosProduced":120}'
+  -d '{"shift":"Turno 1","operatorName":"Juan","machine":"2","label":"R-100","weightKg":250,"details":{"pResistencia":"SI"}}'
 ```
 
 ### Despachos
