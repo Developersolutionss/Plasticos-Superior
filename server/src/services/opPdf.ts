@@ -227,19 +227,18 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
   fieldGrid(headerPairs);
   y += 6;
 
-  // ---- Materia prima (solo Extrusión): kg = % × cantidad, como el Excel ----
+  // ---- Materia prima (solo Extrusión) ----
   if (template.materiaPrimaRefs) {
     sectionBand("MATERIA PRIMA");
-    const rows = ((specs.materiaPrima as { ref?: string; pct?: unknown; lote?: string }[] | undefined) ?? [])
-      .filter((r) => r.ref && num(r.pct) > 0);
+    const rows = ((specs.materiaPrima as { ref?: string; pct?: unknown; kg?: unknown; lote?: string }[] | undefined) ?? [])
+      .filter((r) => r.ref && (num(r.pct) > 0 || num(r.kg) > 0));
     const totalPct = rows.reduce((acc, r) => acc + num(r.pct), 0);
-    const body = rows.map((r) => [
-      str(r.ref),
-      `${num(r.pct)}%`,
-      (Math.round((num(r.pct) / 100) * data.quantityPlanned * 100) / 100).toString(),
-      str(r.lote),
-    ]);
-    body.push(["Total", `${Math.round(totalPct * 100) / 100}%`, String(data.quantityPlanned), ""]);
+    // El Kg lo tipea/pisa el operario a mano — si no lo cargó (specs
+    // viejas de antes de esto), se cae al cálculo % × cantidad.
+    const kgOf = (r: { pct?: unknown; kg?: unknown }) => (r.kg != null && r.kg !== "" ? num(r.kg) : (num(r.pct) / 100) * data.quantityPlanned);
+    const totalKg = rows.reduce((acc, r) => acc + kgOf(r), 0);
+    const body = rows.map((r) => [str(r.ref), `${num(r.pct)}%`, String(Math.round(kgOf(r) * 100) / 100), str(r.lote)]);
+    body.push(["Total", `${Math.round(totalPct * 100) / 100}%`, String(Math.round(totalKg * 100) / 100), ""]);
     table(["REF.", "%", "KG", "LOTE"], [200, 90, 105, 120], body, { boldRow: body.length - 1 });
     y += 6;
   }

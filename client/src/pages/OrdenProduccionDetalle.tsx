@@ -112,6 +112,10 @@ function printRollLabel(label: { code: string; orderNumber: string; productName:
 interface MateriaPrimaRow {
   ref: string;
   pct: string;
+  /** Kg del insumo: se autocompleta al cargar % (kg = % × cantidad de la
+   * OP), pero el campo queda editable para pisarlo a mano si el real no
+   * coincide exacto (redondeos, ajustes de planta). */
+  kg: string;
   lote: string;
 }
 
@@ -153,13 +157,18 @@ export default function OrdenProduccionDetalle() {
     setSpecsDraft(specs);
     // Las filas de materia prima son fijas (las mismas 10 refs impresas en
     // el papel, en su mismo orden) — no una lista donde se van agregando;
-    // se guardan solo las que tengan % cargado (ver handleSaveSpecs).
+    // se guardan solo las que tengan % o kg cargado (ver handleSaveSpecs).
     const savedRows = (specs.materiaPrima as any[]) ?? [];
     const refs = OP_TEMPLATES[order.station as OpStation].materiaPrimaRefs ?? [];
     setMateriaPrima(
       refs.map((ref) => {
         const saved = savedRows.find((r) => r.ref === ref);
-        return { ref, pct: saved ? String(saved.pct ?? "") : "", lote: saved ? String(saved.lote ?? "") : "" };
+        return {
+          ref,
+          pct: saved ? String(saved.pct ?? "") : "",
+          kg: saved ? String(saved.kg ?? "") : "",
+          lote: saved ? String(saved.lote ?? "") : "",
+        };
       })
     );
     setColores({
@@ -208,8 +217,13 @@ export default function OrdenProduccionDetalle() {
       const specs: Record<string, any> = { ...specsDraft };
       if (template.materiaPrimaRefs) {
         specs.materiaPrima = materiaPrima
-          .filter((r) => r.ref && r.pct)
-          .map((r) => ({ ref: r.ref, pct: Number(r.pct), lote: r.lote || undefined }));
+          .filter((r) => r.pct || r.kg)
+          .map((r) => ({
+            ref: r.ref,
+            pct: r.pct ? Number(r.pct) : undefined,
+            kg: r.kg ? Number(r.kg) : undefined,
+            lote: r.lote || undefined,
+          }));
       }
       if (template.colores) {
         specs.coloresCara1 = colores.cara1.filter((c) => c.color).map((c) => ({ unidad: c.unidad, color: c.color, lote: c.lote || undefined }));
@@ -503,7 +517,9 @@ export default function OrdenProduccionDetalle() {
 
         {/* Materia prima (solo Extrusión): las 10 filas son fijas, en el
             mismo orden que el papel — no se agregan ni se quitan, solo se
-            completa % y lote de las que se usan. Kg = % × cantidad. */}
+            completa % y lote de las que se usan. El Kg se autocompleta al
+            cargar % (kg = % × cantidad) pero queda editable por si el real
+            no coincide exacto. */}
         {template.materiaPrimaRefs && (
           <>
             <SheetBand>Materia prima</SheetBand>
@@ -528,13 +544,31 @@ export default function OrdenProduccionDetalle() {
                         value={row.pct}
                         disabled={!canEditSpecs}
                         onChange={(e) => {
-                          setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, pct: e.target.value } : r)));
+                          const pct = e.target.value;
+                          setMateriaPrima((prev) =>
+                            prev.map((r, idx) =>
+                              idx === i
+                                ? { ...r, pct, kg: pct ? String(Math.round(((Number(pct) / 100) * qty) * 100) / 100) : "" }
+                                : r
+                            )
+                          );
                           markDirty();
                         }}
                       />
                     </td>
-                    <td className={`${cellBorder} px-2 py-1 text-slate-500 dark:text-slate-400`}>
-                      {row.pct ? Math.round(((Number(row.pct) / 100) * qty) * 100) / 100 : "—"}
+                    <td className={`${cellBorder} px-2 py-1`}>
+                      <input
+                        className={sheetInput}
+                        type="number"
+                        step="0.01"
+                        value={row.kg}
+                        disabled={!canEditSpecs}
+                        title="Se autocompleta con % × cantidad, pero se puede pisar a mano"
+                        onChange={(e) => {
+                          setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, kg: e.target.value } : r)));
+                          markDirty();
+                        }}
+                      />
                     </td>
                     <td className={`${cellBorder} px-2 py-1`}>
                       <input
@@ -555,9 +589,7 @@ export default function OrdenProduccionDetalle() {
                     {Math.round(materiaPrima.reduce((acc, r) => acc + (Number(r.pct) || 0), 0) * 100) / 100}%
                   </td>
                   <td className={`${cellBorder} px-2 py-1`}>
-                    {Math.round(
-                      materiaPrima.reduce((acc, r) => acc + ((Number(r.pct) || 0) / 100) * qty, 0) * 100
-                    ) / 100}
+                    {Math.round(materiaPrima.reduce((acc, r) => acc + (Number(r.kg) || 0), 0) * 100) / 100}
                   </td>
                   <td className={`${cellBorder} px-2 py-1`} />
                 </tr>
