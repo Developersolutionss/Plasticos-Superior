@@ -364,7 +364,9 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
     ensureSpace(data.attachmentNames.length * 12 + 6);
     doc.fillColor(BRAND).fontSize(8);
     for (const name of data.attachmentNames) {
-      doc.text(`• ${name}`, M + 4, y + 2);
+      // Nombres de archivo los pone quien sube el adjunto — pueden ser
+      // arbitrariamente largos, mismo riesgo de desborde que fieldGrid/table.
+      doc.text(fitText(doc, `• ${name}`, W - 8), M + 4, y + 2, { lineBreak: false });
       y += 12;
     }
     y += 6;

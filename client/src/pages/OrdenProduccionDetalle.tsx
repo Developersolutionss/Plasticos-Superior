@@ -230,8 +230,11 @@ export default function OrdenProduccionDetalle() {
       await api.updateProductionOrder(orderId, {
         specs,
         quantityPlanned: Number(headerDraft.quantityPlanned) || undefined,
-        measure: headerDraft.measure || undefined,
-        notes: headerDraft.notes || undefined,
+        // "" (campo vaciado a propósito) tiene que mandarse como null, no
+        // como undefined — undefined se cae del JSON y el backend interpreta
+        // "no tocar este campo", dejando pisado el valor viejo.
+        measure: headerDraft.measure || null,
+        notes: headerDraft.notes || null,
       });
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });

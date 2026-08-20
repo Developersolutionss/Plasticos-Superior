@@ -401,23 +401,26 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
       method: "POST",
       headers: headersFor("operario_extrusion"),
-      body: JSON.stringify({ operatorName: "Op", weightKg: 5 }),
+      body: JSON.stringify({ weightKg: 5 }),
     });
     assert.equal(res.status, 403);
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
-  it("cargar un rollo pasa la OP a en_proceso; gestión puede borrarlo", async () => {
+  it("cargar un rollo pasa la OP a en_proceso; el operario sale del JWT, no del body; gestión puede borrarlo", async () => {
     const order = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10 },
     });
     const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
       method: "POST",
       headers: headersFor("operario_extrusion"),
-      body: JSON.stringify({ shift: "Turno 1", operatorName: "Op", label: "R-1", weightKg: 5, wasteKg: 0.5, details: { pResistencia: "SI" } }),
+      // operatorName en el body es ignorado a propósito (se toma del JWT) —
+      // se manda igual acá para confirmar que NO pisa al usuario logueado.
+      body: JSON.stringify({ shift: "Turno 1", operatorName: "Alguien Falso", label: "R-1", weightKg: 5, wasteKg: 0.5, details: { pResistencia: "SI" } }),
     });
     assert.equal(res.status, 201);
-    const roll = (await res.json()) as { id: number };
+    const roll = (await res.json()) as { id: number; operatorName: string };
+    assert.equal(roll.operatorName, "Operario Extrusión", "el operario debe salir del JWT, no del body");
 
     const updated = await prisma.productionOrder.findUnique({ where: { id: order.id } });
     assert.equal(updated!.status, "en_proceso");
@@ -464,6 +467,34 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
     await prisma.productionOrder.delete({ where: { id: derived.id } });
     await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
+  it("el rollo de origen escaneado (sourceRollId) tiene que pertenecer a la OP padre real, no a cualquier OP", async () => {
+    const parentA = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10 },
+    });
+    const rollAjeno = await prisma.productionRoll.create({
+      data: { productionOrderId: parentA.id, operatorName: "Op", weightKg: 5 },
+    });
+
+    const parentB = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}b`, station: "extrusion", productId, quantityPlanned: 10 },
+    });
+    const derivedFromB = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}c`, station: "impresion", productId, quantityPlanned: 10, parentOrderId: parentB.id },
+    });
+
+    const rejected = await fetch(`${baseUrl}/api/production-orders/${derivedFromB.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ weightKg: 5, sourceRollId: rollAjeno.id }),
+    });
+    assert.equal(rejected.status, 400, "un rollo de una OP no emparentada debe rechazarse");
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: parentA.id } });
+    await prisma.productionOrder.delete({ where: { id: derivedFromB.id } });
+    await prisma.productionOrder.delete({ where: { id: parentB.id } });
+    await prisma.productionOrder.delete({ where: { id: parentA.id } });
   });
 
   it("cerrar una OP de extrusión la finaliza directo sin mover stock; sin rollos se rechaza", async () => {

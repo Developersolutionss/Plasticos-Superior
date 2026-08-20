@@ -401,7 +401,6 @@ productionOrdersRouter.post("/:id/close", requireOperarios, async (req, res) => 
 const createRollSchema = z.object({
   date: z.string().optional(),
   shift: z.string().optional(),
-  operatorName: z.string().min(1),
   machine: z.string().optional(),
   label: z.string().optional(),
   weightKg: z.number().positive(),
@@ -439,6 +438,12 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
   if (parsed.data.sourceRollId) {
     const source = await prisma.productionRoll.findUnique({ where: { id: parsed.data.sourceRollId } });
     if (!source) return res.status(404).json({ error: "El rollo de origen escaneado no existe" });
+    // El insumo escaneado tiene que salir de la OP padre real (la cadena de
+    // derivación), no de cualquier rollo del sistema — si no, el QR deja de
+    // ser trazabilidad y pasa a ser un dato suelto sin sentido.
+    if (source.productionOrderId !== order.parentOrderId) {
+      return res.status(400).json({ error: "El rollo escaneado no pertenece a la OP de la que deriva esta orden" });
+    }
   }
 
   const roll = await prisma.$transaction(async (tx) => {
@@ -447,7 +452,11 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
         productionOrderId,
         date: parsed.data.date ? new Date(parsed.data.date) : undefined,
         shift: parsed.data.shift,
-        operatorName: parsed.data.operatorName,
+        // El operario SIEMPRE sale del JWT, nunca del body — si no, cualquiera
+        // con un token válido podría firmar rollos a nombre de otra persona
+        // llamando la API directo (el frontend ya manda esto, pero no hay
+        // que confiar en eso del lado del cliente).
+        operatorName: req.user!.name,
         machine: parsed.data.machine,
         label: parsed.data.label,
         weightKg: parsed.data.weightKg,

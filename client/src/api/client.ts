@@ -197,7 +197,13 @@ export const api = {
   ) => request<any>(`/production-orders/${id}/derive`, { method: "POST", body: JSON.stringify(data) }),
   updateProductionOrder: (
     id: number,
-    data: { specs?: Record<string, unknown>; measure?: string; quantityPlanned?: number; clientId?: number | null; notes?: string }
+    data: {
+      specs?: Record<string, unknown>;
+      measure?: string | null;
+      quantityPlanned?: number;
+      clientId?: number | null;
+      notes?: string | null;
+    }
   ) => request<any>(`/production-orders/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   getPendingPlanning: () => request<any[]>("/production-orders/pending-planning"),
   createProductionOrderFromPedidoItem: (pedidoVersionItemId: number) =>
