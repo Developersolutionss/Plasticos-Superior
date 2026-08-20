@@ -17,6 +17,7 @@ import Trazabilidad from "./pages/Trazabilidad";
 import Auditoria from "./pages/Auditoria";
 import Almacen from "./pages/Almacen";
 import Productos from "./pages/Productos";
+import MateriaPrima from "./pages/MateriaPrima";
 import Usuarios from "./pages/Usuarios";
 import Movimientos from "./pages/Movimientos";
 import UbicacionDetalle from "./pages/UbicacionDetalle";
@@ -212,6 +213,14 @@ export default function App() {
           element={
             <RequireRole roles={PRODUCCION_GESTION}>
               <Productos />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="inventario/materia-prima"
+          element={
+            <RequireRole roles={PRODUCCION_GESTION}>
+              <MateriaPrima />
             </RequireRole>
           }
         />

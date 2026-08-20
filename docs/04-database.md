@@ -198,6 +198,16 @@ Notificación in-app. `type` es texto libre (p. ej. `op_pendiente_calidad`) para
 | currentQuantity | Decimal | `@default(0)` |
 | updatedAt | DateTime | `@updatedAt` `@map("updated_at")` |
 
+### `raw_materials`, `raw_material_stock`, `raw_material_movements` (Materia prima)
+
+Catálogo, stock desnormalizado (mismo patrón 1:1 que `inventory_stock`) y bitácora de movimientos de insumos de Extrusión — espejo de `products`/`inventory_stock`/`inventory_movements` pero para materia prima, no productos terminados. `raw_materials.code` es lo que se matchea contra `production_orders.specs.materiaPrima[].ref` al cerrar una OP de Extrusión (`services/rawMaterialStockService.ts`, `applyRawMaterialMovement`), para descontar stock automáticamente.
+
+| Modelo | Campos clave |
+|---|---|
+| `raw_materials` | `code` (`@unique`), `name?`, `minStock`, `active` |
+| `raw_material_stock` | `rawMaterialId` (PK+FK), `currentQuantity` |
+| `raw_material_movements` | `rawMaterialId`, `movementType` (`compra` / `consumo_produccion` / `ajuste`), `quantity` (positivo=entrada, negativo=salida), `referenceType?`, `referenceId?`, `createdById?` |
+
 ### `warehouse_locations` y `stock_locations` (Almacén / WMS)
 
 `warehouse_locations` es la ubicación física de bodega (estante, rack, zona). `stock_locations` registra cuánto de un producto hay en una ubicación puntual. El stock total del producto sigue viviendo en `inventory_stock`; estas dos tablas son una capa complementaria de "dónde está guardado", administrada a mano por Almacén — la suma de las filas de un producto en `stock_locations` puede quedar por debajo de su `inventory_stock.currentQuantity` (diferencia = "sin ubicar").
@@ -429,6 +439,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260815045824_add_factura_due_date` | `facturas`: `due_date` (fecha de vencimiento opcional) |
 | `20260819001850_op_por_proceso` | Rediseño de OP: `station`, `client_id`, `specs`, `parent_order_id` en `production_orders`; nuevas `production_rolls` y `production_order_attachments`; drop de `production_stage_logs` |
 | `20260819221741_add_roll_source` | `production_rolls`: `source_roll_id` (self-FK, custodia del rollo tomado como insumo vía escaneo QR) |
+| `20260820144956_add_raw_materials` | Nuevas `raw_materials`, `raw_material_stock`, `raw_material_movements` (catálogo + stock + bitácora de materia prima) |
 
 Para aplicar cambios nuevos:
 

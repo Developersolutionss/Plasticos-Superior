@@ -11,6 +11,7 @@ import cors from "cors";
 import { authRouter } from "../../server/src/routes/auth";
 import { clientsRouter } from "../../server/src/routes/clients";
 import { inventoryRouter } from "../../server/src/routes/inventory";
+import { rawMaterialsRouter } from "../../server/src/routes/rawMaterials";
 import { productionRouter } from "../../server/src/routes/production";
 import { productionOrdersRouter } from "../../server/src/routes/productionOrders";
 import { dispatchesRouter } from "../../server/src/routes/dispatches";
@@ -62,6 +63,7 @@ function buildApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/clients", clientsRouter);
   app.use("/api/inventory", inventoryRouter);
+  app.use("/api/raw-materials", rawMaterialsRouter);
   app.use("/api/production", productionRouter);
   app.use("/api/production-orders", productionOrdersRouter);
   app.use("/api/dispatches", dispatchesRouter);
@@ -231,6 +233,126 @@ describe("inventario", () => {
     assert.ok(body.items.length <= 5);
     assert.equal(body.page, 1);
     assert.equal(body.pageSize, 5);
+  });
+});
+
+describe("materia prima", () => {
+  let productId = 0;
+  let materialId = 0;
+  const code = `TEST-RM-${Date.now()}`;
+
+  before(async () => {
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    productId = product.id;
+  });
+
+  after(async () => {
+    if (materialId) {
+      await prisma.rawMaterialMovement.deleteMany({ where: { rawMaterialId: materialId } });
+      await prisma.rawMaterialStock.deleteMany({ where: { rawMaterialId: materialId } });
+      await prisma.rawMaterial.delete({ where: { id: materialId } }).catch(() => {});
+    }
+  });
+
+  it("un operario no puede ver el catálogo/stock/alertas", async () => {
+    const routes = ["/api/raw-materials", "/api/raw-materials/stock", "/api/raw-materials/alerts"];
+    for (const route of routes) {
+      const res = await fetch(`${baseUrl}${route}`, { headers: headersFor("operario_extrusion") });
+      assert.equal(res.status, 403, `${route} debería rechazar a un operario`);
+    }
+  });
+
+  it("crea una materia prima, rechaza código duplicado y ventas no puede crear", async () => {
+    const denied = await fetch(`${baseUrl}/api/raw-materials`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ code }),
+    });
+    assert.equal(denied.status, 403);
+
+    const res = await fetch(`${baseUrl}/api/raw-materials`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ code, name: "Test", minStock: 10 }),
+    });
+    assert.equal(res.status, 201);
+    const material = (await res.json()) as { id: number; code: string };
+    materialId = material.id;
+
+    const dup = await fetch(`${baseUrl}/api/raw-materials`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ code }),
+    });
+    assert.equal(dup.status, 409);
+  });
+
+  it("ajusta stock (compra), lo lista en /stock y queda en el historial de movimientos", async () => {
+    const res = await fetch(`${baseUrl}/api/raw-materials/${materialId}/adjust`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ quantity: 50 }),
+    });
+    assert.equal(res.status, 201);
+
+    const stock = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+      id: number;
+      currentStock: number;
+      belowMinimum: boolean;
+    }[];
+    const mine = stock.find((s) => s.id === materialId);
+    assert.equal(mine?.currentStock, 50);
+    assert.equal(mine?.belowMinimum, false);
+
+    const movements = (await (
+      await fetch(`${baseUrl}/api/raw-materials/movements?rawMaterialId=${materialId}`, { headers: headersFor("produccion") })
+    ).json()) as { items: { movementType: string; quantity: string }[] };
+    assert.equal(movements.items.length, 1);
+    assert.equal(movements.items[0].movementType, "compra");
+  });
+
+  it("cerrar una OP de Extrusión descuenta el kg cargado por cada insumo y avisa (sin bloquear) las refs que no matchean", async () => {
+    const order = await prisma.productionOrder.create({
+      data: {
+        orderNumber: `OP-TEST-${Date.now()}`,
+        station: "extrusion",
+        productId,
+        quantityPlanned: 10,
+        specs: { materiaPrima: [{ ref: code, pct: 100, kg: 8 }, { ref: "NO-EXISTE-REF", pct: 0, kg: 3 }] },
+      },
+    });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 10 } });
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { status: string; skippedRawMaterialRefs: string[] };
+    assert.equal(body.status, "finalizada");
+    assert.deepEqual(body.skippedRawMaterialRefs, ["NO-EXISTE-REF"]);
+
+    const stock = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+      id: number;
+      currentStock: number;
+    }[];
+    const mine = stock.find((s) => s.id === materialId);
+    assert.equal(mine?.currentStock, 42, "50 - 8 = 42");
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("desactiva y reactiva; desactivada no aparece afectada en /stock (sigue existiendo, solo cambia active)", async () => {
+    const off = await fetch(`${baseUrl}/api/raw-materials/${materialId}`, { method: "DELETE", headers: headersFor("produccion") });
+    assert.equal(off.status, 200);
+    const offBody = (await off.json()) as { active: boolean };
+    assert.equal(offBody.active, false);
+
+    const on = await fetch(`${baseUrl}/api/raw-materials/${materialId}/reactivate`, { method: "POST", headers: headersFor("produccion") });
+    assert.equal(on.status, 200);
+    const onBody = (await on.json()) as { active: boolean };
+    assert.equal(onBody.active, true);
   });
 });
 

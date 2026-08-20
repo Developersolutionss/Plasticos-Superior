@@ -132,6 +132,22 @@ Reglas de validación: en los endpoints de **contactos**, el `:id` debe ser num�
 | GET | `/api/inventory/products` | — | Catálogo de productos activos |
 | GET | `/api/inventory/movements` | `?productId=&movementType=&page=&pageSize=` (rol almacén) | Historial paginado de `InventoryMovement` (`pageSize` tope 200, default 50). Devuelve `{ items, total, page, pageSize }` |
 
+### Materia prima
+
+Catálogo e inventario de insumos de Extrusión (BAJA, ALTA, BIODEGRADABLE, LINEAL, PIGMENTO, TERMO, SECANTE, ANTIBLOCK, AGLUTINADO, PELETIZADO — sembrados con esos códigos, ver `services/opTemplates.ts`). El stock se descuenta **solo** automáticamente: al cerrar una OP de Extrusión (`POST /production-orders/:id/close`), por cada fila de `specs.materiaPrima` con `kg` cargado se busca una `RawMaterial` cuyo `code` sea igual al `ref` de la fila y se resta ese kg — si no matchea ninguna, se avisa en `skippedRawMaterialRefs` de la respuesta pero **no bloquea** el cierre (la OP ya tiene rollos reales).
+
+| Método | Ruta | Cuerpo | Descripción |
+|---|---|---|---|
+| GET | `/api/raw-materials` | — | Catálogo completo (incluye inactivos), rol INVENTARIO |
+| GET | `/api/raw-materials/stock` | — | Stock por insumo con `currentStock`, `minStock`, `belowMinimum` |
+| GET | `/api/raw-materials/alerts` | — | Solo insumos activos bajo el mínimo |
+| GET | `/api/raw-materials/movements` | `?rawMaterialId=&page=&pageSize=` | Historial paginado de `RawMaterialMovement` |
+| POST | `/api/raw-materials` | `{ code, name?, minStock? }` | Crea un insumo (gestión de producción). `409` si el código ya existe |
+| PATCH | `/api/raw-materials/:id` | `{ code?, name?, minStock? }` | Edita un insumo |
+| DELETE | `/api/raw-materials/:id` | — | Desactiva (soft delete) |
+| POST | `/api/raw-materials/:id/reactivate` | — | Reactiva |
+| POST | `/api/raw-materials/:id/adjust` | `{ quantity, notes? }` | Entrada manual (`quantity > 0`, movimiento `compra`) o ajuste (`quantity < 0`, movimiento `ajuste`) |
+
 ### Producción
 
 | Método | Ruta | Cuerpo | Descripción |

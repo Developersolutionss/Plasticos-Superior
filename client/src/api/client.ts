@@ -68,6 +68,26 @@ export const api = {
   ) => request<any>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(data) }),
   deactivateProduct: (productId: number) => request<any>(`/products/${productId}`, { method: "DELETE" }),
   reactivateProduct: (productId: number) => request<any>(`/products/${productId}/reactivate`, { method: "POST" }),
+
+  getRawMaterials: () => request<any[]>("/raw-materials"),
+  getRawMaterialStock: () => request<any[]>("/raw-materials/stock"),
+  getRawMaterialAlerts: () => request<any[]>("/raw-materials/alerts"),
+  getRawMaterialMovements: (params?: { rawMaterialId?: number; page?: number; pageSize?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.rawMaterialId) qs.set("rawMaterialId", String(params.rawMaterialId));
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.pageSize) qs.set("pageSize", String(params.pageSize));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<{ items: any[]; total: number; page: number; pageSize: number }>(`/raw-materials/movements${suffix}`);
+  },
+  createRawMaterial: (data: { code: string; name?: string; minStock?: number }) =>
+    request<any>("/raw-materials", { method: "POST", body: JSON.stringify(data) }),
+  updateRawMaterial: (id: number, data: Partial<{ code: string; name: string; minStock: number }>) =>
+    request<any>(`/raw-materials/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deactivateRawMaterial: (id: number) => request<any>(`/raw-materials/${id}`, { method: "DELETE" }),
+  reactivateRawMaterial: (id: number) => request<any>(`/raw-materials/${id}/reactivate`, { method: "POST" }),
+  adjustRawMaterialStock: (id: number, quantity: number) =>
+    request<any>(`/raw-materials/${id}/adjust`, { method: "POST", body: JSON.stringify({ quantity }) }),
   getProductLabel: (productId: number) =>
     request<{ sku: string; name: string; category: string; measure: string | null; unit: string; qrDataUrl: string }>(
       `/products/${productId}/label`

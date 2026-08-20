@@ -245,6 +245,34 @@ async function main() {
     }
   }
 
+  // Catálogo de materia prima (las 10 refs fijas del formato F-OP-01 de
+  // Extrusión) + stock inicial, para que el módulo de Inventario > Materia
+  // Prima no esté vacío al entrar. Idempotente por `code` (único).
+  const rawMaterialsDemo = [
+    { code: "BAJA", minStock: 50, stock: 200 },
+    { code: "ALTA", minStock: 100, stock: 1500 },
+    { code: "BIODEGRADABLE", minStock: 20, stock: 80 },
+    { code: "LINEAL", minStock: 50, stock: 600 },
+    { code: "PIGMENTO", minStock: 5, stock: 15 },
+    { code: "TERMO", minStock: 5, stock: 10 },
+    { code: "SECANTE", minStock: 5, stock: 12 },
+    { code: "ANTIBLOCK", minStock: 5, stock: 8 },
+    { code: "AGLUTINADO", minStock: 10, stock: 30 },
+    { code: "PELETIZADO", minStock: 10, stock: 25 },
+  ];
+  for (const rm of rawMaterialsDemo) {
+    const material = await prisma.rawMaterial.upsert({
+      where: { code: rm.code },
+      update: {},
+      create: { code: rm.code, minStock: rm.minStock },
+    });
+    await prisma.rawMaterialStock.upsert({
+      where: { rawMaterialId: material.id },
+      update: {},
+      create: { rawMaterialId: material.id, currentQuantity: rm.stock },
+    });
+  }
+
   // Ubicaciones demo de bodega + un poco de stock ya repartido entre ellas,
   // para que el módulo de Almacén no esté vacío al entrar. Idempotente por
   // `code` (único): si ya existen, no se tocan ni se duplica el stock.

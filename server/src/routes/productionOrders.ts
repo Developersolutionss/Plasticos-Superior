@@ -9,6 +9,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
 import { applyMovement } from "../services/stockService";
+import { applyRawMaterialMovement } from "../services/rawMaterialStockService";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
 import { notifyRoles } from "../services/notify";
 import { buildOpPdf } from "../services/opPdf";
@@ -385,7 +386,37 @@ productionOrdersRouter.post("/:id/close", requireOperarios, async (req, res) => 
 
   const isFinal = FINAL_STATIONS.includes(order.station as OpStation);
   const newStatus = isFinal ? "pendiente_calidad" : "finalizada";
-  const updated = await prisma.productionOrder.update({ where: { id }, data: { status: newStatus } });
+
+  // Al cerrar una OP de Extrusión se descuenta del stock de materia prima
+  // el kg cargado en cada insumo de la tabla (specs.materiaPrima) — no se
+  // recalcula nada, es el mismo kg que ya está tipeado ahí. Si un `ref` no
+  // matchea ningún código del catálogo (materia prima borrada, error de
+  // tipeo), se avisa en la respuesta pero NO bloquea el cierre — la OP ya
+  // tiene rollos reales cargados, no tiene sentido trabarla por esto.
+  const skippedRefs: string[] = [];
+  const updated = await prisma.$transaction(async (tx) => {
+    if (order.station === "extrusion") {
+      const rows = ((order.specs as any)?.materiaPrima as { ref?: string; kg?: unknown }[] | undefined) ?? [];
+      for (const row of rows) {
+        const kg = Number(row.kg);
+        if (!row.ref || !Number.isFinite(kg) || kg <= 0) continue;
+        const material = await tx.rawMaterial.findUnique({ where: { code: row.ref } });
+        if (!material) {
+          skippedRefs.push(row.ref);
+          continue;
+        }
+        await applyRawMaterialMovement(tx, {
+          rawMaterialId: material.id,
+          quantity: -kg,
+          movementType: "consumo_produccion",
+          referenceType: "production_order",
+          referenceId: order.id,
+          createdById: req.user!.userId,
+        });
+      }
+    }
+    return tx.productionOrder.update({ where: { id }, data: { status: newStatus } });
+  });
 
   if (isFinal) {
     await notifyRoles(ROLES.CALIDAD, {
@@ -395,7 +426,7 @@ productionOrdersRouter.post("/:id/close", requireOperarios, async (req, res) => 
     });
   }
 
-  res.json(updated);
+  res.json({ ...updated, skippedRawMaterialRefs: skippedRefs });
 });
 
 const createRollSchema = z.object({
