@@ -225,34 +225,39 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
     sections: [
       {
         title: "TIPO DE MATERIAL",
-        fields: [
-          { key: "tipoMaterial", label: "Tipo", kind: "options", options: FORMA_MATERIAL },
-          { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
-          { key: "color", label: "Color", kind: "text" },
-          { key: "impresoCaras", label: "Impreso (caras)", kind: "text" },
-        ],
+        fields: [{ key: "tipoMaterial", label: "Tipo", kind: "options", options: FORMA_MATERIAL }],
       },
       {
-        title: "CARACTERISTICAS DE LOS ROLLOS",
+        title: "MATERIAL",
         fields: [
-          { key: "ancho", label: "Ancho", kind: "text" },
-          { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
+          { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
+          { key: "color", label: "Color", kind: "text" },
+          { key: "impreso", label: "Impreso", kind: "text" },
+          { key: "caras", label: "Caras", kind: "text" },
           { key: "fuelles", label: "Fuelles", kind: "text" },
           { key: "calibre", label: "Calibre", kind: "text" },
+          { key: "ancho", label: "Ancho", kind: "text" },
+          { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
+          { key: "cantidadKilos", label: "Cantidad (kilos)", kind: "number" },
           { key: "cantidadRollos", label: "Cantidad (rollos)", kind: "number" },
         ],
       },
       MEDIDAS_FINALES,
     ],
+    // El precorte consume 2 rollos de entrada por registro (dos pares
+    // etiqueta/peso en el papel) — el primero va en los campos base
+    // (label/weight), el segundo en details.
     rollColumns: [
       { label: "FECHA", source: "date" },
       { label: "TURNO", source: "shift" },
       { label: "OPERARIO", source: "operator" },
       { label: "ETIQUETA R", source: "label" },
       { label: "PESO R (KG)", source: "weight", kind: "number" },
+      { label: "ETIQUETA R", source: "detail", detailKey: "etiquetaR2" },
+      { label: "PESO R (KG)", source: "detail", detailKey: "pesoR2", kind: "number" },
       { label: "COLOR", source: "detail", detailKey: "color" },
       { label: "DENSIDAD", source: "detail", detailKey: "densidad" },
-      { label: "DESP. (KG)", source: "waste", kind: "number" },
+      { label: "DESPERDICIO", source: "waste", kind: "number" },
     ],
   },
 };

@@ -794,7 +794,7 @@ export default function OrdenProduccionDetalle() {
           <thead>
             <tr className="text-left text-[9px] sm:text-[10px] uppercase text-slate-500 dark:text-slate-400">
               {template.rollColumns.map((col) => (
-                <th key={col.label} className={`${cellBorder} px-1.5 py-1`}>
+                <th key={col.detailKey ?? col.source} className={`${cellBorder} px-1.5 py-1`}>
                   {col.label}
                 </th>
               ))}
@@ -806,7 +806,7 @@ export default function OrdenProduccionDetalle() {
               <Fragment key={roll.id}>
                 <tr>
                   {template.rollColumns.map((col) => (
-                    <td key={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-800 dark:text-slate-100`}>
+                    <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1.5 py-1 text-slate-800 dark:text-slate-100`}>
                       {rollCellDisplay(roll, col, rollCumulative[i])}
                     </td>
                   ))}
@@ -845,20 +845,20 @@ export default function OrdenProduccionDetalle() {
                   const key = rollDraftKey(col);
                   if (col.source === "operator") {
                     return (
-                      <td key={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-500 dark:text-slate-400`} title="El operario es siempre la cuenta con la que iniciaste sesión">
+                      <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1.5 py-1 text-slate-500 dark:text-slate-400`} title="El operario es siempre la cuenta con la que iniciaste sesión">
                         {user!.name}
                       </td>
                     );
                   }
                   if (col.source === "cumulativeWeight") {
                     return (
-                      <td key={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center`} title="Se calcula solo al guardar">
+                      <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center`} title="Se calcula solo al guardar">
                         —
                       </td>
                     );
                   }
                   return (
-                    <td key={col.label} className={`${cellBorder} px-1 py-1`}>
+                    <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1 py-1`}>
                       {col.kind === "siNo" ? (
                         <select className={sheetInput} value={rollDraft[key] ?? ""} onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}>
                           <option value="">—</option>
