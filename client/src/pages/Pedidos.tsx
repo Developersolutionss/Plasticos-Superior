@@ -291,9 +291,12 @@ export default function Pedidos() {
                 {selectedPedido.orderNumber} — {selectedPedido.client.name}
               </h2>
               <div className="flex gap-3">
+                {/* Botón "Facturar pedido" oculto junto con el módulo Facturas
+                    (el cliente factura aparte) — handleFacturar() queda intacto
+                    por si se reactiva más adelante.
                 <button onClick={() => handleFacturar(selectedPedido.id)} className="text-emerald-700 dark:text-emerald-400 text-xs hover:underline">
                   Facturar pedido
-                </button>
+                </button> */}
                 <button onClick={() => handleDuplicate(selectedPedido.id)} className="text-sky-700 dark:text-sky-400 text-xs hover:underline">
                   Duplicar pedido
                 </button>

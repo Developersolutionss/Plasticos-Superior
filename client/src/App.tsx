@@ -288,6 +288,10 @@ export default function App() {
             </RequireRole>
           }
         />
+        {/* Oculto a pedido de Steban: el cliente factura aparte. Módulo
+            queda creado (componente Facturas y backend intactos) por si
+            se necesita reactivar más adelante — no descomentar sin
+            confirmar primero.
         <Route
           path="facturas"
           element={
@@ -295,7 +299,7 @@ export default function App() {
               <Facturas />
             </RequireRole>
           }
-        />
+        /> */}
         <Route
           path="configuracion/autenticacion"
           element={

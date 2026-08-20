@@ -100,7 +100,10 @@ export const navSections: NavEntry[] = [
   },
   { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: ALMACEN, group: "Ventas" },
   { id: "pedidos", icon: "package", label: "Pedidos", to: "/pedidos", roles: VENTAS, group: "Ventas" },
-  { id: "facturas", icon: "receipt", label: "Facturas", to: "/facturas", roles: VENTAS, group: "Ventas" },
+  // Oculto a pedido de Steban: el cliente factura en un sistema aparte.
+  // Se deja el módulo creado (código, ruta, backend intactos) por si se
+  // necesita reactivar más adelante — no descomentar sin confirmar primero.
+  // { id: "facturas", icon: "receipt", label: "Facturas", to: "/facturas", roles: VENTAS, group: "Ventas" },
   {
     id: "planeacion",
     icon: "calendar-days",
