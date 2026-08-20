@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FileDown, GitBranch, Lock, Paperclip, ScanLine, Trash2, X } from "lucide-react";
+import { FileDown, GitBranch, Lock, Paperclip, RotateCcw, ScanLine, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
@@ -10,6 +10,7 @@ import {
   DERIVATIONS,
   FINAL_STATIONS,
   OPEN_STATUSES,
+  REOPENABLE_STATUSES,
   OP_TEMPLATES,
   OpRollColumn,
   OpStation,
@@ -184,6 +185,7 @@ export default function OrdenProduccionDetalle() {
   const station = order.station as OpStation;
   const template = OP_TEMPLATES[station];
   const isOpen = OPEN_STATUSES.includes(order.status);
+  const isReopenable = REOPENABLE_STATUSES.includes(order.status);
   const canGestion = !!user && (PRODUCCION_GESTION as UserRole[]).includes(user.role);
   const canOperate = !!user && STATION_OPERATE[station].includes(user.role);
   const canEditSpecs = canGestion && isOpen;
@@ -344,6 +346,23 @@ export default function OrdenProduccionDetalle() {
     }
   }
 
+  async function handleReopen() {
+    setError(null);
+    if (
+      !window.confirm(
+        "¿Reabrir la OP para corregir un error? Si tenía calidad aprobada, se revierte la entrada al inventario; si es de Extrusión, se devuelve la materia prima descontada. Vas a tener que volver a cerrarla (y pasarla por Calidad si corresponde) después de corregirla."
+      )
+    )
+      return;
+    try {
+      await api.reopenProductionOrder(orderId);
+      queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
+    } catch (err: any) {
+      setError(err?.message ?? "No se pudo reabrir la OP");
+    }
+  }
+
   async function handleUploadAttachment() {
     const file = fileInputRef.current?.files?.[0];
     if (!file) return;
@@ -417,6 +436,15 @@ export default function OrdenProduccionDetalle() {
               className="inline-flex items-center gap-1.5 text-sm bg-emerald-700 hover:bg-emerald-600 text-white rounded px-3 py-1.5"
             >
               <Lock size={14} aria-hidden="true" /> Cerrar OP
+            </button>
+          )}
+          {canGestion && isReopenable && (
+            <button
+              type="button"
+              onClick={handleReopen}
+              className="inline-flex items-center gap-1.5 text-sm border border-amber-400 text-amber-700 dark:text-amber-400 dark:border-amber-500 rounded px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-amber-950"
+            >
+              <RotateCcw size={14} aria-hidden="true" /> Reabrir OP
             </button>
           )}
           <button

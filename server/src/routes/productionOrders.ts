@@ -450,6 +450,95 @@ productionOrdersRouter.post("/:id/close", requireOperarios, async (req, res) => 
   res.json({ ...updated, skippedRawMaterialRefs: skippedRefs });
 });
 
+/** Estados desde los que se puede reabrir una OP para corregir un error. */
+const REOPENABLE_STATUSES = ["finalizada", "pendiente_calidad", "detenida"];
+
+/**
+ * Reabre una OP cerrada por error, dejándola "en_proceso" otra vez (se
+ * puede volver a editar specs/cantidad y cargar o borrar rollos). Revierte
+ * TODO efecto de inventario que se haya aplicado al cerrarla o aprobarla,
+ * en vez de solo cambiar el status, para que los kilos nunca queden
+ * "fantasma" en el stock:
+ *  - si tenía un control de calidad "aprobado", revierte la entrada de
+ *    producto terminado (misma cantidad de kg que se sumó) y borra el
+ *    control (al volver a cerrar se vuelve a pasar por Calidad);
+ *  - si tenía un control "rechazado", solo borra el control (nunca movió
+ *    stock);
+ *  - si es una OP de Extrusión, revierte la materia prima descontada al
+ *    cerrarla, leyendo los movimientos reales que quedaron logueados con
+ *    `referenceType: "production_order"` (no se recalcula desde specs, que
+ *    pudo haber cambiado desde entonces).
+ */
+productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
+
+  const order = await prisma.productionOrder.findUnique({
+    where: { id },
+    include: { qualityCheck: true, rolls: { select: { weightKg: true } } },
+  });
+  if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  if (!REOPENABLE_STATUSES.includes(order.status)) {
+    return res.status(400).json({ error: "Esta OP no se puede reabrir desde su estado actual" });
+  }
+
+  let reversedProductKg = 0;
+  let reversedRawMaterials: { code: string; kg: number }[] = [];
+
+  await prisma.$transaction(async (tx) => {
+    if (order.qualityCheck) {
+      if (order.qualityCheck.result === "aprobado") {
+        reversedProductKg = order.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
+        if (reversedProductKg > 0) {
+          await applyMovement(tx, {
+            productId: order.productId,
+            quantity: -reversedProductKg,
+            movementType: "ajuste",
+            referenceType: "manual_adjustment",
+            referenceId: order.qualityCheck.id,
+            createdById: req.user!.userId,
+          });
+        }
+      }
+      await tx.qualityCheck.delete({ where: { id: order.qualityCheck.id } });
+    }
+
+    if (order.station === "extrusion") {
+      const consumido = await tx.rawMaterialMovement.findMany({
+        where: { referenceType: "production_order", referenceId: order.id },
+        include: { rawMaterial: { select: { code: true } } },
+      });
+      for (const mov of consumido) {
+        const kg = -Number(mov.quantity); // el consumo quedó guardado en negativo
+        if (kg <= 0) continue;
+        await applyRawMaterialMovement(tx, {
+          rawMaterialId: mov.rawMaterialId,
+          quantity: kg,
+          movementType: "ajuste",
+          referenceType: "production_order",
+          referenceId: order.id,
+          notes: `Reversión por reapertura de ${order.orderNumber}`,
+          createdById: req.user!.userId,
+        });
+        reversedRawMaterials.push({ code: mov.rawMaterial.code, kg });
+      }
+    }
+
+    await tx.productionOrder.update({
+      where: { id },
+      data: {
+        status: "en_proceso",
+        notes: order.notes
+          ? `${order.notes}\n[Reabierta el ${new Date().toLocaleString("es-CO")} por ${req.user!.name}]`
+          : `[Reabierta el ${new Date().toLocaleString("es-CO")} por ${req.user!.name}]`,
+      },
+    });
+  });
+
+  const updated = await prisma.productionOrder.findUnique({ where: { id } });
+  res.json({ ...updated, reversedProductKg, reversedRawMaterials });
+});
+
 const createRollSchema = z.object({
   date: z.string().optional(),
   shift: z.string().optional(),

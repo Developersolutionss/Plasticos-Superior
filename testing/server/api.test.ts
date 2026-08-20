@@ -353,6 +353,23 @@ describe("materia prima", () => {
     const mine = stock.find((s) => s.id === materialId);
     assert.equal(mine?.currentStock, 42, "50 - 8 = 42");
 
+    // Reabrir la OP debe devolver exactamente el kg descontado (lee el
+    // movimiento real logueado, no vuelve a leer specs.materiaPrima).
+    const reopen = await fetch(`${baseUrl}/api/production-orders/${order.id}/reopen`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(reopen.status, 200);
+    const reopenBody = (await reopen.json()) as { status: string; reversedRawMaterials: { code: string; kg: number }[] };
+    assert.equal(reopenBody.status, "en_proceso");
+    assert.deepEqual(reopenBody.reversedRawMaterials, [{ code, kg: 8 }]);
+
+    const stockReabierta = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+      id: number;
+      currentStock: number;
+    }[];
+    assert.equal(stockReabierta.find((s) => s.id === materialId)?.currentStock, 50, "42 + 8 = 50, vuelve a como estaba");
+
     await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
@@ -756,6 +773,105 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
     await prisma.notification.delete({ where: { id: notif!.id } });
     await prisma.qualityCheck.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("reabrir exige gestión de producción (403 para un operario)", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 10, status: "detenida" },
+    });
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/reopen`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(res.status, 403);
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("no se puede reabrir una OP que ya está abierta (400)", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 10, status: "en_proceso" },
+    });
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/reopen`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(res.status, 400);
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("reabrir una OP con calidad APROBADA revierte la entrada de inventario, borra el control y vuelve a en_proceso", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "precorte", productId, quantityPlanned: 10, status: "pendiente_calidad" },
+    });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 5 } });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 3 } });
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId } });
+
+    const approve = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
+      method: "POST",
+      headers: headersFor("calidad"),
+      body: JSON.stringify({ result: "aprobado" }),
+    });
+    assert.equal(approve.status, 201);
+    const stockAprobado = await prisma.inventoryStock.findUnique({ where: { productId } });
+    assert.equal(Number(stockAprobado!.currentQuantity), Number(stockAntes?.currentQuantity ?? 0) + 8);
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/reopen`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { status: string; reversedProductKg: number };
+    assert.equal(body.status, "en_proceso");
+    assert.equal(body.reversedProductKg, 8);
+
+    const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId } });
+    assert.equal(
+      Number(stockDespues!.currentQuantity),
+      Number(stockAntes?.currentQuantity ?? 0),
+      "el stock vuelve exactamente a como estaba antes de aprobar"
+    );
+
+    const check = await prisma.qualityCheck.findUnique({ where: { productionOrderId: order.id } });
+    assert.equal(check, null, "el control de calidad se borra al reabrir, para poder volver a pasar por Calidad");
+
+    // Ya no se puede reabrir de nuevo (está en_proceso, no en un estado reabrible).
+    const again = await fetch(`${baseUrl}/api/production-orders/${order.id}/reopen`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(again.status, 400);
+
+    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "manual_adjustment", productId, createdAt: { gte: order.createdAt } } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+    await prisma.inventoryStock.update({ where: { productId }, data: { currentQuantity: stockAntes?.currentQuantity ?? 0 } });
+  });
+
+  it("reabrir una OP con calidad RECHAZADA solo borra el control (nunca movió stock)", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 10, status: "pendiente_calidad" },
+    });
+    const reject = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
+      method: "POST",
+      headers: headersFor("calidad"),
+      body: JSON.stringify({ result: "rechazado" }),
+    });
+    assert.equal(reject.status, 201);
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/reopen`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { status: string; reversedProductKg: number };
+    assert.equal(body.status, "en_proceso");
+    assert.equal(body.reversedProductKg, 0);
+
+    const check = await prisma.qualityCheck.findUnique({ where: { productionOrderId: order.id } });
+    assert.equal(check, null);
+
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 

@@ -268,3 +268,6 @@ export const FINAL_STATIONS: OpStation[] = ["sellado", "precorte"];
 
 /** Estados en los que la OP acepta rollos, edición de specs y cierre. */
 export const OPEN_STATUSES = ["pendiente", "en_proceso"];
+
+/** Estados desde los que Gestión puede reabrir una OP para corregir un error. */
+export const REOPENABLE_STATUSES = ["finalizada", "pendiente_calidad", "detenida"];
