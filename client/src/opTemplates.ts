@@ -128,20 +128,20 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
     sections: [
       {
         title: "TIPO DE MATERIAL",
-        fields: [
-          { key: "tipoMaterial", label: "Tipo", kind: "options", options: FORMA_MATERIAL },
-          { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
-          { key: "color", label: "Color", kind: "text" },
-          { key: "tratadoCaras", label: "Tratado (caras)", kind: "text" },
-        ],
+        fields: [{ key: "tipoMaterial", label: "Tipo", kind: "options", options: FORMA_MATERIAL }],
       },
       {
         title: "CARACTERISTICAS DE LOS ROLLOS",
         fields: [
-          { key: "ancho", label: "Ancho", kind: "text" },
-          { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
+          { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
+          { key: "color", label: "Color", kind: "text" },
+          { key: "tratado", label: "Tratado", kind: "options", options: SI_NO },
+          { key: "caras", label: "Caras", kind: "text" },
           { key: "fuelles", label: "Fuelles", kind: "text" },
           { key: "calibre", label: "Calibre", kind: "text" },
+          { key: "ancho", label: "Ancho", kind: "text" },
+          { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
+          { key: "cantidadKilos", label: "Cantidad (kilos)", kind: "number" },
           { key: "cantidadRollos", label: "Cantidad (rollos)", kind: "number" },
         ],
       },
