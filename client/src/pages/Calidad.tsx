@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 
 /** Componente de nivel de módulo (no anidado en Calidad): si se define
@@ -147,7 +148,11 @@ export default function Calidad() {
               <tbody>
                 {pending.map((order: any) => (
                   <tr key={order.id} className="border-t align-top">
-                    <td className="p-3 font-medium">{order.orderNumber}</td>
+                    <td className="p-3 font-medium">
+                      <Link className="text-sky-700 dark:text-sky-400 hover:underline" to={`/produccion/ordenes/${order.id}`}>
+                        {order.orderNumber}
+                      </Link>
+                    </td>
                     <td className="p-3">{order.product.name}</td>
                     <td className="p-3">
                       {order.quantityPlanned} {order.product.unit}
@@ -175,7 +180,9 @@ export default function Calidad() {
             {pending.map((order: any) => (
               <div key={order.id} className="p-4 space-y-3">
                 <div>
-                  <p className="font-medium text-slate-800 dark:text-slate-100">{order.orderNumber}</p>
+                  <Link className="font-medium text-sky-700 dark:text-sky-400 hover:underline" to={`/produccion/ordenes/${order.id}`}>
+                    {order.orderNumber}
+                  </Link>
                   <p className="text-sm text-slate-600 dark:text-slate-300">{order.product.name}</p>
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     Planificado: {order.quantityPlanned} {order.product.unit} · Rollos: {rollosKg(order) ?? "—"}
