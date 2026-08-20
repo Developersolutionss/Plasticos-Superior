@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
-import { applyMovement } from "../services/stockService";
+import { applyMovement, TxClient } from "../services/stockService";
 import { applyRawMaterialMovement } from "../services/rawMaterialStockService";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
 import { notifyRoles } from "../services/notify";
@@ -28,6 +28,30 @@ const upload = multer({
 
 export const productionOrdersRouter = Router();
 productionOrdersRouter.use(requireAuth);
+
+/**
+ * El número consecutivo se calculaba como `count()+1`, lo cual asume que
+ * TODAS las filas son "OP-00001..OP-000N" sin huecos. Eso se rompe apenas
+ * hay filas con orderNumber no numérico (los OP-SEED-*) o se borra alguna OP
+ * (limpieza de datos de prueba) — count() baja pero el máximo número ya
+ * emitido no, así que el próximo intento vuelve a chocar con un número que
+ * ya existe, para siempre (withSequentialNumberRetry no ayuda porque no hay
+ * otra request concurrente que cambie el count() entre reintentos). Se
+ * calcula en base al máximo sufijo numérico realmente usado en vez del total
+ * de filas.
+ */
+async function nextOrderNumber(tx: TxClient): Promise<string> {
+  const orders = await tx.productionOrder.findMany({
+    where: { orderNumber: { startsWith: "OP-" } },
+    select: { orderNumber: true },
+  });
+  let max = 0;
+  for (const { orderNumber } of orders) {
+    const match = /^OP-(\d{5})$/.exec(orderNumber);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `OP-${String(max + 1).padStart(5, "0")}`;
+}
 
 const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
 const requireOperarios = requireRole(...ROLES.OPERARIOS);
@@ -188,8 +212,7 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
 
   const order = await withSequentialNumberRetry(() =>
     prisma.$transaction(async (tx) => {
-      const count = await tx.productionOrder.count();
-      const orderNumber = `OP-${String(count + 1).padStart(5, "0")}`;
+      const orderNumber = await nextOrderNumber(tx);
 
       return tx.productionOrder.create({
         data: {
@@ -228,8 +251,7 @@ productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requirePro
 
   const order = await withSequentialNumberRetry(() =>
     prisma.$transaction(async (tx) => {
-      const count = await tx.productionOrder.count();
-      const orderNumber = `OP-${String(count + 1).padStart(5, "0")}`;
+      const orderNumber = await nextOrderNumber(tx);
 
       return tx.productionOrder.create({
         data: {
@@ -283,8 +305,7 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
 
   const order = await withSequentialNumberRetry(() =>
     prisma.$transaction(async (tx) => {
-      const count = await tx.productionOrder.count();
-      const orderNumber = `OP-${String(count + 1).padStart(5, "0")}`;
+      const orderNumber = await nextOrderNumber(tx);
 
       return tx.productionOrder.create({
         data: {
