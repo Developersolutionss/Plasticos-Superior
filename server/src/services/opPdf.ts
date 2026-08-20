@@ -370,15 +370,24 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
     y += 6;
   }
 
-  const obs = str(specs.observaciones);
-  if (obs !== "—" || data.notes) {
-    sectionBand("OBSERVACIONES");
-    const text = [obs !== "—" ? obs : null, data.notes].filter(Boolean).join("\n");
+  function textBox(title: string, text: string) {
+    sectionBand(title);
     const h = doc.heightOfString(text, { width: W - 12 }) + 10;
     ensureSpace(h);
     doc.rect(M, y, W, h).stroke(BORDER);
     doc.fillColor(BRAND).fontSize(8).text(text, M + 6, y + 5, { width: W - 12 });
     y += h;
+  }
+
+  const obs = str(specs.observaciones);
+  // Sellado tiene NOTAS y OBSERVACIONES como dos cuadros separados en el
+  // papel (uno bajo "Orden de Extrusión", otro bajo "Orden Sellado"); el
+  // resto de las plantillas solo tiene "Observaciones:", un cuadro único.
+  if (template.ordenReferencia) {
+    if (data.notes) textBox("NOTAS", data.notes);
+    if (obs !== "—") textBox("OBSERVACIONES", obs);
+  } else if (obs !== "—" || data.notes) {
+    textBox("OBSERVACIONES", [obs !== "—" ? obs : null, data.notes].filter(Boolean).join("\n"));
   }
 
   return doc;

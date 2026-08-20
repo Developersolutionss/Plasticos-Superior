@@ -135,7 +135,7 @@ export default function OrdenProduccionDetalle() {
   const [specsDraft, setSpecsDraft] = useState<Record<string, any>>({});
   const [materiaPrima, setMateriaPrima] = useState<MateriaPrimaRow[]>([]);
   const [colores, setColores] = useState<{ cara1: ColorRow[]; cara2: ColorRow[] }>({ cara1: [], cara2: [] });
-  const [headerDraft, setHeaderDraft] = useState({ quantityPlanned: "", measure: "" });
+  const [headerDraft, setHeaderDraft] = useState({ quantityPlanned: "", measure: "", notes: "" });
   const [dirty, setDirty] = useState(false);
   const [rollDraft, setRollDraft] = useState<Record<string, string>>({ date: todayISO() });
   const [sourceRoll, setSourceRoll] = useState<{ id: number; label: string | null; weightKg: unknown; createdBy?: { name: string } | null } | null>(null);
@@ -174,7 +174,7 @@ export default function OrdenProduccionDetalle() {
       cara1: ((specs.coloresCara1 as any[]) ?? []).map((c) => ({ unidad: String(c.unidad ?? ""), color: String(c.color ?? ""), lote: String(c.lote ?? "") })),
       cara2: ((specs.coloresCara2 as any[]) ?? []).map((c) => ({ unidad: String(c.unidad ?? ""), color: String(c.color ?? ""), lote: String(c.lote ?? "") })),
     });
-    setHeaderDraft({ quantityPlanned: String(Number(order.quantityPlanned)), measure: order.measure ?? "" });
+    setHeaderDraft({ quantityPlanned: String(Number(order.quantityPlanned)), measure: order.measure ?? "", notes: order.notes ?? "" });
     setDirty(false);
   }, [order]);
 
@@ -231,6 +231,7 @@ export default function OrdenProduccionDetalle() {
         specs,
         quantityPlanned: Number(headerDraft.quantityPlanned) || undefined,
         measure: headerDraft.measure || undefined,
+        notes: headerDraft.notes || undefined,
       });
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
@@ -895,6 +896,32 @@ export default function OrdenProduccionDetalle() {
             </tr>
           </tbody>
         </table>
+
+        {/* Notas / Observaciones — Sellado las tiene como dos cuadros
+            separados en el papel; el resto solo tiene "Observaciones:". */}
+        {template.ordenReferencia && (
+          <div className={`${cellBorder} p-0`}>
+            <SheetBand>Notas</SheetBand>
+            <textarea
+              className={`${sheetInput} p-2 min-h-16 resize-y`}
+              value={headerDraft.notes}
+              disabled={!canEditSpecs}
+              onChange={(e) => {
+                setHeaderDraft((h) => ({ ...h, notes: e.target.value }));
+                markDirty();
+              }}
+            />
+          </div>
+        )}
+        <div className={`${cellBorder} p-0`}>
+          <SheetBand>Observaciones</SheetBand>
+          <textarea
+            className={`${sheetInput} p-2 min-h-16 resize-y`}
+            value={specsDraft.observaciones ?? ""}
+            disabled={!canEditSpecs}
+            onChange={(e) => setSpec("observaciones", e.target.value)}
+          />
+        </div>
 
         {/* Resultado de calidad, si ya pasó */}
         {order.qualityCheck && (
