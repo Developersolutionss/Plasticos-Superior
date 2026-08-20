@@ -370,6 +370,39 @@ describe("materia prima", () => {
     }[];
     assert.equal(stockReabierta.find((s) => s.id === materialId)?.currentStock, 50, "42 + 8 = 50, vuelve a como estaba");
 
+    // Segundo ciclo cerrar→reabrir sobre la MISMA OP (specs corregidas a un
+    // kg distinto): el historial de raw_material_movements para este
+    // referenceId ya trae la consumición original Y su reversión — hay que
+    // devolver solo el neto pendiente de este segundo cierre, no volver a
+    // sumar la reversión de la primera vuelta encima.
+    await prisma.productionOrder.update({ where: { id: order.id }, data: { specs: { materiaPrima: [{ ref: code, pct: 100, kg: 6 }] } } });
+
+    const close2 = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(close2.status, 200);
+
+    const stockTrasCierre2 = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+      id: number;
+      currentStock: number;
+    }[];
+    assert.equal(stockTrasCierre2.find((s) => s.id === materialId)?.currentStock, 44, "50 - 6 = 44");
+
+    const reopen2 = await fetch(`${baseUrl}/api/production-orders/${order.id}/reopen`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(reopen2.status, 200);
+    const reopen2Body = (await reopen2.json()) as { reversedRawMaterials: { code: string; kg: number }[] };
+    assert.deepEqual(reopen2Body.reversedRawMaterials, [{ code, kg: 6 }], "solo revierte el neto pendiente (6), no el 8 de la vuelta anterior");
+
+    const stockFinal = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+      id: number;
+      currentStock: number;
+    }[];
+    assert.equal(stockFinal.find((s) => s.id === materialId)?.currentStock, 50, "44 + 6 = 50, vuelve a como estaba (no 56)");
+
     await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });

@@ -142,6 +142,7 @@ export default function OrdenProduccionDetalle() {
   const [sourceRoll, setSourceRoll] = useState<{ id: number; label: string | null; weightKg: unknown; createdBy?: { name: string } | null } | null>(null);
   const [scanningSource, setScanningSource] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reopening, setReopening] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const { data: order, isLoading } = useQuery({
@@ -354,12 +355,15 @@ export default function OrdenProduccionDetalle() {
       )
     )
       return;
+    setReopening(true);
     try {
       await api.reopenProductionOrder(orderId);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
     } catch (err: any) {
       setError(err?.message ?? "No se pudo reabrir la OP");
+    } finally {
+      setReopening(false);
     }
   }
 
@@ -442,9 +446,10 @@ export default function OrdenProduccionDetalle() {
             <button
               type="button"
               onClick={handleReopen}
-              className="inline-flex items-center gap-1.5 text-sm border border-amber-400 text-amber-700 dark:text-amber-400 dark:border-amber-500 rounded px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-amber-950"
+              disabled={reopening}
+              className="inline-flex items-center gap-1.5 text-sm border border-amber-400 text-amber-700 dark:text-amber-400 dark:border-amber-500 rounded px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-amber-950 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <RotateCcw size={14} aria-hidden="true" /> Reabrir OP
+              <RotateCcw size={14} aria-hidden="true" /> {reopening ? "Reabriendo..." : "Reabrir OP"}
             </button>
           )}
           <button

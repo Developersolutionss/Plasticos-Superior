@@ -5,7 +5,7 @@ import fs from "fs";
 import crypto from "crypto";
 import QRCode from "qrcode";
 import { z } from "zod";
-import type { Prisma } from "../generated/prisma/client";
+import type { Prisma, ProductionOrderStatus } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
 import { applyMovement, TxClient } from "../services/stockService";
@@ -451,7 +451,7 @@ productionOrdersRouter.post("/:id/close", requireOperarios, async (req, res) => 
 });
 
 /** Estados desde los que se puede reabrir una OP para corregir un error. */
-const REOPENABLE_STATUSES = ["finalizada", "pendiente_calidad", "detenida"];
+const REOPENABLE_STATUSES: ProductionOrderStatus[] = ["finalizada", "pendiente_calidad", "detenida"];
 
 /**
  * Reabre una OP cerrada por error, dejándola "en_proceso" otra vez (se
@@ -469,6 +469,8 @@ const REOPENABLE_STATUSES = ["finalizada", "pendiente_calidad", "detenida"];
  *    `referenceType: "production_order"` (no se recalcula desde specs, que
  *    pudo haber cambiado desde entonces).
  */
+class NotReopenableError extends Error {}
+
 productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
@@ -485,55 +487,80 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
   let reversedProductKg = 0;
   let reversedRawMaterials: { code: string; kg: number }[] = [];
 
-  await prisma.$transaction(async (tx) => {
-    if (order.qualityCheck) {
-      if (order.qualityCheck.result === "aprobado") {
-        reversedProductKg = order.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
-        if (reversedProductKg > 0) {
-          await applyMovement(tx, {
-            productId: order.productId,
-            quantity: -reversedProductKg,
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Reintenta el gate de estado DENTRO de la transacción con un update
+      // condicional: si dos reaperturas casi simultáneas pasan el chequeo
+      // de arriba (hecho con el `order` leído antes de abrir la tx), acá
+      // solo una de las dos logra el update — la otra ve count=0 y aborta
+      // sin haber revertido nada (si no, ambas reversarían la misma OP).
+      const claimed = await tx.productionOrder.updateMany({
+        where: { id, status: { in: REOPENABLE_STATUSES } },
+        data: {
+          status: "en_proceso",
+          notes: order.notes
+            ? `${order.notes}\n[Reabierta el ${new Date().toLocaleString("es-CO")} por ${req.user!.name}]`
+            : `[Reabierta el ${new Date().toLocaleString("es-CO")} por ${req.user!.name}]`,
+        },
+      });
+      if (claimed.count === 0) throw new NotReopenableError();
+
+      if (order.qualityCheck) {
+        if (order.qualityCheck.result === "aprobado") {
+          reversedProductKg = order.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
+          if (reversedProductKg > 0) {
+            await applyMovement(tx, {
+              productId: order.productId,
+              quantity: -reversedProductKg,
+              movementType: "ajuste",
+              referenceType: "manual_adjustment",
+              referenceId: order.qualityCheck.id,
+              createdById: req.user!.userId,
+            });
+          }
+        }
+        await tx.qualityCheck.delete({ where: { id: order.qualityCheck.id } });
+      }
+
+      if (order.station === "extrusion") {
+        // Se sobre-el NETO por insumo (suma de todo lo que quedó logueado
+        // contra esta OP), no "cada movimiento negativo" — si esta ya es la
+        // segunda vez que se cierra y reabre esta OP, el historial trae la
+        // consumición original Y la reversión de la primera vuelta con el
+        // mismo referenceId; sumar todo y revertir solo lo que sigue
+        // pendiente (neto < 0) evita devolver dos veces el mismo kg.
+        const movimientos = await tx.rawMaterialMovement.findMany({
+          where: { referenceType: "production_order", referenceId: order.id },
+          include: { rawMaterial: { select: { code: true } } },
+        });
+        const porMaterial = new Map<number, { code: string; net: number }>();
+        for (const mov of movimientos) {
+          const acc = porMaterial.get(mov.rawMaterialId) ?? { code: mov.rawMaterial.code, net: 0 };
+          acc.net += Number(mov.quantity);
+          porMaterial.set(mov.rawMaterialId, acc);
+        }
+        for (const [rawMaterialId, { code, net }] of porMaterial) {
+          if (net >= 0) continue; // ya saldado por una reversión anterior
+          const kg = -net;
+          await applyRawMaterialMovement(tx, {
+            rawMaterialId,
+            quantity: kg,
             movementType: "ajuste",
-            referenceType: "manual_adjustment",
-            referenceId: order.qualityCheck.id,
+            referenceType: "production_order",
+            referenceId: order.id,
+            notes: `Reversión por reapertura de ${order.orderNumber}`,
             createdById: req.user!.userId,
           });
+          reversedRawMaterials.push({ code, kg });
         }
       }
-      await tx.qualityCheck.delete({ where: { id: order.qualityCheck.id } });
-    }
-
-    if (order.station === "extrusion") {
-      const consumido = await tx.rawMaterialMovement.findMany({
-        where: { referenceType: "production_order", referenceId: order.id },
-        include: { rawMaterial: { select: { code: true } } },
-      });
-      for (const mov of consumido) {
-        const kg = -Number(mov.quantity); // el consumo quedó guardado en negativo
-        if (kg <= 0) continue;
-        await applyRawMaterialMovement(tx, {
-          rawMaterialId: mov.rawMaterialId,
-          quantity: kg,
-          movementType: "ajuste",
-          referenceType: "production_order",
-          referenceId: order.id,
-          notes: `Reversión por reapertura de ${order.orderNumber}`,
-          createdById: req.user!.userId,
-        });
-        reversedRawMaterials.push({ code: mov.rawMaterial.code, kg });
-      }
-    }
-
-    await tx.productionOrder.update({
-      where: { id },
-      data: {
-        status: "en_proceso",
-        notes: order.notes
-          ? `${order.notes}\n[Reabierta el ${new Date().toLocaleString("es-CO")} por ${req.user!.name}]`
-          : `[Reabierta el ${new Date().toLocaleString("es-CO")} por ${req.user!.name}]`,
-      },
     });
-  });
+  } catch (err) {
+    if (err instanceof NotReopenableError) {
+      return res.status(400).json({ error: "Esta OP no se puede reabrir desde su estado actual" });
+    }
+    throw err;
+  }
 
   const updated = await prisma.productionOrder.findUnique({ where: { id } });
   res.json({ ...updated, reversedProductKg, reversedRawMaterials });
