@@ -287,11 +287,24 @@ describe("materia prima", () => {
     assert.equal(dup.status, 409);
   });
 
-  it("ajusta stock (compra), lo lista en /stock y queda en el historial de movimientos", async () => {
+  it("crear con código en minúsculas se normaliza a mayúsculas (matchea contra specs.materiaPrima al cerrar una OP)", async () => {
+    const lower = `${code}-lower`;
+    const res = await fetch(`${baseUrl}/api/raw-materials`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ code: lower.toLowerCase() }),
+    });
+    assert.equal(res.status, 201);
+    const created = (await res.json()) as { id: number; code: string };
+    assert.equal(created.code, lower.toUpperCase());
+    await prisma.rawMaterial.delete({ where: { id: created.id } });
+  });
+
+  it("ajusta stock (compra) con nota, lo lista en /stock y la nota queda en el historial de movimientos", async () => {
     const res = await fetch(`${baseUrl}/api/raw-materials/${materialId}/adjust`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ quantity: 50 }),
+      body: JSON.stringify({ quantity: 50, notes: "Compra a proveedor de prueba" }),
     });
     assert.equal(res.status, 201);
 
@@ -306,8 +319,9 @@ describe("materia prima", () => {
 
     const movements = (await (
       await fetch(`${baseUrl}/api/raw-materials/movements?rawMaterialId=${materialId}`, { headers: headersFor("produccion") })
-    ).json()) as { items: { movementType: string; quantity: string }[] };
+    ).json()) as { items: { movementType: string; quantity: string; notes: string | null }[] };
     assert.equal(movements.items.length, 1);
+    assert.equal(movements.items[0].notes, "Compra a proveedor de prueba");
     assert.equal(movements.items[0].movementType, "compra");
   });
 

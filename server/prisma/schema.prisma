@@ -412,6 +412,7 @@ model RawMaterialMovement {
   quantity      Decimal                  @db.Decimal(12, 2)
   referenceType String?                  @map("reference_type")
   referenceId   Int?                     @map("reference_id")
+  notes         String?
   createdById   Int?                     @map("created_by")
   createdBy     User?                    @relation(fields: [createdById], references: [id])
   createdAt     DateTime                 @default(now()) @map("created_at")

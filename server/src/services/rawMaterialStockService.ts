@@ -15,6 +15,7 @@ export async function applyRawMaterialMovement(
     movementType: "compra" | "consumo_produccion" | "ajuste";
     referenceType?: "production_order" | "manual_adjustment";
     referenceId?: number;
+    notes?: string;
     createdById?: number;
   }
 ) {
@@ -25,6 +26,7 @@ export async function applyRawMaterialMovement(
       movementType: params.movementType,
       referenceType: params.referenceType,
       referenceId: params.referenceId,
+      notes: params.notes,
       createdById: params.createdById,
     },
   });

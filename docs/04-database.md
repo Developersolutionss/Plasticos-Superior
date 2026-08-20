@@ -206,7 +206,7 @@ Catálogo, stock desnormalizado (mismo patrón 1:1 que `inventory_stock`) y bit�
 |---|---|
 | `raw_materials` | `code` (`@unique`), `name?`, `minStock`, `active` |
 | `raw_material_stock` | `rawMaterialId` (PK+FK), `currentQuantity` |
-| `raw_material_movements` | `rawMaterialId`, `movementType` (`compra` / `consumo_produccion` / `ajuste`), `quantity` (positivo=entrada, negativo=salida), `referenceType?`, `referenceId?`, `createdById?` |
+| `raw_material_movements` | `rawMaterialId`, `movementType` (`compra` / `consumo_produccion` / `ajuste`), `quantity` (positivo=entrada, negativo=salida), `referenceType?`, `referenceId?`, `notes?`, `createdById?` |
 
 ### `warehouse_locations` y `stock_locations` (Almacén / WMS)
 
@@ -440,6 +440,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260819001850_op_por_proceso` | Rediseño de OP: `station`, `client_id`, `specs`, `parent_order_id` en `production_orders`; nuevas `production_rolls` y `production_order_attachments`; drop de `production_stage_logs` |
 | `20260819221741_add_roll_source` | `production_rolls`: `source_roll_id` (self-FK, custodia del rollo tomado como insumo vía escaneo QR) |
 | `20260820144956_add_raw_materials` | Nuevas `raw_materials`, `raw_material_stock`, `raw_material_movements` (catálogo + stock + bitácora de materia prima) |
+| `20260820151446_add_raw_material_movement_notes` | `raw_material_movements`: `notes` (motivo del ajuste manual) |
 
 Para aplicar cambios nuevos:
 

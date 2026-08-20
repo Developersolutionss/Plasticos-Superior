@@ -64,7 +64,12 @@ rawMaterialsRouter.get("/movements", requireInventario, async (req, res) => {
 });
 
 const rawMaterialSchema = z.object({
-  code: z.string().min(1),
+  // Se normaliza a mayúsculas acá (no solo en el frontend) porque el
+  // matcheo contra specs.materiaPrima[].ref al cerrar una OP de Extrusión
+  // es un === de texto exacto — un código creado en minúsculas por fuera
+  // de la UI (script, Postman) nunca matchearía y esa materia prima nunca
+  // se descontaría, sin ningún error visible.
+  code: z.string().min(1).transform((v) => v.trim().toUpperCase()),
   name: z.string().optional(),
   minStock: z.number().min(0).optional().default(0),
 });
@@ -153,6 +158,7 @@ rawMaterialsRouter.post("/:id/adjust", requireProduccionGestion, async (req, res
       quantity: parsed.data.quantity,
       movementType: parsed.data.quantity > 0 ? "compra" : "ajuste",
       referenceType: "manual_adjustment",
+      notes: parsed.data.notes,
       createdById: req.user!.userId,
     })
   );

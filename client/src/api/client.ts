@@ -86,8 +86,8 @@ export const api = {
     request<any>(`/raw-materials/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deactivateRawMaterial: (id: number) => request<any>(`/raw-materials/${id}`, { method: "DELETE" }),
   reactivateRawMaterial: (id: number) => request<any>(`/raw-materials/${id}/reactivate`, { method: "POST" }),
-  adjustRawMaterialStock: (id: number, quantity: number) =>
-    request<any>(`/raw-materials/${id}/adjust`, { method: "POST", body: JSON.stringify({ quantity }) }),
+  adjustRawMaterialStock: (id: number, quantity: number, notes?: string) =>
+    request<any>(`/raw-materials/${id}/adjust`, { method: "POST", body: JSON.stringify({ quantity, notes }) }),
   getProductLabel: (productId: number) =>
     request<{ sku: string; name: string; category: string; measure: string | null; unit: string; qrDataUrl: string }>(
       `/products/${productId}/label`

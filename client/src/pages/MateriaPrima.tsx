@@ -66,8 +66,17 @@ function RawMaterialForm({
   );
 }
 
-function AdjustStockForm({ code, onSubmit, onCancel }: { code: string; onSubmit: (quantity: number) => Promise<void>; onCancel: () => void }) {
+function AdjustStockForm({
+  code,
+  onSubmit,
+  onCancel,
+}: {
+  code: string;
+  onSubmit: (quantity: number, notes?: string) => Promise<void>;
+  onCancel: () => void;
+}) {
   const [quantity, setQuantity] = useState("");
+  const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -81,7 +90,7 @@ function AdjustStockForm({ code, onSubmit, onCancel }: { code: string; onSubmit:
     }
     setSaving(true);
     try {
-      await onSubmit(q);
+      await onSubmit(q, notes.trim() || undefined);
     } catch {
       setError("No se pudo registrar el movimiento");
     } finally {
@@ -104,6 +113,7 @@ function AdjustStockForm({ code, onSubmit, onCancel }: { code: string; onSubmit:
         onChange={(e) => setQuantity(e.target.value)}
         autoFocus
       />
+      <input className={inputClass} placeholder="Motivo (opcional, ej. compra a proveedor X)" value={notes} onChange={(e) => setNotes(e.target.value)} />
       <div className="flex gap-2 justify-end pt-2">
         <button type="button" onClick={onCancel} className="text-sm px-4 py-2 rounded border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200">
           Cancelar
@@ -155,8 +165,8 @@ export default function MateriaPrima() {
     invalidate();
   }
 
-  async function handleAdjust(quantity: number) {
-    await api.adjustRawMaterialStock(adjusting.id, quantity);
+  async function handleAdjust(quantity: number, notes?: string) {
+    await api.adjustRawMaterialStock(adjusting.id, quantity, notes);
     invalidate();
     setAdjusting(null);
   }
