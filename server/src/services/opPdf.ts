@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { COMPANY } from "./pdfDocument";
+import { COMPANY, LOGO_PATH } from "./pdfDocument";
 import { OP_TEMPLATES, OpStation, OpRollColumn, STATION_LABELS } from "./opTemplates";
 
 const BRAND = "#1e293b";
@@ -208,7 +208,8 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
   doc.rect(M, y, W, bandH).stroke(BORDER);
   doc.rect(M, y, 130, bandH).stroke(BORDER);
   doc.rect(M + W - 110, y, 110, bandH).stroke(BORDER);
-  doc.fillColor(BRAND).fontSize(9).font("Helvetica-Bold").text(COMPANY, M + 6, y + 10, { width: 118 });
+  doc.image(LOGO_PATH, M + 5, y + 6, { width: 16 });
+  doc.fillColor(BRAND).fontSize(8).font("Helvetica-Bold").text(COMPANY, M + 25, y + 11, { width: 99 });
   doc
     .fontSize(12)
     .text(template.title, M + 130, y + 15, { width: W - 240, align: "center" });

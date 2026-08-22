@@ -1,8 +1,10 @@
 import PDFDocument from "pdfkit";
+import path from "path";
 
 export const COMPANY = "Plásticos Superior S.A.S.";
 const BRAND = "#1e293b"; // slate-800, mismo tono que Excel/UI
 const MUTED = "#64748b";
+export const LOGO_PATH = path.join(__dirname, "..", "..", "assets", "logo-icon.png");
 
 export interface PdfItem {
   producto: string;
@@ -44,8 +46,9 @@ export function buildDocumentPdf(options: PdfDocumentOptions): PDFKit.PDFDocumen
     doc.restore();
   }
 
-  doc.fontSize(18).fillColor(BRAND).text(COMPANY, 50, 50);
-  doc.fontSize(10).fillColor(MUTED).text("Sistema ERP/MES", 50, 72);
+  doc.image(LOGO_PATH, 50, 42, { width: 38 });
+  doc.fontSize(18).fillColor(BRAND).text(COMPANY, 98, 46);
+  doc.fontSize(10).fillColor(MUTED).text("Sistema ERP/MES", 98, 68);
 
   doc.fontSize(14).fillColor(BRAND).text(`${options.kind} ${options.number}`, 50, 100);
   doc.fontSize(10).fillColor(MUTED).text(`Fecha: ${options.fecha.toLocaleDateString("es-CO")}`, 50, 120);

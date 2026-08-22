@@ -16,16 +16,19 @@ export default defineConfig({
       // se quedaba pegado en el build viejo (JS corriendo en memoria) aunque
       // el backend ya tuviera la versión nueva.
       injectRegister: false,
-      includeAssets: ["favicon.svg"],
+      includeAssets: ["logo-icon-192.png", "logo-icon-512.png", "apple-touch-icon.png"],
       manifest: {
-        name: "Plásticos Superior",
+        name: "Plásticos Superior San Judas S.A.S.",
         short_name: "Pl. Superior",
         description: "Control de inventario, producción y despachos en tiempo real",
         theme_color: "#0f172a",
         background_color: "#0f172a",
         display: "standalone",
         start_url: "/",
-        icons: [{ src: "favicon.svg", sizes: "any", type: "image/svg+xml" }],
+        icons: [
+          { src: "logo-icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "logo-icon-512.png", sizes: "512x512", type: "image/png" },
+        ],
       },
       workbox: {
         // El dashboard de stock se sirve stale-while-revalidate para que

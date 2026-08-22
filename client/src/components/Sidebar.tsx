@@ -119,7 +119,7 @@ export default function Sidebar({
       {mobileOpen && <div className="sidebar-backdrop md:hidden" onClick={onCloseMobile} />}
       <aside className={`sidebar ${mobileOpen ? "mobile-open" : ""}`}>
       <div className="sidebar-header">
-        <div className="sidebar-logo">P</div>
+        <img src="/logo-icon-192.png" alt="Plásticos Superior" className="sidebar-logo" />
         <span className="sidebar-brand hidden-when-collapsed">Plásticos Superior</span>
         <button
           className="sidebar-collapse-btn hidden md:inline-flex"

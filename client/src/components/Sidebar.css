@@ -39,12 +39,10 @@
   width: 32px;
   height: 32px;
   flex-shrink: 0;
-  background: var(--sb-active);
+  background: #fff;
   border-radius: 8px;
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  color: #fff;
+  padding: 3px;
+  object-fit: contain;
 }
 .sidebar-brand {
   font-weight: 700;

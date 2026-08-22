@@ -33,7 +33,9 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-800">
       <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 p-8 rounded-lg shadow-md w-full max-w-sm space-y-4">
-        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Plásticos Superior</h1>
+        <div className="bg-white rounded-md p-3 flex justify-center">
+          <img src="/logo-full.png" alt="Plásticos Superior San Judas S.A.S." className="h-14 w-auto" />
+        </div>
 
         {!needs2fa && (
           <>
