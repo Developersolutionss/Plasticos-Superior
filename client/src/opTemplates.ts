@@ -49,6 +49,12 @@ export interface OpTemplate {
   /** Único campo manual de esa caja (ej. "Unid." en Sellado — no se puede
    * derivar de los rollos, ver PAQ X UNID). */
   ordenReferenciaUnidField?: { key: string; label: string };
+  /** true cuando la columna ETIQUETA (source "label") identifica el rollo
+   * que ESTA estación está creando ahora mismo (Extrusión, Impresión) — ahí
+   * se genera sola (código RL-<id>) en vez de pedirse a mano. En Sellado/
+   * Precorte esa misma columna es el rollo de ORIGEN que se toma como
+   * insumo, así que sigue siendo manual/editable. */
+  labelIsOwnRoll?: boolean;
 }
 
 export const STATION_LABELS: Record<OpStation, string> = {
@@ -83,6 +89,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
     // que es la fuente de verdad — la plantilla en blanco tenía "CARBONATO"
     // en vez de repetir el orden real y PIGMENTO/TERMO invertidos.
     materiaPrimaRefs: ["BAJA", "ALTA", "BIODEGRADABLE", "LINEAL", "PIGMENTO", "TERMO", "SECANTE", "ANTIBLOCK", "AGLUTINADO", "PELETIZADO"],
+    labelIsOwnRoll: true,
     sections: [
       {
         title: "FORMA DEL MATERIAL",
@@ -168,6 +175,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
       { label: "P. DESPRENDIMIENTO", source: "detail", detailKey: "pDesprendimiento", kind: "siNo" },
     ],
     originRollFields: { labelDetailKey: "etiquetaExt", weightDetailKey: "pesoExt" },
+    labelIsOwnRoll: true,
   },
 
   sellado: {

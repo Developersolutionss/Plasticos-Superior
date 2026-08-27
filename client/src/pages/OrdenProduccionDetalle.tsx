@@ -49,10 +49,6 @@ function SheetBand({ children }: { children: React.ReactNode }) {
   );
 }
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 /** Mismo patrón que printLabels en Productos.tsx: ventana nueva
  * autocontenida + @media print, con el mismo cuidado de escapar el texto
  * interpolado y esperar a que el QR (data: URI) termine de decodificar antes
@@ -138,7 +134,7 @@ export default function OrdenProduccionDetalle() {
   const [colores, setColores] = useState<{ cara1: ColorRow[]; cara2: ColorRow[] }>({ cara1: [], cara2: [] });
   const [headerDraft, setHeaderDraft] = useState({ quantityPlanned: "", measure: "", notes: "" });
   const [dirty, setDirty] = useState(false);
-  const [rollDraft, setRollDraft] = useState<Record<string, string>>({ date: todayISO() });
+  const [rollDraft, setRollDraft] = useState<Record<string, string>>({});
   const [sourceRoll, setSourceRoll] = useState<{ id: number; label: string | null; weightKg: unknown; createdBy?: { name: string } | null } | null>(null);
   const [scanningSource, setScanningSource] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -262,10 +258,9 @@ export default function OrdenProduccionDetalle() {
     }
     try {
       const created = await api.createProductionRoll(orderId, {
-        // HORA (papel de Extrusión) es la hora de este mismo campo `date`,
-        // no una columna aparte en el modelo — si no se cargó hora, se deja
-        // mediodía como antes para no perder el día en el resto de OPs.
-        date: rollDraft.date ? new Date(`${rollDraft.date}T${rollDraft.time || "12:00"}:00`).toISOString() : undefined,
+        // FECHA/HORA ya no se tipean — se omiten acá para que el server las
+        // deje en el momento real de guardado (`date DateTime @default(now())`),
+        // que es más confiable que lo que el operario recuerde escribir.
         shift: rollDraft.shift || undefined,
         // El operario SIEMPRE es quien está logueado, no un campo libre —
         // así el registro queda atado a la cuenta real, no a lo que alguien
@@ -273,13 +268,18 @@ export default function OrdenProduccionDetalle() {
         // Usuarios) para que esto sea trazabilidad real y no una firma falsa.
         operatorName: user!.name,
         machine: rollDraft.machine || undefined,
-        label: rollDraft.label || undefined,
+        // ETIQUETA: en Extrusión e Impresión es la identidad del rollo que
+        // se está creando ahora mismo — no tiene sentido pedirla a mano, se
+        // genera sola (código RL-<id>, ver rollCellDisplay) apenas se guarda
+        // la fila. En Sellado/Precorte sigue siendo el rollo de ORIGEN que
+        // se está tomando como insumo, así que ahí se mantiene manual/editable.
+        label: template.labelIsOwnRoll ? undefined : rollDraft.label || undefined,
         weightKg: Number(rollDraft.weight),
         wasteKg: rollDraft.waste ? Number(rollDraft.waste) : undefined,
         details: Object.keys(details).length ? details : undefined,
         sourceRollId: sourceRoll?.id,
       });
-      setRollDraft({ date: todayISO() });
+      setRollDraft({});
       setSourceRoll(null);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
@@ -299,13 +299,23 @@ export default function OrdenProduccionDetalle() {
       .getProductionRollByCode(code)
       .then((roll) => {
         setSourceRoll(roll);
-        if (template.originRollFields) {
-          setRollDraft((d) => ({
-            ...d,
-            [`detail:${template.originRollFields!.labelDetailKey}`]: roll.label ?? roll.code,
-            [`detail:${template.originRollFields!.weightDetailKey}`]: String(Number(roll.weightKg)),
-          }));
-        }
+        setRollDraft((d) => {
+          const next = { ...d };
+          if (template.originRollFields) {
+            next[`detail:${template.originRollFields.labelDetailKey}`] = roll.label ?? roll.code;
+            next[`detail:${template.originRollFields.weightDetailKey}`] = String(Number(roll.weightKg));
+          }
+          // Pruebas SI/NO (ej. P. RESISTENCIA): si el rollo escaneado ya
+          // tiene esa misma prueba registrada de su propia estación, se
+          // precarga acá como punto de partida — el operario la puede
+          // cambiar, no queda trabada.
+          for (const col of template.rollColumns) {
+            if (col.source === "detail" && col.kind === "siNo" && roll.details?.[col.detailKey!] != null) {
+              next[`detail:${col.detailKey}`] = String(roll.details[col.detailKey!]);
+            }
+          }
+          return next;
+        });
       })
       .catch(() => setError('No se encontró ningún rollo con ese código. ¿Es un QR de rollo válido ("RL-...")?'));
   }
@@ -397,7 +407,10 @@ export default function OrdenProduccionDetalle() {
       case "machine":
         return roll.machine ?? "—";
       case "label":
-        return roll.label ?? "—";
+        // En Extrusión/Impresión la etiqueta no se tipea, se genera sola
+        // (mismo código RL-<id> de la etiqueta QR impresa) — así igual queda
+        // algo identificable en la tabla en vez de un "—" vacío.
+        return roll.label ?? (template.labelIsOwnRoll ? `RL-${roll.id}` : "—");
       case "weight":
         return String(Number(roll.weightKg));
       case "waste":
@@ -890,6 +903,17 @@ export default function OrdenProduccionDetalle() {
                       </td>
                     );
                   }
+                  if (col.source === "date" || col.source === "time" || (col.source === "label" && template.labelIsOwnRoll)) {
+                    return (
+                      <td
+                        key={col.detailKey ?? col.source}
+                        className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center italic`}
+                        title={col.source === "label" ? "Se genera sola (código del rollo) al guardar" : "Se completa sola con el momento en que se guarda"}
+                      >
+                        se completa sola
+                      </td>
+                    );
+                  }
                   return (
                     <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1 py-1`}>
                       {col.kind === "siNo" ? (
@@ -901,7 +925,7 @@ export default function OrdenProduccionDetalle() {
                       ) : (
                         <input
                           className={sheetInput}
-                          type={col.source === "date" ? "date" : col.source === "time" ? "time" : col.kind === "number" ? "number" : "text"}
+                          type={col.kind === "number" ? "number" : "text"}
                           step={col.kind === "number" ? "0.01" : undefined}
                           value={rollDraft[key] ?? ""}
                           onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}
