@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import { STATION_LABELS, OpStation } from "../opTemplates";
 
 const STATUS_LABELS: Record<string, string> = {
+  borrador: "Borrador",
   pendiente: "Pendiente",
   en_proceso: "En proceso",
   pendiente_calidad: "Pendiente de calidad",
@@ -15,6 +16,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
+  borrador: "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300",
   pendiente: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200",
   en_proceso: "bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400",
   pendiente_calidad: "bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-400",

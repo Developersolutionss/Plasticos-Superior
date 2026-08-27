@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FileDown, GitBranch, Lock, Paperclip, RotateCcw, ScanLine, Trash2, X } from "lucide-react";
+import { FileDown, GitBranch, Lock, Paperclip, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
@@ -18,6 +18,7 @@ import {
 } from "../opTemplates";
 
 const STATUS_LABELS: Record<string, string> = {
+  borrador: "Borrador",
   pendiente: "Pendiente",
   en_proceso: "En proceso",
   pendiente_calidad: "Pendiente de calidad",
@@ -139,6 +140,7 @@ export default function OrdenProduccionDetalle() {
   const [scanningSource, setScanningSource] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reopening, setReopening] = useState(false);
+  const [releasing, setReleasing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const { data: order, isLoading } = useQuery({
@@ -180,11 +182,14 @@ export default function OrdenProduccionDetalle() {
 
   const station = order.station as OpStation;
   const template = OP_TEMPLATES[station];
+  const isDraft = order.status === "borrador";
   const isOpen = OPEN_STATUSES.includes(order.status);
   const isReopenable = REOPENABLE_STATUSES.includes(order.status);
   const canGestion = !!user && (PRODUCCION_GESTION as UserRole[]).includes(user.role);
   const canOperate = !!user && STATION_OPERATE[station].includes(user.role);
-  const canEditSpecs = canGestion && isOpen;
+  // En "borrador" también se edita specs — es justo cuando Gestión carga
+  // materia prima/medidas/cliente/referencia antes de liberarla a planta.
+  const canEditSpecs = canGestion && (isDraft || isOpen);
 
   const totalKg = order.rolls.reduce((acc: number, r: any) => acc + Number(r.weightKg), 0);
   const totalWaste = order.rolls.reduce((acc: number, r: any) => acc + Number(r.wasteKg), 0);
@@ -377,6 +382,21 @@ export default function OrdenProduccionDetalle() {
     }
   }
 
+  async function handleRelease() {
+    setError(null);
+    if (!window.confirm(`¿Liberar esta OP a planta? A partir de ahora la va a ver la cola de ${STATION_LABELS[station]} y va a poder cargar rollos.`)) return;
+    setReleasing(true);
+    try {
+      await api.releaseProductionOrder(orderId);
+      queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
+    } catch (err: any) {
+      setError(err?.message ?? "No se pudo liberar la OP");
+    } finally {
+      setReleasing(false);
+    }
+  }
+
   async function handleUploadAttachment() {
     const file = fileInputRef.current?.files?.[0];
     if (!file) return;
@@ -435,7 +455,20 @@ export default function OrdenProduccionDetalle() {
           ← Órdenes de producción
         </Link>
         <div className="flex flex-wrap gap-2">
-          {canGestion &&
+          {canGestion && isDraft && (
+            <button
+              type="button"
+              onClick={handleRelease}
+              disabled={releasing}
+              className="inline-flex items-center gap-1.5 text-sm bg-sky-700 hover:bg-sky-600 text-white rounded px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send size={14} aria-hidden="true" /> {releasing ? "Liberando..." : "Liberar a planta"}
+            </button>
+          )}
+          {/* Derivar lo puede hacer Gestión o el operario de la estación que
+              está cerrando su parte — no hace falta que Gestión intervenga
+              para mandar la OP al siguiente paso. */}
+          {canOperate &&
             derivations.map((target) => (
               <button
                 key={target}

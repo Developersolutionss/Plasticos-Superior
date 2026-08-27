@@ -232,6 +232,7 @@ export const api = {
     request<any>(`/production-orders/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
   closeProductionOrder: (id: number) => request<any>(`/production-orders/${id}/close`, { method: "POST" }),
   reopenProductionOrder: (id: number) => request<any>(`/production-orders/${id}/reopen`, { method: "POST" }),
+  releaseProductionOrder: (id: number) => request<any>(`/production-orders/${id}/release`, { method: "POST" }),
   createProductionRoll: (
     productionOrderId: number,
     data: {

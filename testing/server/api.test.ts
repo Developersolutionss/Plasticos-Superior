@@ -98,6 +98,7 @@ before(async () => {
   tokens.calidad = await loginAs("calidad@empresa.com");
   tokens.auditor = await loginAs("auditor@empresa.com");
   tokens.operario_extrusion = await loginAs("operario.extrusion@empresa.com");
+  tokens.operario_impresion = await loginAs("operario.impresion@empresa.com");
 });
 
 after(async () => {
@@ -574,7 +575,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     assert.equal(res.status, 201);
     const order = (await res.json()) as { id: number; orderNumber: string; status: string; station: string; specs: any };
     assert.match(order.orderNumber, /^OP-\d{5}$/);
-    assert.equal(order.status, "pendiente");
+    assert.equal(order.status, "borrador", "nace en borrador hasta que Gestión la libere a planta");
     assert.equal(order.station, "extrusion");
     assert.equal(order.specs.formaMaterial, "Tubular");
     await prisma.productionOrder.delete({ where: { id: order.id } });
@@ -653,6 +654,87 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
     await prisma.productionOrder.delete({ where: { id: derived.id } });
     await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
+  it("derivar lo puede hacer el operario de la estación (no solo Gestión), pero no el de otra estación", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 20 },
+    });
+
+    const wrongStation = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("operario_impresion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(wrongStation.status, 403, "un operario de impresión no puede derivar una OP de extrusión");
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(res.status, 201);
+    const derived = (await res.json()) as { id: number; status: string };
+    assert.equal(derived.status, "pendiente", "la OP derivada nace directo en pendiente, no en borrador");
+
+    await prisma.productionOrder.delete({ where: { id: derived.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
+  it("una OP en borrador: nace oculta para operarios (403/404 no aplica, simplemente no aparece) y Gestión la libera con /release", async () => {
+    const createRes = await fetch(`${baseUrl}/api/production-orders`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "extrusion", productId, quantityPlanned: 15 }),
+    });
+    const order = (await createRes.json()) as { id: number; status: string };
+    assert.equal(order.status, "borrador");
+
+    // Un operario no la ve en la lista de su estación...
+    const listAsOperario = await fetch(`${baseUrl}/api/production-orders?station=extrusion`, { headers: headersFor("operario_extrusion") });
+    const listBody = (await listAsOperario.json()) as { id: number }[];
+    assert.ok(!listBody.some((o) => o.id === order.id), "un operario no debe ver una OP en borrador en la cola de su estación");
+
+    // ...ni puede abrirla directo por id.
+    const getAsOperario = await fetch(`${baseUrl}/api/production-orders/${order.id}`, { headers: headersFor("operario_extrusion") });
+    assert.equal(getAsOperario.status, 404);
+
+    // Gestión sí la ve y puede seguir editando specs mientras está en borrador.
+    const patch = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ specs: { color: "Natural" } }),
+    });
+    assert.equal(patch.status, 200, "specs se pueden editar mientras la OP está en borrador");
+
+    // Un operario no puede liberarla.
+    const releaseDenied = await fetch(`${baseUrl}/api/production-orders/${order.id}/release`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(releaseDenied.status, 403);
+
+    // Gestión la libera: pasa a pendiente y ahora sí la ve el operario.
+    const release = await fetch(`${baseUrl}/api/production-orders/${order.id}/release`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(release.status, 200);
+    const released = (await release.json()) as { status: string };
+    assert.equal(released.status, "pendiente");
+
+    const listAfter = await fetch(`${baseUrl}/api/production-orders?station=extrusion`, { headers: headersFor("operario_extrusion") });
+    const listAfterBody = (await listAfter.json()) as { id: number }[];
+    assert.ok(listAfterBody.some((o) => o.id === order.id), "una vez liberada, el operario sí la ve");
+
+    // Ya liberada, no se puede volver a liberar.
+    const releaseAgain = await fetch(`${baseUrl}/api/production-orders/${order.id}/release`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(releaseAgain.status, 400);
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
   it("el rollo de origen escaneado (sourceRollId) tiene que pertenecer a la OP padre real, no a cualquier OP", async () => {

@@ -243,6 +243,28 @@ async function main() {
         },
       });
     }
+
+    // OP en "borrador": Gestión la está armando (specs a medio cargar, sin
+    // rollos) y todavía no la liberó a planta — para que se vea el estado
+    // nuevo en el listado de Gestión y confirmar que NO aparece en la cola
+    // del operario de Extrusión hasta que se libere. Guard propio (no el de
+    // OP-SEED-EXTRUSION de arriba) para que también se cree en bases donde
+    // ya existía la cadena vieja antes de este cambio.
+    const existingSeedBorrador = await prisma.productionOrder.findUnique({ where: { orderNumber: "OP-SEED-BORRADOR" } });
+    if (!existingSeedBorrador) {
+      await prisma.productionOrder.create({
+        data: {
+          orderNumber: "OP-SEED-BORRADOR",
+          station: "extrusion",
+          productId: bulto.id,
+          clientId: acme.id,
+          quantityPlanned: 60,
+          measure: bulto.measure,
+          status: "borrador",
+          specs: { formaMaterial: "Tubular", materiaPrima: [{ ref: "ALTA", pct: 100, kg: 30 }] },
+        },
+      });
+    }
   }
 
   // Catálogo de materia prima (las 10 refs fijas del formato F-OP-01 de

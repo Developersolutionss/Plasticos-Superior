@@ -83,6 +83,7 @@ enum ImportSource {
 }
 
 enum ProductionOrderStatus {
+  borrador
   pendiente
   en_proceso
   pendiente_calidad

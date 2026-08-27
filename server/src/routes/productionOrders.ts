@@ -56,6 +56,11 @@ async function nextOrderNumber(tx: TxClient): Promise<string> {
 const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
 const requireOperarios = requireRole(...ROLES.OPERARIOS);
 const requireCalidad = requireRole(...ROLES.CALIDAD);
+/** Roles de operario puro (sin gestión) — a estos se les oculta toda OP en
+ * "borrador": Gestión todavía la está armando (materia prima, medidas,
+ * cliente, referencia) y no debe aparecer en la cola de planta hasta que la
+ * libere explícitamente con POST /:id/release. */
+const OPERARIO_ONLY_ROLES = ["operario_extrusion", "operario_impresion", "operario_sellado_precorte"];
 // Calidad necesita GET / (para ver la cola ?status=pendiente_calidad) y
 // GET /:id (para revisar los rollos al decidir); Auditoría necesita GET /:id
 // (Trazabilidad) — por eso ambos se admiten acá a nivel de router, además de
@@ -70,8 +75,14 @@ const OPEN_STATUSES = ["pendiente", "en_proceso"];
 productionOrdersRouter.get("/", async (req, res) => {
   const status = req.query.status as string | undefined;
   const station = req.query.station as string | undefined;
+  // Un operario puro nunca ve una OP en "borrador" (Gestión todavía la está
+  // armando) — si además pidió explícitamente ?status=borrador, directamente
+  // no hay nada que mostrarle.
+  const hideDraft = OPERARIO_ONLY_ROLES.includes(req.user!.role);
+  if (hideDraft && status === "borrador") return res.json([]);
+  const statusFilter = hideDraft && !status ? { not: "borrador" } : status;
   const orders = await prisma.productionOrder.findMany({
-    where: { status: status as any, station: station as any },
+    where: { status: statusFilter as any, station: station as any },
     include: {
       product: true,
       client: { select: { id: true, name: true } },
@@ -183,6 +194,9 @@ productionOrdersRouter.get("/:id", async (req, res) => {
     },
   });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  if (order.status === "borrador" && OPERARIO_ONLY_ROLES.includes(req.user!.role)) {
+    return res.status(404).json({ error: "OP no encontrada" });
+  }
 
   res.json(order);
 });
@@ -218,6 +232,11 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
         data: {
           orderNumber,
           station: parsed.data.station,
+          // Nace en "borrador": Gestión todavía tiene que terminar de cargar
+          // materia prima/medidas/cliente/referencia antes de que la vea
+          // planta — recién queda visible/operable para los operarios al
+          // liberarla con POST /:id/release.
+          status: "borrador",
           productId: parsed.data.productId,
           clientId: parsed.data.clientId,
           quantityPlanned: parsed.data.quantityPlanned,
@@ -235,8 +254,10 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
 
 /**
  * Genera la OP correspondiente a un item de pedido pendiente de planeación.
- * Nace como OP de Extrusión (el proceso base) con el cliente del pedido; los
- * procesos siguientes se derivan desde ella.
+ * Nace como OP de Extrusión (el proceso base) con el cliente del pedido, en
+ * "borrador" — Planeación/Gestión todavía tiene que cargarle materia prima y
+ * medidas antes de liberarla a planta (POST /:id/release). Los procesos
+ * siguientes se derivan desde ella.
  */
 productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requireProduccionGestion, async (req, res) => {
   const pedidoVersionItemId = Number(req.params.pedidoVersionItemId);
@@ -257,6 +278,7 @@ productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requirePro
         data: {
           orderNumber,
           station: "extrusion",
+          status: "borrador",
           productId: item.productId,
           clientId: item.pedidoVersion.pedido.clientId,
           quantityPlanned: item.quantity,
@@ -271,6 +293,25 @@ productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requirePro
   res.status(201).json(order);
 });
 
+/**
+ * Libera una OP en "borrador" a planta: Gestión ya terminó de cargar materia
+ * prima/medidas/cliente/referencia, y de acá en más queda visible y operable
+ * para los operarios de esa estación (cola de EstacionProduccion.tsx, carga
+ * de rollos). No hay vuelta atrás por acá — para corregir algo después de
+ * liberada se usa /:id/reopen una vez que ya se cerró.
+ */
+productionOrdersRouter.post("/:id/release", requireProduccionGestion, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
+
+  const order = await prisma.productionOrder.findUnique({ where: { id } });
+  if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  if (order.status !== "borrador") return res.status(400).json({ error: "Esta OP ya fue liberada a planta" });
+
+  const updated = await prisma.productionOrder.update({ where: { id }, data: { status: "pendiente" } });
+  res.json(updated);
+});
+
 const deriveSchema = z.object({
   station: z.enum(STATIONS),
   quantityPlanned: z.number().positive().optional(),
@@ -282,9 +323,12 @@ const deriveSchema = z.object({
 /**
  * Deriva una OP hija hacia el siguiente proceso (Extrusión → Impresión/
  * Sellado/Precorte; Impresión → Sellado/Precorte). Hereda producto, cliente,
- * medida y cantidad del padre salvo que el body los pise.
+ * medida y cantidad del padre salvo que el body los pise. La OP hija nace
+ * directo en "pendiente" (no "borrador"): el operario que la deriva ya tomó
+ * la decisión de mandarla al siguiente paso, no hace falta otra liberación
+ * de Gestión en el medio.
  */
-productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req, res) => {
+productionOrdersRouter.post("/:id/derive", requireOperarios, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
   const parsed = deriveSchema.safeParse(req.body);
@@ -293,6 +337,13 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
   const parent = await prisma.productionOrder.findUnique({ where: { id } });
   if (!parent) return res.status(404).json({ error: "OP no encontrada" });
   if (parent.status === "cancelada") return res.status(400).json({ error: "No se puede derivar de una OP cancelada" });
+
+  // Mismo criterio que /rolls y /close: un operario solo dirige OPs de SU
+  // estación (Gestión/Planeación pueden cualquiera).
+  const allowedStations = OPERARIO_STATIONS[req.user!.role];
+  if (allowedStations && !allowedStations.includes(parent.station)) {
+    return res.status(403).json({ error: `Tu rol solo puede derivar OPs de: ${allowedStations.join(", ")}` });
+  }
 
   const allowed = DERIVATIONS[parent.station as OpStation];
   if (!allowed.includes(parsed.data.station)) {
@@ -344,8 +395,10 @@ productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) 
 
   const order = await prisma.productionOrder.findUnique({ where: { id } });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
-  if (!OPEN_STATUSES.includes(order.status)) {
-    return res.status(400).json({ error: "Solo se puede editar una OP abierta (pendiente o en proceso)" });
+  // "borrador" también es editable — es justo el estado en el que Gestión
+  // carga materia prima/medidas/cliente/referencia antes de liberarla.
+  if (order.status !== "borrador" && !OPEN_STATUSES.includes(order.status)) {
+    return res.status(400).json({ error: "Solo se puede editar una OP en borrador o abierta (pendiente o en proceso)" });
   }
 
   const updated = await prisma.productionOrder.update({
@@ -362,7 +415,7 @@ productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) 
 });
 
 const updateStatusSchema = z.object({
-  status: z.enum(["pendiente", "en_proceso", "pendiente_calidad", "detenida", "finalizada", "cancelada"]),
+  status: z.enum(["borrador", "pendiente", "en_proceso", "pendiente_calidad", "detenida", "finalizada", "cancelada"]),
 });
 
 productionOrdersRouter.patch("/:id/status", requireProduccionGestion, async (req, res) => {

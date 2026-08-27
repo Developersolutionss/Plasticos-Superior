@@ -7,6 +7,7 @@ import BarcodeScanner from "../components/BarcodeScanner";
 import { STATION_LABELS, OpStation, OPEN_STATUSES } from "../opTemplates";
 
 const STATUS_LABELS: Record<string, string> = {
+  borrador: "Borrador",
   pendiente: "Pendiente",
   en_proceso: "En proceso",
   pendiente_calidad: "Pendiente de calidad",

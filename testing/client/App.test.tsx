@@ -60,7 +60,7 @@ describe("App", () => {
 
   it("renderiza la página de login con los campos vacíos", () => {
     renderApp("/login");
-    expect(screen.getByText("Plásticos Superior")).toBeInTheDocument();
+    expect(screen.getByAltText("Plásticos Superior San Judas S.A.S.")).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toHaveValue("");
     expect(screen.getByLabelText("Contraseña")).toHaveValue("");
   });
