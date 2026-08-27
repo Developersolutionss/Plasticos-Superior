@@ -225,6 +225,8 @@ export const api = {
       notes?: string | null;
     }
   ) => request<any>(`/production-orders/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateMaterialPara: (id: number, materialPara: string | null) =>
+    request<any>(`/production-orders/${id}/material-para`, { method: "PATCH", body: JSON.stringify({ materialPara }) }),
   getPendingPlanning: () => request<any[]>("/production-orders/pending-planning"),
   createProductionOrderFromPedidoItem: (pedidoVersionItemId: number) =>
     request<any>(`/production-orders/from-pedido-item/${pedidoVersionItemId}`, { method: "POST" }),

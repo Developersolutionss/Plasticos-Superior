@@ -248,6 +248,22 @@ export default function OrdenProduccionDetalle() {
     }
   }
 
+  // "Material para" es el único campo del encabezado que también puede
+  // tocar el operario (a qué estación va a derivar) — se guarda solo al
+  // cambiarlo, ya que el operario no tiene acceso al botón general
+  // "Guardar cambios" (eso sigue siendo exclusivo de Gestión).
+  async function handleMaterialParaChange(value: string) {
+    setSpecsDraft((prev) => ({ ...prev, materialPara: value }));
+    setError(null);
+    try {
+      await api.updateMaterialPara(orderId, value || null);
+      queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
+    } catch {
+      setError('No se pudo guardar "Material para"');
+    }
+  }
+
   async function handleAddRoll(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -684,29 +700,42 @@ export default function OrdenProduccionDetalle() {
           <div key={section.title}>
             <SheetBand>{section.title}</SheetBand>
             <div className="grid grid-cols-2 sm:grid-cols-3">
-              {section.fields.map((field) => (
-                <div key={field.key} className={`${cellBorder} p-2`}>
-                  <span className={cellLabel}>{field.label}</span>
-                  {field.kind === "options" ? (
-                    <select className={sheetInput} value={specsDraft[field.key] ?? ""} disabled={!canEditSpecs} onChange={(e) => setSpec(field.key, e.target.value)}>
-                      <option value="">—</option>
-                      {field.options!.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      className={sheetInput}
-                      type={field.kind === "number" ? "number" : "text"}
-                      value={specsDraft[field.key] ?? ""}
-                      disabled={!canEditSpecs}
-                      onChange={(e) => setSpec(field.key, e.target.value)}
-                    />
-                  )}
-                </div>
-              ))}
+              {section.fields.map((field) => {
+                // "Material para" (a qué estación va a derivar) es el único
+                // campo del encabezado que también edita el operario, no
+                // solo Gestión — y se guarda solo al cambiarlo (ver
+                // handleMaterialParaChange), no con el botón general.
+                const isMaterialPara = field.key === "materialPara";
+                const canEditThis = isMaterialPara ? canEditSpecs || canOperate : canEditSpecs;
+                return (
+                  <div key={field.key} className={`${cellBorder} p-2`}>
+                    <span className={cellLabel}>{field.label}</span>
+                    {field.kind === "options" ? (
+                      <select
+                        className={sheetInput}
+                        value={specsDraft[field.key] ?? ""}
+                        disabled={!canEditThis}
+                        onChange={(e) => (isMaterialPara ? handleMaterialParaChange(e.target.value) : setSpec(field.key, e.target.value))}
+                      >
+                        <option value="">—</option>
+                        {field.options!.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        className={sheetInput}
+                        type={field.kind === "number" ? "number" : "text"}
+                        value={specsDraft[field.key] ?? ""}
+                        disabled={!canEditThis}
+                        onChange={(e) => setSpec(field.key, e.target.value)}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}

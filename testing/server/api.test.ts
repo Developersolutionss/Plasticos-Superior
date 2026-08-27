@@ -656,6 +656,42 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
 
+  it('PATCH /:id/material-para: el operario de la estación lo puede editar (no otros campos), un operario de otra estación no', async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10, specs: { color: "Natural" } },
+    });
+
+    const wrongStation = await fetch(`${baseUrl}/api/production-orders/${order.id}/material-para`, {
+      method: "PATCH",
+      headers: headersFor("operario_impresion"),
+      body: JSON.stringify({ materialPara: "SELLADO" }),
+    });
+    assert.equal(wrongStation.status, 403);
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/material-para`, {
+      method: "PATCH",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ materialPara: "SELLADO" }),
+    });
+    assert.equal(res.status, 200);
+    const updated = (await res.json()) as { specs: { materialPara: string; color: string } };
+    assert.equal(updated.specs.materialPara, "SELLADO");
+    assert.equal(updated.specs.color, "Natural", "no toca ningún otro campo de specs ya cargado");
+
+    // Un operario no puede colarse otros campos por acá — el schema del
+    // endpoint solo acepta `materialPara`.
+    const smuggle = await fetch(`${baseUrl}/api/production-orders/${order.id}/material-para`, {
+      method: "PATCH",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ materialPara: "PRECORTE", color: "Rojo" }),
+    });
+    assert.equal(smuggle.status, 200);
+    const afterSmuggle = (await smuggle.json()) as { specs: { color: string } };
+    assert.equal(afterSmuggle.specs.color, "Natural", "el color se ignora, solo se actualiza materialPara");
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
   it("derivar lo puede hacer el operario de la estación (no solo Gestión), pero no el de otra estación", async () => {
     const parent = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 20 },

@@ -414,6 +414,42 @@ productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) 
   res.json(updated);
 });
 
+const materialParaSchema = z.object({ materialPara: z.string().nullable() });
+
+/**
+ * "Material para" (specs.materialPara) es el ÚNICO campo del encabezado que
+ * también puede tocar el operario, no solo Gestión: es literalmente a qué
+ * estación va a derivar esta OP (IMPRESION/SELLADO/PRECORTE), y el operario
+ * de Extrusión es quien decide eso al terminar su parte — el resto del PATCH
+ * general (materia prima, medidas, cliente...) sigue siendo exclusivo de
+ * Gestión. Endpoint aparte (en vez de abrir todo el PATCH /:id) para no
+ * poder tocar ningún otro campo desde acá.
+ */
+productionOrdersRouter.patch("/:id/material-para", requireOperarios, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
+  const parsed = materialParaSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const order = await prisma.productionOrder.findUnique({ where: { id } });
+  if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  if (order.status !== "borrador" && !OPEN_STATUSES.includes(order.status)) {
+    return res.status(400).json({ error: "Solo se puede editar una OP en borrador o abierta (pendiente o en proceso)" });
+  }
+
+  const allowedStations = OPERARIO_STATIONS[req.user!.role];
+  if (allowedStations && !allowedStations.includes(order.station)) {
+    return res.status(403).json({ error: `Tu rol solo puede editar OPs de: ${allowedStations.join(", ")}` });
+  }
+
+  const currentSpecs = order.specs && typeof order.specs === "object" ? (order.specs as object) : {};
+  const updated = await prisma.productionOrder.update({
+    where: { id },
+    data: { specs: { ...currentSpecs, materialPara: parsed.data.materialPara } as Prisma.InputJsonValue },
+  });
+  res.json(updated);
+});
+
 const updateStatusSchema = z.object({
   status: z.enum(["borrador", "pendiente", "en_proceso", "pendiente_calidad", "detenida", "finalizada", "cancelada"]),
 });
