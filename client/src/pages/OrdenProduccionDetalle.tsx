@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FileDown, GitBranch, Lock, Paperclip, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
+import { FileDown, GitBranch, Lock, Paperclip, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
@@ -262,7 +262,7 @@ export default function OrdenProduccionDetalle() {
       }
     }
     try {
-      const created = await api.createProductionRoll(orderId, {
+      await api.createProductionRoll(orderId, {
         // FECHA/HORA ya no se tipean — se omiten acá para que el server las
         // deje en el momento real de guardado (`date DateTime @default(now())`),
         // que es más confiable que lo que el operario recuerde escribir.
@@ -288,12 +288,24 @@ export default function OrdenProduccionDetalle() {
       setSourceRoll(null);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
-      // Etiqueta con QR del rollo recién creado, para pegar en el rollo
-      // físico — así la estación siguiente puede escanearlo como origen.
-      const label = await api.getProductionRollLabel(orderId, created.id);
-      printRollLabel(label);
+      // La etiqueta con QR queda disponible con el botón de impresora en la
+      // fila del rollo — ya NO se imprime sola acá. Abrir una pestaña nueva
+      // y disparar window.print() automáticamente en cada rollo cargado le
+      // robaba el foco a la pestaña principal (sobre todo en la PWA
+      // instalada en tablets de planta), dejando los inputs sin responder
+      // hasta recargar la página.
     } catch (err: any) {
       setError(err?.message?.includes("403") ? "Tu rol no puede registrar rollos en esta estación" : "No se pudo registrar el rollo");
+    }
+  }
+
+  async function handlePrintLabel(rollId: number) {
+    setError(null);
+    try {
+      const label = await api.getProductionRollLabel(orderId, rollId);
+      printRollLabel(label);
+    } catch {
+      setError("No se pudo generar la etiqueta");
     }
   }
 
@@ -877,7 +889,7 @@ export default function OrdenProduccionDetalle() {
                   {col.label}
                 </th>
               ))}
-              {canGestion && isOpen && <th className={`${cellBorder} px-1.5 py-1 w-8`} />}
+              {canOperate && <th className={`${cellBorder} px-1.5 py-1 w-14`} />}
             </tr>
           </thead>
           <tbody>
@@ -889,18 +901,23 @@ export default function OrdenProduccionDetalle() {
                       {rollCellDisplay(roll, col, rollCumulative[i])}
                     </td>
                   ))}
-                  {canGestion && isOpen && (
-                    <td className={`${cellBorder} px-1.5 py-1 text-center`}>
-                      <button type="button" className="text-red-600 dark:text-red-400" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
-                        <Trash2 size={13} aria-hidden="true" />
+                  {canOperate && (
+                    <td className={`${cellBorder} px-1.5 py-1 text-center whitespace-nowrap`}>
+                      <button type="button" className="text-slate-500 dark:text-slate-400" title="Imprimir etiqueta" onClick={() => handlePrintLabel(roll.id)}>
+                        <Printer size={13} aria-hidden="true" />
                       </button>
+                      {canGestion && isOpen && (
+                        <button type="button" className="text-red-600 dark:text-red-400 ml-1.5" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
+                          <Trash2 size={13} aria-hidden="true" />
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
                 {roll.sourceRoll && (
                   <tr className="bg-slate-50 dark:bg-slate-800/60">
                     <td
-                      colSpan={template.rollColumns.length + (canGestion && isOpen ? 1 : 0)}
+                      colSpan={template.rollColumns.length + (canOperate ? 1 : 0)}
                       className={`${cellBorder} px-1.5 py-0.5 text-[10px] text-slate-500 dark:text-slate-400`}
                     >
                       Insumo: rollo {roll.sourceRoll.label ?? `#${roll.sourceRoll.id}`} ({Number(roll.sourceRoll.weightKg)} kg) — escaneado por{" "}
@@ -980,7 +997,7 @@ export default function OrdenProduccionDetalle() {
                 Total · {order.rolls.length} rollos
               </td>
               <td className={`${cellBorder} px-1.5 py-1`}>{Math.round(totalKg * 100) / 100} kg</td>
-              <td className={`${cellBorder} px-1.5 py-1`} colSpan={canGestion && isOpen ? 2 : 1}>
+              <td className={`${cellBorder} px-1.5 py-1`} colSpan={canOperate ? 2 : 1}>
                 Desp. {Math.round(totalWaste * 100) / 100} kg
               </td>
             </tr>
