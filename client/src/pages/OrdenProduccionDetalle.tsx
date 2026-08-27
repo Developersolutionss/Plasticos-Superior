@@ -112,9 +112,9 @@ function printRollLabel(label: { code: string; orderNumber: string; productName:
 
 interface MateriaPrimaRow {
   ref: string;
-  pct: string;
-  /** Kg del insumo: campo independiente de % (no se calcula solo), se
-   * carga a mano igual que en el papel. */
+  /** Kg del insumo, cargado a mano igual que en el papel — es el único
+   * dato que se tipea; el % se calcula solo a partir de esto (ver
+   * `materiaPrimaPct` más abajo), no se vuelve a pedir por separado. */
   kg: string;
   lote: string;
 }
@@ -166,7 +166,6 @@ export default function OrdenProduccionDetalle() {
         const saved = savedRows.find((r) => r.ref === ref);
         return {
           ref,
-          pct: saved ? String(saved.pct ?? "") : "",
           kg: saved ? String(saved.kg ?? "") : "",
           lote: saved ? String(saved.lote ?? "") : "",
         };
@@ -217,11 +216,12 @@ export default function OrdenProduccionDetalle() {
     try {
       const specs: Record<string, any> = { ...specsDraft };
       if (template.materiaPrimaRefs) {
+        const totalMpKg = materiaPrima.reduce((acc, r) => acc + (Number(r.kg) || 0), 0);
         specs.materiaPrima = materiaPrima
-          .filter((r) => r.pct || r.kg)
+          .filter((r) => r.kg)
           .map((r) => ({
             ref: r.ref,
-            pct: r.pct ? Number(r.pct) : undefined,
+            pct: totalMpKg > 0 ? Math.round(((Number(r.kg) || 0) / totalMpKg) * 100 * 100) / 100 : undefined,
             kg: r.kg ? Number(r.kg) : undefined,
             lote: r.lote || undefined,
           }));
@@ -551,9 +551,11 @@ export default function OrdenProduccionDetalle() {
         </div>
 
         {/* Materia prima (solo Extrusión): las 10 filas son fijas, en el
-            mismo orden que el papel — no se agregan ni se quitan. % y Kg
-            son campos independientes, igual que en el papel: cada uno se
-            completa a mano por separado, sin cálculo automático entre sí. */}
+            mismo orden que el papel — no se agregan ni se quitan. Solo se
+            tipea el Kg de cada insumo; el % se calcula solo como su parte
+            del total de kg cargado (no se pide por separado, para que
+            nunca quede desalineado con lo que realmente se descuenta del
+            inventario de materia prima al cerrar la OP). */}
         {template.materiaPrimaRefs && (
           <>
             <SheetBand>Materia prima</SheetBand>
@@ -567,52 +569,47 @@ export default function OrdenProduccionDetalle() {
                 </tr>
               </thead>
               <tbody>
-                {materiaPrima.map((row, i) => (
-                  <tr key={row.ref}>
-                    <td className={`${cellBorder} px-2 py-1 font-medium`}>{row.ref}</td>
-                    <td className={`${cellBorder} px-2 py-1`}>
-                      <input
-                        className={sheetInput}
-                        type="number"
-                        step="0.01"
-                        value={row.pct}
-                        disabled={!canEditSpecs}
-                        onChange={(e) => {
-                          setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, pct: e.target.value } : r)));
-                          markDirty();
-                        }}
-                      />
-                    </td>
-                    <td className={`${cellBorder} px-2 py-1`}>
-                      <input
-                        className={sheetInput}
-                        type="number"
-                        step="0.01"
-                        value={row.kg}
-                        disabled={!canEditSpecs}
-                        onChange={(e) => {
-                          setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, kg: e.target.value } : r)));
-                          markDirty();
-                        }}
-                      />
-                    </td>
-                    <td className={`${cellBorder} px-2 py-1`}>
-                      <input
-                        className={sheetInput}
-                        value={row.lote}
-                        disabled={!canEditSpecs}
-                        onChange={(e) => {
-                          setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, lote: e.target.value } : r)));
-                          markDirty();
-                        }}
-                      />
-                    </td>
-                  </tr>
-                ))}
+                {(() => {
+                  const totalMpKg = materiaPrima.reduce((acc, r) => acc + (Number(r.kg) || 0), 0);
+                  return materiaPrima.map((row, i) => {
+                    const kg = Number(row.kg) || 0;
+                    const pct = totalMpKg > 0 ? Math.round((kg / totalMpKg) * 100 * 100) / 100 : 0;
+                    return (
+                      <tr key={row.ref}>
+                        <td className={`${cellBorder} px-2 py-1 font-medium`}>{row.ref}</td>
+                        <td className={`${cellBorder} px-2 py-1 text-slate-500 dark:text-slate-400`}>{kg > 0 ? `${pct}%` : "—"}</td>
+                        <td className={`${cellBorder} px-2 py-1`}>
+                          <input
+                            className={sheetInput}
+                            type="number"
+                            step="0.01"
+                            value={row.kg}
+                            disabled={!canEditSpecs}
+                            onChange={(e) => {
+                              setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, kg: e.target.value } : r)));
+                              markDirty();
+                            }}
+                          />
+                        </td>
+                        <td className={`${cellBorder} px-2 py-1`}>
+                          <input
+                            className={sheetInput}
+                            value={row.lote}
+                            disabled={!canEditSpecs}
+                            onChange={(e) => {
+                              setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, lote: e.target.value } : r)));
+                              markDirty();
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
                 <tr className="font-semibold">
                   <td className={`${cellBorder} px-2 py-1`}>Total</td>
                   <td className={`${cellBorder} px-2 py-1`}>
-                    {Math.round(materiaPrima.reduce((acc, r) => acc + (Number(r.pct) || 0), 0) * 100) / 100}%
+                    {materiaPrima.some((r) => Number(r.kg) > 0) ? "100%" : "0%"}
                   </td>
                   <td className={`${cellBorder} px-2 py-1`}>
                     {Math.round(materiaPrima.reduce((acc, r) => acc + (Number(r.kg) || 0), 0) * 100) / 100}
