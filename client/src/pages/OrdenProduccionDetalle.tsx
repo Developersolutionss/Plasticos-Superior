@@ -736,6 +736,31 @@ export default function OrdenProduccionDetalle() {
                   </div>
                 );
               })}
+              {/* Mismo cuadro de "a dónde deriva" pero como acción directa,
+                  al lado de "Material para" — el operario elige la estación
+                  destino ahí mismo y dispara la derivación (mismo
+                  handleDerive que los botones "Derivar a..." de arriba),
+                  sin tener que subir a buscarlos. */}
+              {section.fields.some((f) => f.key === "materialPara") && canOperate && derivations.length > 0 && (
+                <div className={`${cellBorder} p-2`}>
+                  <span className={cellLabel}>Derivar a</span>
+                  <select
+                    className={sheetInput}
+                    value=""
+                    onChange={(e) => {
+                      const target = e.target.value as OpStation;
+                      if (target) handleDerive(target);
+                    }}
+                  >
+                    <option value="">—</option>
+                    {derivations.map((target) => (
+                      <option key={target} value={target}>
+                        {STATION_LABELS[target]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
         ))}
