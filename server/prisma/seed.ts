@@ -127,7 +127,7 @@ async function main() {
   // fijo (mismo criterio que PED-SEED-PLANEACION) para poder chequear
   // existencia sin pisar la numeración real OP-00001, OP-00002... de la app.
   if (bulto && acme) {
-    const existingSeedExtrusion = await prisma.productionOrder.findUnique({
+    const existingSeedExtrusion = await prisma.productionOrder.findFirst({
       where: { orderNumber: "OP-SEED-EXTRUSION" },
     });
     if (!existingSeedExtrusion) {
@@ -250,7 +250,7 @@ async function main() {
     // del operario de Extrusión hasta que se libere. Guard propio (no el de
     // OP-SEED-EXTRUSION de arriba) para que también se cree en bases donde
     // ya existía la cadena vieja antes de este cambio.
-    const existingSeedBorrador = await prisma.productionOrder.findUnique({ where: { orderNumber: "OP-SEED-BORRADOR" } });
+    const existingSeedBorrador = await prisma.productionOrder.findFirst({ where: { orderNumber: "OP-SEED-BORRADOR" } });
     if (!existingSeedBorrador) {
       await prisma.productionOrder.create({
         data: {
@@ -262,6 +262,26 @@ async function main() {
           measure: bulto.measure,
           status: "borrador",
           specs: { formaMaterial: "Tubular", materiaPrima: [{ ref: "ALTA", pct: 100, kg: 30 }] },
+        },
+      });
+    }
+
+    // OP recién creada, todavía SIN proceso asignado (station null) — así lo
+    // pidió el cliente: se crea "en blanco" y Gestión la deriva a Extrusión
+    // como primer paso explícito (POST /:id/derive), en vez de nacer ya
+    // asignada. Sirve para ver ese estado en el listado sin tener que crear
+    // una OP a mano.
+    const existingSeedSinProceso = await prisma.productionOrder.findFirst({ where: { orderNumber: "OP-SEED-SIN-PROCESO" } });
+    if (!existingSeedSinProceso) {
+      await prisma.productionOrder.create({
+        data: {
+          orderNumber: "OP-SEED-SIN-PROCESO",
+          station: null,
+          productId: bulto.id,
+          clientId: acme.id,
+          quantityPlanned: 40,
+          measure: bulto.measure,
+          status: "borrador",
         },
       });
     }
@@ -352,7 +372,7 @@ async function main() {
       { orderNumber: "OP-SEED-INDICADORES-2", result: "rechazado" as const },
     ];
     for (const seedOp of qualitySeedOps) {
-      const existing = await prisma.productionOrder.findUnique({ where: { orderNumber: seedOp.orderNumber } });
+      const existing = await prisma.productionOrder.findFirst({ where: { orderNumber: seedOp.orderNumber } });
       if (existing) continue;
 
       const op = await prisma.productionOrder.create({

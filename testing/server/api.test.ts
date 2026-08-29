@@ -621,6 +621,52 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
+  it("GET /reports/por-operario agrupa los rollos por operario+día+proceso sin pedir datos nuevos", async () => {
+    type OperarioRow = { operatorName: string; day: string; station: string; rollCount: number; weightKg: number; wasteKg: number };
+    const today = new Date().toLocaleDateString("en-CA");
+    const reportUrl = `${baseUrl}/api/production-orders/reports/por-operario?from=${today}&to=${today}&station=extrusion`;
+    const findRow = (rows: OperarioRow[]) => rows.find((r) => r.operatorName === "Operario Extrusión" && r.day === today && r.station === "extrusion");
+
+    // Se toma una foto de "antes" en vez de asumir que la fila arranca en 0:
+    // esto corre contra la base de dev compartida, que puede tener otros
+    // rollos de hoy del mismo operario (pruebas manuales, otras corridas) —
+    // lo que importa es que el reporte sume exactamente lo que se agrega acá.
+    const before = await fetch(reportUrl, { headers: headersFor("produccion") });
+    const rowsBefore = (await before.json()) as OperarioRow[];
+    const rowBefore = findRow(rowsBefore);
+
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 30 },
+    });
+    const roll1 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 10, wasteKg: 1 }),
+    });
+    assert.equal(roll1.status, 201);
+    const roll2 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 8, wasteKg: 0.5 }),
+    });
+    assert.equal(roll2.status, 201);
+
+    const forbidden = await fetch(`${baseUrl}/api/production-orders/reports/por-operario`, { headers: headersFor("operario_extrusion") });
+    assert.equal(forbidden.status, 403, "solo Gestión ve el reporte");
+
+    const res = await fetch(reportUrl, { headers: headersFor("produccion") });
+    assert.equal(res.status, 200);
+    const rows = (await res.json()) as OperarioRow[];
+    const row = findRow(rows);
+    assert.ok(row, "debe aparecer una fila agrupada para el operario/día/proceso de los rollos recién cargados");
+    assert.equal(row!.rollCount - (rowBefore?.rollCount ?? 0), 2);
+    assert.equal(row!.weightKg - (rowBefore?.weightKg ?? 0), 18);
+    assert.equal(row!.wasteKg - (rowBefore?.wasteKg ?? 0), 1.5);
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
   it("derivación: extrusión → sellado hereda producto/cantidad; sellado no deriva (400)", async () => {
     const parent = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
@@ -639,11 +685,28 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       body: JSON.stringify({ station: "sellado" }),
     });
     assert.equal(res.status, 201);
-    const derived = (await res.json()) as { id: number; station: string; parentOrderId: number; productId: number; quantityPlanned: unknown };
+    const derived = (await res.json()) as {
+      id: number;
+      orderNumber: string;
+      station: string;
+      parentOrderId: number;
+      productId: number;
+      quantityPlanned: unknown;
+    };
     assert.equal(derived.station, "sellado");
     assert.equal(derived.parentOrderId, parent.id);
     assert.equal(derived.productId, productId);
     assert.equal(Number(derived.quantityPlanned), 40);
+    assert.equal(derived.orderNumber, parent.orderNumber, "la OP derivada mantiene el mismo número de la cadena, no uno nuevo");
+
+    // No se puede derivar dos veces al mismo destino — si no, cada clic en
+    // "Derivar a Sellado" crea otra fila hija más, sin límite.
+    const dupe = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(dupe.status, 400, "ya existe una OP derivada a sellado desde este padre");
 
     const badFinal = await fetch(`${baseUrl}/api/production-orders/${derived.id}/derive`, {
       method: "POST",
@@ -769,6 +832,63 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       headers: headersFor("produccion"),
     });
     assert.equal(releaseAgain.status, 400);
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("una OP se crea sin proceso asignado y se deriva a Extrusión en el lugar (mismo id, mismo número, no crea una fila nueva)", async () => {
+    const createRes = await fetch(`${baseUrl}/api/production-orders`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ productId, quantityPlanned: 20 }),
+    });
+    assert.equal(createRes.status, 201);
+    const order = (await createRes.json()) as { id: number; orderNumber: string; station: string | null; status: string };
+    assert.equal(order.station, null, "nace sin proceso asignado, no en extrusión por defecto");
+    assert.equal(order.status, "borrador");
+
+    // No se puede liberar a planta sin proceso asignado.
+    const releaseNoStation = await fetch(`${baseUrl}/api/production-orders/${order.id}/release`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(releaseNoStation.status, 400);
+
+    // Solo Gestión puede asignar el primer proceso (un operario, aunque
+    // exista, no puede porque la OP en borrador ni siquiera le aparece).
+    const deriveAsOperario = await fetch(`${baseUrl}/api/production-orders/${order.id}/derive`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ station: "extrusion" }),
+    });
+    assert.equal(deriveAsOperario.status, 403);
+
+    // El primer proceso siempre tiene que ser Extrusión.
+    const deriveWrongStation = await fetch(`${baseUrl}/api/production-orders/${order.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(deriveWrongStation.status, 400);
+
+    const derive = await fetch(`${baseUrl}/api/production-orders/${order.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "extrusion" }),
+    });
+    assert.equal(derive.status, 200, "asignar el primer proceso actualiza la fila existente (200), no crea una nueva (201)");
+    const assigned = (await derive.json()) as { id: number; orderNumber: string; station: string; parentOrderId: number | null };
+    assert.equal(assigned.id, order.id, "sigue siendo la misma fila, no una OP hija nueva");
+    assert.equal(assigned.orderNumber, order.orderNumber);
+    assert.equal(assigned.station, "extrusion");
+    assert.equal(assigned.parentOrderId, null);
+
+    // Ahora sí se puede liberar.
+    const release = await fetch(`${baseUrl}/api/production-orders/${order.id}/release`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(release.status, 200);
 
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
@@ -1039,9 +1159,9 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       headers: headersFor("planeacion"),
     });
     assert.equal(generate.status, 201);
-    const order = (await generate.json()) as { id: number; pedidoVersionItemId: number; station: string; clientId: number | null };
+    const order = (await generate.json()) as { id: number; pedidoVersionItemId: number; station: string | null; clientId: number | null };
     assert.equal(order.pedidoVersionItemId, target.pedidoVersionItemId);
-    assert.equal(order.station, "extrusion", "la OP de Planeación nace como el proceso base");
+    assert.equal(order.station, null, "la OP de Planeación nace sin proceso asignado, igual que la creación manual");
     assert.ok(order.clientId, "hereda el cliente del pedido");
 
     const dup = await fetch(`${baseUrl}/api/production-orders/from-pedido-item/${target.pedidoVersionItemId}`, {

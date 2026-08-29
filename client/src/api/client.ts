@@ -203,7 +203,8 @@ export const api = {
   },
   getProductionOrder: (id: number) => request<any>(`/production-orders/${id}`),
   createProductionOrder: (data: {
-    station: string;
+    // Opcional: la OP nace sin proceso y se deriva a Extrusión después.
+    station?: string;
     productId: number;
     clientId?: number;
     quantityPlanned: number;
@@ -228,6 +229,14 @@ export const api = {
   updateMaterialPara: (id: number, materialPara: string | null) =>
     request<any>(`/production-orders/${id}/material-para`, { method: "PATCH", body: JSON.stringify({ materialPara }) }),
   getPendingPlanning: () => request<any[]>("/production-orders/pending-planning"),
+  getProduccionPorOperario: (params?: { from?: string; to?: string; station?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set("from", params.from);
+    if (params?.to) qs.set("to", params.to);
+    if (params?.station) qs.set("station", params.station);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<any[]>(`/production-orders/reports/por-operario${suffix}`);
+  },
   createProductionOrderFromPedidoItem: (pedidoVersionItemId: number) =>
     request<any>(`/production-orders/from-pedido-item/${pedidoVersionItemId}`, { method: "POST" }),
   updateProductionOrderStatus: (id: number, status: string) =>

@@ -540,8 +540,16 @@ model AuditLog {
 /// por Planeación) siguen sin vínculo, igual que hasta ahora.
 model ProductionOrder {
   id                  Int                   @id @default(autoincrement())
-  orderNumber         String                @unique @map("order_number")
-  station             ProductionStation     @default(extrusion)
+  /// No es @unique: toda la cadena de derivación (extrusión → sellado → ...)
+  /// comparte el mismo orderNumber del padre raíz — es "una OP, un número",
+  /// aunque internamente cada etapa siga siendo su propia fila con sus
+  /// propios rollos/specs. Solo sube al crear una OP nueva (no derivada).
+  orderNumber         String                @map("order_number")
+  /// Nulo mientras la OP no tiene proceso asignado: se crea "en blanco" y
+  /// Gestión la deriva a Extrusión como primer paso explícito (ver
+  /// POST /:id/derive) — así lo pidió el cliente, en vez de nacer ya
+  /// asignada a Extrusión por defecto.
+  station             ProductionStation?
   productId           Int                   @map("product_id")
   product             Product               @relation(fields: [productId], references: [id])
   clientId            Int?                  @map("client_id")

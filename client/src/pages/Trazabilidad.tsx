@@ -38,7 +38,7 @@ export default function Trazabilidad() {
           <option value="">Orden de producción (OP)...</option>
           {orders?.map((o: any) => (
             <option key={o.id} value={o.id}>
-              {o.orderNumber} ({STATION_LABELS[o.station] ?? o.station}) — {o.product.name}
+              {o.orderNumber} ({STATION_LABELS[o.station] ?? o.station ?? "Sin proceso"}) — {o.product.name}
             </option>
           ))}
         </select>
@@ -68,7 +68,7 @@ export default function Trazabilidad() {
               </div>
               <div>
                 <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">Proceso</span>
-                <span className="text-slate-800 dark:text-slate-100">{STATION_LABELS[order.station] ?? order.station}</span>
+                <span className="text-slate-800 dark:text-slate-100">{STATION_LABELS[order.station] ?? order.station ?? "Sin proceso"}</span>
               </div>
               <div>
                 <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">Cliente</span>

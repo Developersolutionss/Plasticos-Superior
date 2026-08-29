@@ -10,6 +10,7 @@ import Clients from "./pages/Clients";
 import Contactos from "./pages/Contactos";
 import NuevoCliente from "./pages/NuevoCliente";
 import OrdenesProduccion from "./pages/OrdenesProduccion";
+import ProduccionPorOperario from "./pages/ProduccionPorOperario";
 import OrdenProduccionDetalle from "./pages/OrdenProduccionDetalle";
 import Planeacion from "./pages/Planeacion";
 import Calidad from "./pages/Calidad";
@@ -253,6 +254,14 @@ export default function App() {
           element={
             <RequireRole roles={PRODUCCION_GESTION}>
               <OrdenesProduccion />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="produccion/por-operario"
+          element={
+            <RequireRole roles={PRODUCCION_GESTION}>
+              <ProduccionPorOperario />
             </RequireRole>
           }
         />

@@ -157,6 +157,7 @@ export default function OrdenProduccionDetalle() {
     // Las filas de materia prima son fijas (las mismas 10 refs impresas en
     // el papel, en su mismo orden) — no una lista donde se van agregando;
     // se guardan solo las que tengan % o kg cargado (ver handleSaveSpecs).
+    if (order.station === null) return;
     const savedRows = (specs.materiaPrima as any[]) ?? [];
     const refs = OP_TEMPLATES[order.station as OpStation].materiaPrimaRefs ?? [];
     setMateriaPrima(
@@ -180,12 +181,40 @@ export default function OrdenProduccionDetalle() {
   if (!Number.isInteger(orderId)) return <p className="text-red-600 dark:text-red-400">OP inválida.</p>;
   if (isLoading || !order) return <p className="text-slate-500 dark:text-slate-400 text-sm">Cargando...</p>;
 
+  const canGestion = !!user && (PRODUCCION_GESTION as UserRole[]).includes(user.role);
+
+  // La OP se crea "en blanco", sin proceso asignado — recién se convierte en
+  // una OP de Extrusión (el proceso base) cuando Gestión la deriva
+  // explícitamente. Hasta entonces no hay plantilla que mostrar (no existe
+  // un OP_TEMPLATES[null]), así que esta es toda la pantalla.
+  if (order.station === null) {
+    return (
+      <div className="max-w-lg mx-auto bg-white dark:bg-slate-900 rounded-lg shadow p-6 space-y-4 text-center">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{order.orderNumber}</p>
+        <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+          {order.product.name}
+          {order.client?.name ? ` · ${order.client.name}` : ""}
+        </h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Esta OP todavía no tiene un proceso asignado. El primer paso siempre es Extrusión.
+        </p>
+        {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+        {canGestion ? (
+          <button onClick={() => handleDerive("extrusion")} className="inline-flex items-center gap-2 bg-slate-800 text-white text-sm px-4 py-2 rounded">
+            <Send size={14} /> Derivar a Extrusión
+          </button>
+        ) : (
+          <p className="text-sm text-amber-600 dark:text-amber-400">Solo Gestión/Planeación puede asignar el proceso.</p>
+        )}
+      </div>
+    );
+  }
+
   const station = order.station as OpStation;
   const template = OP_TEMPLATES[station];
   const isDraft = order.status === "borrador";
   const isOpen = OPEN_STATUSES.includes(order.status);
   const isReopenable = REOPENABLE_STATUSES.includes(order.status);
-  const canGestion = !!user && (PRODUCCION_GESTION as UserRole[]).includes(user.role);
   const canOperate = !!user && STATION_OPERATE[station].includes(user.role);
   // En "borrador" también se edita specs — es justo cuando Gestión carga
   // materia prima/medidas/cliente/referencia antes de liberarla a planta.
@@ -337,6 +366,13 @@ export default function OrdenProduccionDetalle() {
           if (template.originRollFields) {
             next[`detail:${template.originRollFields.labelDetailKey}`] = roll.label ?? roll.code;
             next[`detail:${template.originRollFields.weightDetailKey}`] = String(Number(roll.weightKg));
+          } else if (!template.labelIsOwnRoll) {
+            // Sellado/Precorte no tienen columnas de detalle propias para el
+            // rollo de origen (a diferencia de Impresión) — ahí la columna
+            // base ETIQUETA/PESO directamente ES el rollo escaneado, no un
+            // rollo nuevo de esta estación.
+            next.label = roll.label ?? roll.code;
+            next.weight = String(Number(roll.weightKg));
           }
           // Pruebas SI/NO (ej. P. RESISTENCIA): si el rollo escaneado ya
           // tiene esa misma prueba registrada de su propia estación, se
@@ -368,7 +404,12 @@ export default function OrdenProduccionDetalle() {
     try {
       const derived = await api.deriveProductionOrder(orderId, { station: target });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
-      navigate(`/produccion/ordenes/${derived.id}`);
+      // Caso especial: si esta OP no tenía proceso asignado, "derivar" la
+      // actualiza en el lugar (mismo id) en vez de crear una hija — hay que
+      // invalidar su propia query para que la pantalla deje de mostrar el
+      // estado "sin proceso" y muestre ya la plantilla de Extrusión.
+      queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+      if (derived.id !== orderId) navigate(`/produccion/ordenes/${derived.id}`);
     } catch {
       setError("No se pudo derivar la OP");
     }
@@ -474,7 +515,11 @@ export default function OrdenProduccionDetalle() {
     return col.source === "detail" ? `detail:${col.detailKey}` : col.source === "operator" ? "operator" : col.source;
   }
 
-  const derivations = DERIVATIONS[station];
+  // Una OP solo puede derivar una vez a cada estación destino (ver guard en
+  // el backend) — se ocultan los botones de las que ya tienen una hija para
+  // no ofrecer una acción que el server va a rechazar con 400.
+  const derivedStations = new Set((order.derivedOrders ?? []).map((d: any) => d.station));
+  const derivations = DERIVATIONS[station].filter((s) => !derivedStations.has(s));
 
   return (
     <div className="space-y-4 max-w-5xl">
@@ -1015,6 +1060,23 @@ export default function OrdenProduccionDetalle() {
                         title={col.source === "label" ? "Se genera sola (código del rollo) al guardar" : "Se completa sola con el momento en que se guarda"}
                       >
                         se completa sola
+                      </td>
+                    );
+                  }
+                  // ETIQUETA/PESO son el rollo de ORIGEN en Sellado/Precorte
+                  // (a diferencia de Extrusión/Impresión, donde arriba ya se
+                  // resuelve como "rollo propio"). El jefe pidió que acá no
+                  // se pueda tipear a mano: se bloquean hasta escanear el QR
+                  // del rollo de origen, que es lo que los rellena — recién
+                  // ahí quedan editables por si hace falta corregir algo.
+                  if ((col.source === "label" || col.source === "weight") && !template.labelIsOwnRoll && !sourceRoll) {
+                    return (
+                      <td
+                        key={col.detailKey ?? col.source}
+                        className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center italic`}
+                        title="Se completa al escanear el QR del rollo de origen"
+                      >
+                        escaneá el QR
                       </td>
                     );
                   }

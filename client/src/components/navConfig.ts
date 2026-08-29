@@ -121,6 +121,7 @@ export const navSections: NavEntry[] = [
     children: [
       { id: "produccion-carga", label: "Carga de producción (Excel)", to: "/produccion", roles: [...ALMACEN, ...PRODUCCION_GESTION] },
       { id: "produccion-ordenes", label: "Órdenes de producción", to: "/produccion/ordenes", roles: PRODUCCION_GESTION },
+      { id: "produccion-por-operario", label: "Producción por operario", to: "/produccion/por-operario", roles: PRODUCCION_GESTION },
       { id: "produccion-extrusion", label: "Extrusión", to: "/produccion/estacion/extrusion", roles: OP_EXTRUSION },
       { id: "produccion-impresion", label: "Impresión", to: "/produccion/estacion/impresion", roles: OP_IMPRESION },
       { id: "produccion-sellado", label: "Sellado", to: "/produccion/estacion/sellado", roles: OP_SELLADO },

@@ -13,7 +13,7 @@ import { applyRawMaterialMovement } from "../services/rawMaterialStockService";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
 import { notifyRoles } from "../services/notify";
 import { buildOpPdf } from "../services/opPdf";
-import { DERIVATIONS, FINAL_STATIONS, OpStation } from "../services/opTemplates";
+import { DERIVATIONS, FINAL_STATIONS, OpStation, STATION_LABELS } from "../services/opTemplates";
 
 const UPLOADS_DIR = path.join(__dirname, "..", "..", "uploads", "produccion");
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -134,6 +134,71 @@ productionOrdersRouter.get("/pending-planning", requireProduccionGestion, async 
   res.json(pending);
 });
 
+/**
+ * Arma el límite de un día (inicio o fin) a partir de un "YYYY-MM-DD" en la
+ * hora LOCAL del servidor — mismo criterio que dashboard.ts (evita el
+ * corrimiento de horas que da `new Date("YYYY-MM-DD")` + setHours en husos
+ * horarios != 0).
+ */
+function localDayBoundary(dateStr: string, end: boolean): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return end ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+/**
+ * Reporte pedido por Gestión (ver audio de la reunión con el cliente): hoy
+ * cuadran a mano cuánto usó cada operario en el día (kg de rollos que sacó
+ * vs. kg producidos + desperdicio). Ese cuadre ya es posible sin que nadie
+ * tipee nada nuevo — cada rollo cargado (por escaneo o a mano) ya queda con
+ * `operatorName` (el usuario logueado), `date`, `weightKg` y `wasteKg`; acá
+ * solo se agrupan. Filtros opcionales `from`/`to` (YYYY-MM-DD, por defecto
+ * últimos 7 días) y `station`.
+ */
+productionOrdersRouter.get("/reports/por-operario", requireProduccionGestion, async (req, res) => {
+  const fromParam = req.query.from as string | undefined;
+  const toParam = req.query.to as string | undefined;
+  const stationParam = req.query.station as string | undefined;
+
+  const defaultFrom = new Date();
+  defaultFrom.setDate(defaultFrom.getDate() - 7);
+  defaultFrom.setHours(0, 0, 0, 0);
+
+  const from = fromParam ? localDayBoundary(fromParam, false) : defaultFrom;
+  const to = toParam ? localDayBoundary(toParam, true) : new Date();
+
+  const rolls = await prisma.productionRoll.findMany({
+    where: {
+      date: { gte: from, lte: to },
+      productionOrder: stationParam ? { station: stationParam as any } : undefined,
+    },
+    select: {
+      date: true,
+      operatorName: true,
+      weightKg: true,
+      wasteKg: true,
+      productionOrder: { select: { station: true, orderNumber: true } },
+    },
+  });
+
+  type Row = { operatorName: string; day: string; station: string | null; rollCount: number; weightKg: number; wasteKg: number };
+  const groups = new Map<string, Row>();
+  for (const roll of rolls) {
+    // YYYY-MM-DD en huso local del server, para agrupar por día calendario
+    // real (no por el corte UTC).
+    const day = roll.date.toLocaleDateString("en-CA");
+    const station = roll.productionOrder.station;
+    const key = `${roll.operatorName}|${day}|${station}`;
+    const g = groups.get(key) ?? { operatorName: roll.operatorName, day, station, rollCount: 0, weightKg: 0, wasteKg: 0 };
+    g.rollCount += 1;
+    g.weightKg += Number(roll.weightKg);
+    g.wasteKg += Number(roll.wasteKg);
+    groups.set(key, g);
+  }
+
+  const result = [...groups.values()].sort((a, b) => (a.day !== b.day ? (a.day < b.day ? 1 : -1) : a.operatorName.localeCompare(b.operatorName)));
+  res.json(result);
+});
+
 const ROLL_CODE_RE = /^RL-(\d+)$/;
 
 /**
@@ -202,7 +267,9 @@ productionOrdersRouter.get("/:id", async (req, res) => {
 });
 
 const createOrderSchema = z.object({
-  station: z.enum(STATIONS).default("extrusion"),
+  // Sin default: la OP nace sin proceso asignado (ver comentario en el
+  // schema) y se deriva a Extrusión como primer paso, no se elige acá.
+  station: z.enum(STATIONS).optional(),
   productId: z.number().int(),
   clientId: z.number().int().optional(),
   quantityPlanned: z.number().positive(),
@@ -231,7 +298,10 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
       return tx.productionOrder.create({
         data: {
           orderNumber,
-          station: parsed.data.station,
+          // Sin proceso todavía (a menos que se lo pasen explícito, ej.
+          // pruebas de API) — Gestión la deriva a Extrusión como primer
+          // paso (ver POST /:id/derive).
+          station: parsed.data.station ?? null,
           // Nace en "borrador": Gestión todavía tiene que terminar de cargar
           // materia prima/medidas/cliente/referencia antes de que la vea
           // planta — recién queda visible/operable para los operarios al
@@ -254,10 +324,10 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
 
 /**
  * Genera la OP correspondiente a un item de pedido pendiente de planeación.
- * Nace como OP de Extrusión (el proceso base) con el cliente del pedido, en
- * "borrador" — Planeación/Gestión todavía tiene que cargarle materia prima y
- * medidas antes de liberarla a planta (POST /:id/release). Los procesos
- * siguientes se derivan desde ella.
+ * Nace sin proceso asignado, con el cliente del pedido, en "borrador" —
+ * Planeación/Gestión todavía tiene que cargarle materia prima y medidas, y
+ * derivarla a Extrusión (el proceso base) antes de liberarla a planta
+ * (POST /:id/release). Los procesos siguientes se derivan desde ella.
  */
 productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requireProduccionGestion, async (req, res) => {
   const pedidoVersionItemId = Number(req.params.pedidoVersionItemId);
@@ -277,7 +347,9 @@ productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requirePro
       return tx.productionOrder.create({
         data: {
           orderNumber,
-          station: "extrusion",
+          // Igual que POST /: sin proceso hasta que Gestión la derive a
+          // Extrusión explícitamente.
+          station: null,
           status: "borrador",
           productId: item.productId,
           clientId: item.pedidoVersion.pedido.clientId,
@@ -307,6 +379,9 @@ productionOrdersRouter.post("/:id/release", requireProduccionGestion, async (req
   const order = await prisma.productionOrder.findUnique({ where: { id } });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
   if (order.status !== "borrador") return res.status(400).json({ error: "Esta OP ya fue liberada a planta" });
+  if (order.station === null) {
+    return res.status(400).json({ error: "Primero derivá la OP a Extrusión antes de liberarla a planta" });
+  }
 
   const updated = await prisma.productionOrder.update({ where: { id }, data: { status: "pendiente" } });
   res.json(updated);
@@ -321,12 +396,19 @@ const deriveSchema = z.object({
 });
 
 /**
- * Deriva una OP hija hacia el siguiente proceso (Extrusión → Impresión/
- * Sellado/Precorte; Impresión → Sellado/Precorte). Hereda producto, cliente,
- * medida y cantidad del padre salvo que el body los pise. La OP hija nace
- * directo en "pendiente" (no "borrador"): el operario que la deriva ya tomó
- * la decisión de mandarla al siguiente paso, no hace falta otra liberación
- * de Gestión en el medio.
+ * Deriva una OP hacia el siguiente proceso (Extrusión → Impresión/Sellado/
+ * Precorte; Impresión → Sellado/Precorte). Hereda producto, cliente, medida
+ * y cantidad del padre salvo que el body los pise. La OP hija nace directo
+ * en "pendiente" (no "borrador"): el operario que la deriva ya tomó la
+ * decisión de mandarla al siguiente paso, no hace falta otra liberación de
+ * Gestión en el medio.
+ *
+ * Caso especial: si la OP todavía no tiene proceso asignado (recién creada,
+ * `station` null), este mismo endpoint es el que se lo asigna — pero NO crea
+ * una fila hija nueva, actualiza la fila existente en el lugar, porque
+ * todavía no hubo ningún trabajo real hecho en "estado sin proceso". El
+ * cliente pidió explícitamente que la OP se cree en blanco y recién se
+ * "derive a Extrusión" como primer paso, en vez de nacer ya asignada.
  */
 productionOrdersRouter.post("/:id/derive", requireOperarios, async (req, res) => {
   const id = Number(req.params.id);
@@ -337,6 +419,26 @@ productionOrdersRouter.post("/:id/derive", requireOperarios, async (req, res) =>
   const parent = await prisma.productionOrder.findUnique({ where: { id } });
   if (!parent) return res.status(404).json({ error: "OP no encontrada" });
   if (parent.status === "cancelada") return res.status(400).json({ error: "No se puede derivar de una OP cancelada" });
+
+  if (parent.station === null) {
+    if (!ROLES.PRODUCCION_GESTION.includes(req.user!.role)) {
+      return res.status(403).json({ error: "Solo Gestión/Planeación puede asignar el primer proceso de una OP" });
+    }
+    if (parsed.data.station !== "extrusion") {
+      return res.status(400).json({ error: "El primer proceso de una OP siempre es Extrusión" });
+    }
+    const updated = await prisma.productionOrder.update({
+      where: { id },
+      data: {
+        station: "extrusion",
+        quantityPlanned: parsed.data.quantityPlanned ?? parent.quantityPlanned,
+        measure: parsed.data.measure ?? parent.measure,
+        specs: (parsed.data.specs as Prisma.InputJsonValue | undefined) ?? (parent.specs as Prisma.InputJsonValue | undefined),
+        notes: parsed.data.notes ?? parent.notes,
+      },
+    });
+    return res.json(updated);
+  }
 
   // Mismo criterio que /rolls y /close: un operario solo dirige OPs de SU
   // estación (Gestión/Planeación pueden cualquiera).
@@ -354,26 +456,36 @@ productionOrdersRouter.post("/:id/derive", requireOperarios, async (req, res) =>
     });
   }
 
-  const order = await withSequentialNumberRetry(() =>
-    prisma.$transaction(async (tx) => {
-      const orderNumber = await nextOrderNumber(tx);
+  // Una OP solo puede derivar UNA vez a cada estación destino — si no, cada
+  // clic en "Derivar a Sellado" crea una fila hija más, todas con el mismo
+  // número (ver comentario arriba), y en el listado se ve como si la OP se
+  // hubiera "duplicado" infinitas veces hacia el mismo proceso.
+  const existingDerivation = await prisma.productionOrder.findFirst({
+    where: { parentOrderId: parent.id, station: parsed.data.station },
+  });
+  if (existingDerivation) {
+    return res.status(400).json({
+      error: `Esta OP ya fue derivada a ${STATION_LABELS[parsed.data.station]} (OP #${existingDerivation.id})`,
+    });
+  }
 
-      return tx.productionOrder.create({
-        data: {
-          orderNumber,
-          station: parsed.data.station,
-          productId: parent.productId,
-          clientId: parent.clientId,
-          quantityPlanned: parsed.data.quantityPlanned ?? parent.quantityPlanned,
-          measure: parsed.data.measure ?? parent.measure,
-          specs: parsed.data.specs as Prisma.InputJsonValue | undefined,
-          notes: parsed.data.notes,
-          parentOrderId: parent.id,
-          createdById: req.user!.userId,
-        },
-      });
-    })
-  );
+  // El número de OP identifica la cadena completa, no cada etapa: la hija
+  // hereda el mismo orderNumber del padre (que a su vez ya viene heredado
+  // desde la raíz). Solo sube el consecutivo al crear una OP nueva, no acá.
+  const order = await prisma.productionOrder.create({
+    data: {
+      orderNumber: parent.orderNumber,
+      station: parsed.data.station,
+      productId: parent.productId,
+      clientId: parent.clientId,
+      quantityPlanned: parsed.data.quantityPlanned ?? parent.quantityPlanned,
+      measure: parsed.data.measure ?? parent.measure,
+      specs: parsed.data.specs as Prisma.InputJsonValue | undefined,
+      notes: parsed.data.notes,
+      parentOrderId: parent.id,
+      createdById: req.user!.userId,
+    },
+  });
 
   res.status(201).json(order);
 });
@@ -438,7 +550,7 @@ productionOrdersRouter.patch("/:id/material-para", requireOperarios, async (req,
   }
 
   const allowedStations = OPERARIO_STATIONS[req.user!.role];
-  if (allowedStations && !allowedStations.includes(order.station)) {
+  if (allowedStations && !allowedStations.includes(order.station as OpStation)) {
     return res.status(403).json({ error: `Tu rol solo puede editar OPs de: ${allowedStations.join(", ")}` });
   }
 
@@ -486,7 +598,7 @@ productionOrdersRouter.post("/:id/close", requireOperarios, async (req, res) => 
   }
 
   const allowedStations = OPERARIO_STATIONS[req.user!.role];
-  if (allowedStations && !allowedStations.includes(order.station)) {
+  if (allowedStations && !allowedStations.includes(order.station as OpStation)) {
     return res.status(403).json({ error: `Tu rol solo puede operar OPs de: ${allowedStations.join(", ")}` });
   }
 
@@ -688,7 +800,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
   }
 
   const allowedStations = OPERARIO_STATIONS[req.user!.role];
-  if (allowedStations && !allowedStations.includes(order.station)) {
+  if (allowedStations && !allowedStations.includes(order.station as OpStation)) {
     return res.status(403).json({ error: `Tu rol solo puede registrar rollos en OPs de: ${allowedStations.join(", ")}` });
   }
 
