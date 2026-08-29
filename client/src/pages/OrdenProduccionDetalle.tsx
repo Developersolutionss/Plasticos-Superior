@@ -300,6 +300,15 @@ export default function OrdenProduccionDetalle() {
       setError("Completá el peso del rollo");
       return;
     }
+    // En Sellado/Precorte, ETIQUETA/PESO son el rollo de origen escaneado
+    // (ver handleScannedSource) — sin un escaneo vigente no hay forma de que
+    // esos valores sean confiables (podrían ser un resto de un escaneo que
+    // se quitó con "Quitar" sin volver a escanear), así que se bloquea acá
+    // además de en la UI.
+    if (!template.labelIsOwnRoll && !template.originRollFields && !sourceRoll) {
+      setError("Escaneá el rollo de origen antes de registrar la fila");
+      return;
+    }
     const details: Record<string, string> = {};
     for (const col of template.rollColumns) {
       if (col.source === "detail" && rollDraft[`detail:${col.detailKey}`]) {
@@ -352,6 +361,32 @@ export default function OrdenProduccionDetalle() {
     } catch {
       setError("No se pudo generar la etiqueta");
     }
+  }
+
+  /** "Quitar" en el chip del rollo de origen: además de soltar `sourceRoll`,
+   * hay que borrar lo que handleScannedSource haya precargado en el
+   * borrador — si no, queda un ETIQUETA/PESO viejo sentado en rollDraft que
+   * ya no corresponde a ningún escaneo vigente pero igual se mandaría al
+   * guardar la fila (el campo se ve bloqueado, así que el operario no tiene
+   * forma de notar ni corregir ese resto). */
+  function handleClearSourceRoll() {
+    setSourceRoll(null);
+    setRollDraft((d) => {
+      const next = { ...d };
+      if (template.originRollFields) {
+        delete next[`detail:${template.originRollFields.labelDetailKey}`];
+        delete next[`detail:${template.originRollFields.weightDetailKey}`];
+      } else if (!template.labelIsOwnRoll) {
+        delete next.label;
+        delete next.weight;
+      }
+      for (const col of template.rollColumns) {
+        if (col.source === "detail" && col.kind === "siNo") {
+          delete next[`detail:${col.detailKey}`];
+        }
+      }
+      return next;
+    });
   }
 
   function handleScannedSource(code: string) {
@@ -971,7 +1006,7 @@ export default function OrdenProduccionDetalle() {
                   Rollo de origen: <strong>{sourceRoll.label ?? `#${sourceRoll.id}`}</strong> ({Number(sourceRoll.weightKg)} kg)
                   {sourceRoll.createdBy?.name && <> · cargado por {sourceRoll.createdBy.name}</>}
                 </span>
-                <button type="button" onClick={() => setSourceRoll(null)} title="Quitar" className="text-emerald-700 dark:text-emerald-400">
+                <button type="button" onClick={handleClearSourceRoll} title="Quitar" className="text-emerald-700 dark:text-emerald-400">
                   <X size={13} aria-hidden="true" />
                 </button>
               </div>

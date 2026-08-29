@@ -961,6 +961,9 @@ productionOrdersRouter.get("/:id/report.pdf", async (req, res) => {
     },
   });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  if (order.station === null) {
+    return res.status(400).json({ error: "Esta OP todavía no tiene proceso asignado — derivala a Extrusión antes de generar el reporte" });
+  }
 
   const doc = buildOpPdf({
     orderNumber: order.orderNumber,
