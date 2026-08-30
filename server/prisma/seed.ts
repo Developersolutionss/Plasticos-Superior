@@ -347,6 +347,18 @@ async function main() {
 
   const adminUser = await prisma.user.findUnique({ where: { email: "admin@empresa.com" } });
 
+  // Etiquetas de bulto demo: unas disponibles para probar el escaneo en
+  // Sellado sin tener que generarlas a mano primero. Idempotente por
+  // `code` (único).
+  const bultoLabelCodes = ["BULTO-00001", "BULTO-00002", "BULTO-00003"];
+  for (const code of bultoLabelCodes) {
+    await prisma.bultoLabel.upsert({
+      where: { code },
+      update: {},
+      create: { code, createdById: adminUser?.id },
+    });
+  }
+
   // Movimiento de inventario demo (ajuste manual), para que el módulo de
   // Movimientos no esté vacío al entrar. Idempotente: solo se crea si
   // todavía no hay ningún movimiento registrado.

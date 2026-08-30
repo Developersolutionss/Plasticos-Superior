@@ -712,6 +712,7 @@ const REOPENABLE_STATUSES: ProductionOrderStatus[] = ["finalizada", "pendiente_c
  *    pudo haber cambiado desde entonces).
  */
 class NotReopenableError extends Error {}
+class BultoLabelUnavailableError extends Error {}
 
 productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
@@ -821,6 +822,11 @@ const createRollSchema = z.object({
    * (GET /rolls/by-code/:code). Queda registrado quién lo tomó porque
    * `createdById` es siempre el usuario logueado que hizo el POST. */
   sourceRollId: z.number().int().optional(),
+  /** Código de la etiqueta física de bulto escaneada (Sellado/Precorte) —
+   * ver GET /bulto-labels/by-code/:code. Reemplaza tipear "E. BULTO" a
+   * mano: se valida que exista y siga disponible, y queda consumida
+   * (atómico con la creación de este rollo). */
+  bultoLabelCode: z.string().optional(),
 });
 
 /**
@@ -856,34 +862,60 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     }
   }
 
-  const roll = await prisma.$transaction(async (tx) => {
-    const created = await tx.productionRoll.create({
-      data: {
-        productionOrderId,
-        date: parsed.data.date ? new Date(parsed.data.date) : undefined,
-        shift: parsed.data.shift,
-        // El operario SIEMPRE sale del JWT, nunca del body — si no, cualquiera
-        // con un token válido podría firmar rollos a nombre de otra persona
-        // llamando la API directo (el frontend ya manda esto, pero no hay
-        // que confiar en eso del lado del cliente).
-        operatorName: req.user!.name,
-        machine: parsed.data.machine,
-        label: parsed.data.label,
-        weightKg: parsed.data.weightKg,
-        wasteKg: parsed.data.wasteKg,
-        details: parsed.data.details as Prisma.InputJsonValue | undefined,
-        notes: parsed.data.notes,
-        sourceRollId: parsed.data.sourceRollId,
-        createdById: req.user!.userId,
-      },
+  let roll;
+  try {
+    roll = await prisma.$transaction(async (tx) => {
+      // Se reclama la etiqueta ANTES de crear el rollo, con un update
+      // condicional atómico (no un find + create separados) — así dos
+      // escaneos casi simultáneos del mismo QR no pueden consumir la misma
+      // etiqueta dos veces.
+      let details = parsed.data.details as Record<string, unknown> | undefined;
+      if (parsed.data.bultoLabelCode) {
+        const claim = await tx.bultoLabel.updateMany({
+          where: { code: parsed.data.bultoLabelCode, status: "disponible" },
+          data: { status: "usada", usedById: req.user!.userId, usedAt: new Date() },
+        });
+        if (claim.count === 0) throw new BultoLabelUnavailableError();
+        details = { ...details, eBulto: parsed.data.bultoLabelCode };
+      }
+
+      const created = await tx.productionRoll.create({
+        data: {
+          productionOrderId,
+          date: parsed.data.date ? new Date(parsed.data.date) : undefined,
+          shift: parsed.data.shift,
+          // El operario SIEMPRE sale del JWT, nunca del body — si no, cualquiera
+          // con un token válido podría firmar rollos a nombre de otra persona
+          // llamando la API directo (el frontend ya manda esto, pero no hay
+          // que confiar en eso del lado del cliente).
+          operatorName: req.user!.name,
+          machine: parsed.data.machine,
+          label: parsed.data.label,
+          weightKg: parsed.data.weightKg,
+          wasteKg: parsed.data.wasteKg,
+          details: details as Prisma.InputJsonValue | undefined,
+          notes: parsed.data.notes,
+          sourceRollId: parsed.data.sourceRollId,
+          createdById: req.user!.userId,
+        },
+      });
+
+      if (parsed.data.bultoLabelCode) {
+        await tx.bultoLabel.update({ where: { code: parsed.data.bultoLabelCode }, data: { usedByRollId: created.id } });
+      }
+
+      if (order.status === "pendiente") {
+        await tx.productionOrder.update({ where: { id: productionOrderId }, data: { status: "en_proceso" } });
+      }
+
+      return created;
     });
-
-    if (order.status === "pendiente") {
-      await tx.productionOrder.update({ where: { id: productionOrderId }, data: { status: "en_proceso" } });
+  } catch (err) {
+    if (err instanceof BultoLabelUnavailableError) {
+      return res.status(400).json({ error: "Esa etiqueta de bulto no existe o ya fue usada" });
     }
-
-    return created;
-  });
+    throw err;
+  }
 
   res.status(201).json(roll);
 });

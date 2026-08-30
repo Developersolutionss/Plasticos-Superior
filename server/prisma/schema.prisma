@@ -99,6 +99,11 @@ enum ProductionStation {
   precorte
 }
 
+enum BultoLabelStatus {
+  disponible
+  usada
+}
+
 enum QualityResult {
   aprobado
   rechazado
@@ -187,6 +192,8 @@ model User {
   warehouseStockUpdates StockLocation[]
   notifications         Notification[]
   rawMaterialMovements  RawMaterialMovement[]
+  bultoLabelsUsed       BultoLabel[] @relation("BultoLabelUsedBy")
+  bultoLabelsCreated    BultoLabel[] @relation("BultoLabelCreatedBy")
 
   @@map("users")
 }
@@ -621,7 +628,31 @@ model ProductionRoll {
   createdBy         User?           @relation(fields: [createdById], references: [id])
   createdAt         DateTime        @default(now()) @map("created_at")
 
+  bultoLabel        BultoLabel?
+
   @@map("production_rolls")
+}
+
+/// Etiqueta física de bulto pre-impresa con QR (Sellado): a diferencia del
+/// rollo, que el sistema crea como subproducto de la carga, la etiqueta de
+/// bulto existe primero en el mundo real — Gestión genera un lote, se
+/// imprimen, y Laura las reparte a mano a cada operario. El operario escanea
+/// la que usó en vez de tipear el número de E. BULTO (ver POST /:id/rolls,
+/// campo `bultoLabelCode`); una vez usada no se puede volver a escanear.
+model BultoLabel {
+  id           Int               @id @default(autoincrement())
+  code         String            @unique
+  status       BultoLabelStatus  @default(disponible)
+  usedByRollId Int?              @unique @map("used_by_roll_id")
+  usedByRoll   ProductionRoll?   @relation(fields: [usedByRollId], references: [id])
+  usedById     Int?              @map("used_by")
+  usedBy       User?             @relation("BultoLabelUsedBy", fields: [usedById], references: [id])
+  usedAt       DateTime?         @map("used_at")
+  createdById  Int?              @map("created_by")
+  createdBy    User?             @relation("BultoLabelCreatedBy", fields: [createdById], references: [id])
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  @@map("bulto_labels")
 }
 
 /// Adjuntos de una OP (fotos del rollo, fichas técnicas, artes de impresión).

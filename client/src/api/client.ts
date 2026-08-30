@@ -257,6 +257,7 @@ export const api = {
       details?: Record<string, unknown>;
       notes?: string;
       sourceRollId?: number;
+      bultoLabelCode?: string;
     }
   ) => request<any>(`/production-orders/${productionOrderId}/rolls`, { method: "POST", body: JSON.stringify(data) }),
   deleteProductionRoll: (productionOrderId: number, rollId: number) =>
@@ -266,6 +267,12 @@ export const api = {
   /** Resuelve un rollo por el código de su QR (`RL-<id>`), para el escaneo
    * de rollo de origen al cargar la OP derivada. */
   getProductionRollByCode: (code: string) => request<any>(`/production-orders/rolls/by-code/${encodeURIComponent(code)}`),
+  // ---- Etiquetas de bulto (Sellado/Precorte): pre-impresas por Gestión,
+  // el operario escanea la que le tocó en vez de tipear E. BULTO. ----
+  getBultoLabels: (status?: string) => request<any[]>(`/bulto-labels${status ? `?status=${status}` : ""}`),
+  generateBultoLabels: (count: number) => request<any[]>("/bulto-labels/generate", { method: "POST", body: JSON.stringify({ count }) }),
+  getBultoLabelQr: (id: number) => request<{ code: string; status: string; qrDataUrl: string }>(`/bulto-labels/${id}/qr`),
+  getBultoLabelByCode: (code: string) => request<{ id: number; code: string; status: string }>(`/bulto-labels/by-code/${encodeURIComponent(code)}`),
   submitQualityCheck: (id: number, data: { result: "aprobado" | "rechazado"; observations?: string }) =>
     request<any>(`/production-orders/${id}/quality-check`, { method: "POST", body: JSON.stringify(data) }),
   /** Mismo patrón crudo que downloadFacturaPdf (fetch + blob + <a download>). */

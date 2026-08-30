@@ -138,6 +138,8 @@ export default function OrdenProduccionDetalle() {
   const [rollDraft, setRollDraft] = useState<Record<string, string>>({});
   const [sourceRoll, setSourceRoll] = useState<{ id: number; label: string | null; weightKg: unknown; createdBy?: { name: string } | null } | null>(null);
   const [scanningSource, setScanningSource] = useState(false);
+  const [bultoLabel, setBultoLabel] = useState<{ id: number; code: string } | null>(null);
+  const [scanningBultoLabel, setScanningBultoLabel] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reopening, setReopening] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -309,9 +311,17 @@ export default function OrdenProduccionDetalle() {
       setError("Escaneá el rollo de origen antes de registrar la fila");
       return;
     }
+    // E. BULTO es una etiqueta física pre-impresa (ver EtiquetasBulto.tsx),
+    // no un dato que se tipee — sin escanearla no hay código válido que
+    // mandar (el server la marca "usada" recién al crear este rollo).
+    const needsBultoLabel = template.rollColumns.some((c) => c.scanBultoLabel);
+    if (needsBultoLabel && !bultoLabel) {
+      setError("Escaneá la etiqueta de bulto antes de registrar la fila");
+      return;
+    }
     const details: Record<string, string> = {};
     for (const col of template.rollColumns) {
-      if (col.source === "detail" && rollDraft[`detail:${col.detailKey}`]) {
+      if (col.source === "detail" && !col.scanBultoLabel && rollDraft[`detail:${col.detailKey}`]) {
         details[col.detailKey!] = rollDraft[`detail:${col.detailKey}`];
       }
     }
@@ -337,9 +347,11 @@ export default function OrdenProduccionDetalle() {
         wasteKg: rollDraft.waste ? Number(rollDraft.waste) : undefined,
         details: Object.keys(details).length ? details : undefined,
         sourceRollId: sourceRoll?.id,
+        bultoLabelCode: bultoLabel?.code,
       });
       setRollDraft({});
       setSourceRoll(null);
+      setBultoLabel(null);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
       // La etiqueta con QR queda disponible con el botón de impresora en la
@@ -422,6 +434,21 @@ export default function OrdenProduccionDetalle() {
         });
       })
       .catch(() => setError('No se encontró ningún rollo con ese código. ¿Es un QR de rollo válido ("RL-...")?'));
+  }
+
+  function handleScannedBultoLabel(code: string) {
+    setScanningBultoLabel(false);
+    setError(null);
+    api
+      .getBultoLabelByCode(code)
+      .then((label) => {
+        if (label.status !== "disponible") {
+          setError(`La etiqueta ${label.code} ya fue usada`);
+          return;
+        }
+        setBultoLabel(label);
+      })
+      .catch(() => setError('No se encontró ninguna etiqueta con ese código. ¿Es un QR de etiqueta de bulto válido?'));
   }
 
   async function handleDeleteRoll(rollId: number) {
@@ -1015,6 +1042,30 @@ export default function OrdenProduccionDetalle() {
           </div>
         )}
 
+        {canOperate && isOpen && template.rollColumns.some((c) => c.scanBultoLabel) && (
+          <div className="px-3 py-2 border-b border-slate-300 dark:border-slate-600 flex flex-wrap items-center gap-2">
+            {!bultoLabel ? (
+              <button
+                type="button"
+                onClick={() => setScanningBultoLabel(true)}
+                className="inline-flex items-center gap-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                <ScanLine size={13} aria-hidden="true" /> Escanear etiqueta de bulto
+              </button>
+            ) : (
+              <div className="inline-flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded px-3 py-1.5">
+                <span>
+                  Etiqueta de bulto: <strong>{bultoLabel.code}</strong>
+                </span>
+                <button type="button" onClick={() => setBultoLabel(null)} title="Quitar" className="text-emerald-700 dark:text-emerald-400">
+                  <X size={13} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">Escaneá la etiqueta física que te repartió Gestión para este bulto</span>
+          </div>
+        )}
+
         <table className="w-full text-xs sm:text-sm">
           <thead>
             <tr className="text-left text-[9px] sm:text-[10px] uppercase text-slate-500 dark:text-slate-400">
@@ -1112,6 +1163,22 @@ export default function OrdenProduccionDetalle() {
                         title="Se completa al escanear el QR del rollo de origen"
                       >
                         escaneá el QR
+                      </td>
+                    );
+                  }
+                  // E. BULTO: etiqueta física pre-impresa (ver EtiquetasBulto.tsx)
+                  // — se completa sola al escanearla y queda de solo lectura
+                  // (no editable como el resto: el código ya quedó consumido
+                  // del lado del servidor, "corregirlo" a mano lo desconectaría
+                  // de la etiqueta física real).
+                  if (col.scanBultoLabel) {
+                    return (
+                      <td
+                        key={col.detailKey ?? col.source}
+                        className={`${cellBorder} px-1.5 py-1 text-center ${bultoLabel ? "text-slate-800 dark:text-slate-100 font-medium" : "text-slate-400 dark:text-slate-500 italic"}`}
+                        title={bultoLabel ? undefined : "Se completa al escanear el QR de la etiqueta de bulto"}
+                      >
+                        {bultoLabel ? bultoLabel.code : "escaneá el QR"}
                       </td>
                     );
                   }
@@ -1233,6 +1300,9 @@ export default function OrdenProduccionDetalle() {
 
       {scanningSource && (
         <BarcodeScanner title="Escanear rollo de origen" onDetected={handleScannedSource} onClose={() => setScanningSource(false)} />
+      )}
+      {scanningBultoLabel && (
+        <BarcodeScanner title="Escanear etiqueta de bulto" onDetected={handleScannedBultoLabel} onClose={() => setScanningBultoLabel(false)} />
       )}
     </div>
   );

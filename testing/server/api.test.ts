@@ -14,6 +14,7 @@ import { inventoryRouter } from "../../server/src/routes/inventory";
 import { rawMaterialsRouter } from "../../server/src/routes/rawMaterials";
 import { productionRouter } from "../../server/src/routes/production";
 import { productionOrdersRouter } from "../../server/src/routes/productionOrders";
+import { bultoLabelsRouter } from "../../server/src/routes/bultoLabels";
 import { dispatchesRouter } from "../../server/src/routes/dispatches";
 import { cotizacionesRouter } from "../../server/src/routes/cotizaciones";
 import { pedidosRouter } from "../../server/src/routes/pedidos";
@@ -66,6 +67,7 @@ function buildApp() {
   app.use("/api/raw-materials", rawMaterialsRouter);
   app.use("/api/production", productionRouter);
   app.use("/api/production-orders", productionOrdersRouter);
+  app.use("/api/bulto-labels", bultoLabelsRouter);
   app.use("/api/dispatches", dispatchesRouter);
   app.use("/api/cotizaciones", cotizacionesRouter);
   app.use("/api/pedidos", pedidosRouter);
@@ -99,6 +101,7 @@ before(async () => {
   tokens.auditor = await loginAs("auditor@empresa.com");
   tokens.operario_extrusion = await loginAs("operario.extrusion@empresa.com");
   tokens.operario_impresion = await loginAs("operario.impresion@empresa.com");
+  tokens.operario_sellado = await loginAs("operario.sellado@empresa.com");
 });
 
 after(async () => {
@@ -1268,6 +1271,107 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       body: JSON.stringify({ specs: { tipoMaterial: "Tubular" } }),
     });
     assert.equal(cerrada.status, 400, "una OP cerrada no se edita");
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+});
+
+describe("etiquetas de bulto (E. BULTO escaneable en Sellado/Precorte)", () => {
+  let productId = 0;
+
+  before(async () => {
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    productId = product.id;
+  });
+
+  it("devuelve 403 para un rol sin acceso a producción (ventas)", async () => {
+    const res = await fetch(`${baseUrl}/api/bulto-labels`, { headers: headersFor("ventas") });
+    assert.equal(res.status, 403);
+  });
+
+  it("solo Gestión puede generar un lote; un operario no", async () => {
+    const asOperario = await fetch(`${baseUrl}/api/bulto-labels/generate`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+      body: JSON.stringify({ count: 3 }),
+    });
+    assert.equal(asOperario.status, 403);
+
+    const res = await fetch(`${baseUrl}/api/bulto-labels/generate`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ count: 3 }),
+    });
+    assert.equal(res.status, 201);
+    const created = (await res.json()) as { id: number; code: string; status: string }[];
+    assert.equal(created.length, 3);
+    assert.ok(created.every((l) => l.status === "disponible"));
+    assert.ok(created.every((l) => /^BULTO-\d{5}$/.test(l.code)));
+
+    await prisma.bultoLabel.deleteMany({ where: { id: { in: created.map((l) => l.id) } } });
+  });
+
+  it("escanear (by-code) y cargar un rollo con bultoLabelCode consume la etiqueta atómicamente; reusarla da 400", async () => {
+    const gen = await fetch(`${baseUrl}/api/bulto-labels/generate`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ count: 1 }),
+    });
+    const [label] = (await gen.json()) as { id: number; code: string }[];
+
+    const byCode = await fetch(`${baseUrl}/api/bulto-labels/by-code/${label.code}`, { headers: headersFor("operario_sellado") });
+    assert.equal(byCode.status, 200);
+    const resolved = (await byCode.json()) as { status: string };
+    assert.equal(resolved.status, "disponible");
+
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10 },
+    });
+
+    const roll = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+      body: JSON.stringify({ weightKg: 30, bultoLabelCode: label.code }),
+    });
+    assert.equal(roll.status, 201);
+    const rollBody = (await roll.json()) as { id: number; details: any };
+    assert.equal(rollBody.details.eBulto, label.code, "el server completa details.eBulto solo, no hace falta mandarlo aparte");
+
+    const usedLabel = await prisma.bultoLabel.findUnique({ where: { id: label.id } });
+    assert.equal(usedLabel?.status, "usada");
+    assert.equal(usedLabel?.usedByRollId, rollBody.id);
+
+    // Reusar la misma etiqueta (ya usada) en otro rollo se rechaza.
+    const reuse = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+      body: JSON.stringify({ weightKg: 20, bultoLabelCode: label.code }),
+    });
+    assert.equal(reuse.status, 400);
+
+    const byCodeAfter = await fetch(`${baseUrl}/api/bulto-labels/by-code/${label.code}`, { headers: headersFor("operario_sellado") });
+    const resolvedAfter = (await byCodeAfter.json()) as { status: string };
+    assert.equal(resolvedAfter.status, "usada");
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+    await prisma.bultoLabel.delete({ where: { id: label.id } });
+  });
+
+  it("un código de etiqueta inexistente da 400 al cargar el rollo, y 404 al resolverlo", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10 },
+    });
+
+    const notFound = await fetch(`${baseUrl}/api/bulto-labels/by-code/BULTO-NOEXISTE`, { headers: headersFor("operario_sellado") });
+    assert.equal(notFound.status, 404);
+
+    const roll = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+      body: JSON.stringify({ weightKg: 15, bultoLabelCode: "BULTO-NOEXISTE" }),
+    });
+    assert.equal(roll.status, 400);
 
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });

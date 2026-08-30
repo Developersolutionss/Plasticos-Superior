@@ -29,6 +29,9 @@ export interface OpRollColumn {
   source: "date" | "time" | "shift" | "operator" | "machine" | "label" | "weight" | "waste" | "cumulativeWeight" | "detail";
   detailKey?: string;
   kind?: "text" | "number" | "siNo";
+  /** true en E. BULTO de Sellado — etiqueta física pre-impresa (BultoLabel),
+   * se completa al escanear, no se tipea. Ver opTemplates.ts del cliente. */
+  scanBultoLabel?: boolean;
 }
 
 export interface OpTemplate {
@@ -217,7 +220,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
       { label: "FECHA", source: "date" },
       { label: "TURNO", source: "shift" },
       { label: "OPERARIO", source: "operator" },
-      { label: "E. BULTO", source: "detail", detailKey: "eBulto" },
+      { label: "E. BULTO", source: "detail", detailKey: "eBulto", scanBultoLabel: true },
       { label: "P. BULTO", source: "detail", detailKey: "pBulto", kind: "number" },
       { label: "PAQ X UNID", source: "detail", detailKey: "paqXUnid" },
       { label: "DESPERD", source: "waste", kind: "number" },
