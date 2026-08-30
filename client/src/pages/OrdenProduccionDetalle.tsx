@@ -624,7 +624,7 @@ export default function OrdenProduccionDetalle() {
         {/* Banda de título */}
         <div className="grid grid-cols-[1fr_2fr_1fr] border-b-2 border-slate-400 dark:border-slate-500">
           <div className={`${cellBorder} border-t-0 border-l-0 p-2 flex items-center`}>
-            <p className="text-xs font-bold text-slate-800 dark:text-slate-100">Plásticos Superior S.A.S.</p>
+            <img src="/logo-full.png" alt="Plásticos Superior San Judas S.A.S." className="h-8 w-auto" />
           </div>
           <div className={`${cellBorder} border-t-0 p-2 flex items-center justify-center`}>
             <p className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 text-center">{template.title}</p>

@@ -263,7 +263,48 @@ productionOrdersRouter.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "OP no encontrada" });
   }
 
-  res.json(order);
+  // Cadena completa de derivación: todas las etapas comparten el mismo
+  // orderNumber (ver POST /:id/derive) — para Trazabilidad es más útil ver
+  // la cadena entera de una sola vez que ir clickeando padre por padre.
+  const chain = await prisma.productionOrder.findMany({
+    where: { orderNumber: order.orderNumber },
+    select: {
+      id: true,
+      station: true,
+      status: true,
+      parentOrderId: true,
+      quantityPlanned: true,
+      rolls: { select: { weightKg: true } },
+    },
+    orderBy: { id: "asc" },
+  });
+
+  // El stock deja de estar atado a esta OP en particular apenas Calidad lo
+  // suma al inventario (es fungible por producto, no por lote) — así que
+  // esto es la foto ACTUAL del producto en el almacén y sus despachos
+  // recientes, no específicamente "dónde quedaron estos kilos" de esta OP.
+  // Igual es la info más cercana que existe sin agregar trazabilidad por
+  // lote, que sería un cambio de modelo mucho más grande.
+  const [warehouseLocations, recentDispatchItems] = await Promise.all([
+    prisma.stockLocation.findMany({
+      where: { productId: order.productId, quantity: { gt: 0 } },
+      select: { quantity: true, location: { select: { code: true, label: true } } },
+      orderBy: { location: { code: "asc" } },
+    }),
+    prisma.dispatchItem.findMany({
+      where: { productId: order.productId },
+      select: {
+        id: true,
+        quantityRequested: true,
+        quantityDispatched: true,
+        dispatch: { select: { id: true, status: true, dispatchedDate: true, client: { select: { name: true } } } },
+      },
+      orderBy: { id: "desc" },
+      take: 5,
+    }),
+  ]);
+
+  res.json({ ...order, chain, warehouseLocations, recentDispatchItems });
 });
 
 const createOrderSchema = z.object({

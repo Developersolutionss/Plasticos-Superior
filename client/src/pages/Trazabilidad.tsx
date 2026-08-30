@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { CircleCheck, CircleX, CircleDashed, Factory, Package } from "lucide-react";
+import { CircleCheck, CircleX, CircleDashed, Factory, Package, Warehouse, Truck } from "lucide-react";
 import { api } from "../api/client";
 
 const STATION_LABELS: Record<string, string> = {
@@ -9,6 +9,42 @@ const STATION_LABELS: Record<string, string> = {
   sellado: "Sellado",
   precorte: "Precorte",
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  borrador: "Borrador",
+  pendiente: "Pendiente",
+  en_proceso: "En proceso",
+  pendiente_calidad: "Pendiente de calidad",
+  detenida: "Detenida",
+  finalizada: "Terminada",
+  cancelada: "Cancelada",
+};
+
+/** Arma la cadena completa (todas las etapas comparten orderNumber, ver
+ * GET /production-orders/:id) como filas con profundidad, para dibujarla
+ * de una sola vez en vez de ir clickeando padre por padre. */
+function buildChainRows(chain: any[]) {
+  const byId = new Map(chain.map((c) => [c.id, c]));
+  const childrenOf = new Map<number, any[]>();
+  for (const c of chain) {
+    if (c.parentOrderId != null) {
+      if (!childrenOf.has(c.parentOrderId)) childrenOf.set(c.parentOrderId, []);
+      childrenOf.get(c.parentOrderId)!.push(c);
+    }
+  }
+  const roots = chain.filter((c) => c.parentOrderId == null || !byId.has(c.parentOrderId));
+  const rows: { node: any; depth: number }[] = [];
+  function walk(node: any, depth: number) {
+    rows.push({ node, depth });
+    for (const child of childrenOf.get(node.id) ?? []) walk(child, depth + 1);
+  }
+  for (const r of roots) walk(r, 0);
+  return rows;
+}
+
+function kgOf(node: any) {
+  return (node.rolls ?? []).reduce((acc: number, r: any) => acc + Number(r.weightKg), 0);
+}
 
 export default function Trazabilidad() {
   const [selectedId, setSelectedId] = useState("");
@@ -80,20 +116,79 @@ export default function Trazabilidad() {
                   {origin ? `Pedido ${origin.orderNumber} — ${origin.client.name}` : "Producción a stock (sin pedido de origen)"}
                 </span>
               </div>
-              {(order.parent || order.derivedOrders?.length > 0) && (
+              {order.chain?.length > 1 && (
                 <div className="sm:col-span-2">
-                  <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">Cadena de derivación</span>
-                  <span className="text-slate-800 dark:text-slate-100">
-                    {order.parent && `Derivada de ${order.parent.orderNumber} (${STATION_LABELS[order.parent.station] ?? order.parent.station})`}
-                    {order.parent && order.derivedOrders?.length > 0 && " · "}
-                    {order.derivedOrders?.length > 0 &&
-                      `Deriva en ${order.derivedOrders
-                        .map((d: any) => `${d.orderNumber} (${STATION_LABELS[d.station] ?? d.station})`)
-                        .join(", ")}`}
-                  </span>
+                  <span className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Cadena de derivación completa</span>
+                  <ul className="space-y-1">
+                    {buildChainRows(order.chain).map(({ node, depth }) => (
+                      <li
+                        key={node.id}
+                        style={{ paddingLeft: depth * 16 }}
+                        className={`flex items-center gap-2 text-slate-800 dark:text-slate-100 ${node.id === order.id ? "font-semibold" : ""}`}
+                      >
+                        {depth > 0 && <span className="text-slate-400 dark:text-slate-500">↳</span>}
+                        <span>{STATION_LABELS[node.station] ?? node.station ?? "Sin proceso"}</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          ({STATUS_LABELS[node.status] ?? node.status}, {Math.round(kgOf(node) * 100) / 100} kg)
+                        </span>
+                        {node.id === order.id && <span className="text-xs text-sky-600 dark:text-sky-400">← esta</span>}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 dark:border-slate-700">
+              <Warehouse size={16} strokeWidth={2} className="text-slate-500 dark:text-slate-400" aria-hidden="true" />
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Ubicación actual en almacén</p>
+            </div>
+            <div className="p-5 text-sm">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                Stock actual de {order.product.name} por estantería — el inventario no distingue de qué OP vino cada kilo, así que esto es la
+                foto general del producto, no específicamente el lote de esta OP.
+              </p>
+              {order.warehouseLocations?.length > 0 ? (
+                <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {order.warehouseLocations.map((wl: any, i: number) => (
+                    <li key={i} className="py-2 flex items-center justify-between">
+                      <span className="text-slate-800 dark:text-slate-100">
+                        {wl.location.code} — {wl.location.label}
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400">{Number(wl.quantity)} {order.product.unit}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-slate-500 dark:text-slate-400">Este producto todavía no tiene stock ubicado en ninguna estantería.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 dark:border-slate-700">
+              <Truck size={16} strokeWidth={2} className="text-slate-500 dark:text-slate-400" aria-hidden="true" />
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Despachos recientes de este producto</p>
+            </div>
+            <ul className="divide-y divide-slate-100 dark:divide-slate-700 text-sm">
+              {order.recentDispatchItems?.map((it: any) => (
+                <li key={it.id} className="px-5 py-3 flex items-center justify-between">
+                  <span className="text-slate-800 dark:text-slate-100">
+                    {it.dispatch.client.name} · {Number(it.quantityDispatched ?? it.quantityRequested)} {order.product.unit}
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {it.dispatch.status === "despachado" && it.dispatch.dispatchedDate
+                      ? new Date(it.dispatch.dispatchedDate).toLocaleDateString()
+                      : "pendiente"}
+                  </span>
+                </li>
+              ))}
+              {(!order.recentDispatchItems || order.recentDispatchItems.length === 0) && (
+                <li className="px-5 py-4 text-slate-500 dark:text-slate-400">Este producto todavía no tiene despachos.</li>
+              )}
+            </ul>
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
