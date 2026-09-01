@@ -109,7 +109,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         fields: [
           { key: "ancho", label: "Ancho", kind: "text" },
           { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
-          { key: "fuelles", label: "Fuelles", kind: "text" },
+          { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "densidad", label: "Densidad", kind: "text" },
           { key: "color", label: "Color", kind: "text" },
@@ -150,7 +150,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "color", label: "Color", kind: "text" },
           { key: "tratado", label: "Tratado", kind: "options", options: SI_NO },
           { key: "caras", label: "Caras", kind: "text" },
-          { key: "fuelles", label: "Fuelles", kind: "text" },
+          { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "ancho", label: "Ancho", kind: "text" },
           { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
@@ -200,7 +200,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "impreso", label: "Impreso", kind: "text" },
           { key: "caras", label: "Caras", kind: "text" },
           { key: "rollos", label: "Rollos", kind: "number" },
-          { key: "fuelles", label: "Fuelles", kind: "text" },
+          { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "ancho", label: "Ancho", kind: "text" },
           { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
@@ -241,7 +241,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "color", label: "Color", kind: "text" },
           { key: "impreso", label: "Impreso", kind: "text" },
           { key: "caras", label: "Caras", kind: "text" },
-          { key: "fuelles", label: "Fuelles", kind: "text" },
+          { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "ancho", label: "Ancho", kind: "text" },
           { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
@@ -278,7 +278,10 @@ export const DERIVATIONS: Record<OpStation, OpStation[]> = {
 };
 
 /** Estaciones cuyo cierre pasa por Calidad y genera entrada de inventario. */
-export const FINAL_STATIONS: OpStation[] = ["sellado", "precorte"];
+// Impresión también puede ser un proceso final (cerrar directo a Calidad/
+// inventario/despacho), además de poder seguir derivando a Sellado/Precorte
+// como hasta ahora — son dos caminos, no uno excluye al otro.
+export const FINAL_STATIONS: OpStation[] = ["impresion", "sellado", "precorte"];
 
 /** Estados en los que la OP acepta rollos, edición de specs y cierre. */
 export const OPEN_STATUSES = ["pendiente", "en_proceso"];

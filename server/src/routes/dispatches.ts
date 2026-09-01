@@ -25,6 +25,51 @@ dispatchesRouter.get("/", async (req, res) => {
   res.json(dispatches);
 });
 
+/**
+ * Histórico de cuánto se le ha despachado a cada cliente — el cliente pidió
+ * poder ver esto de un vistazo en vez de sumarlo a mano revisando despacho
+ * por despacho. Se agrupa por cliente + producto (sumar entre productos con
+ * unidades distintas no tendría sentido); solo cuenta lo que ya salió de
+ * verdad (`quantityDispatched` cargado), no lo pendiente.
+ */
+dispatchesRouter.get("/summary-by-client", async (_req, res) => {
+  const items = await prisma.dispatchItem.findMany({
+    where: { quantityDispatched: { not: null } },
+    select: {
+      quantityDispatched: true,
+      dispatch: { select: { clientId: true, client: { select: { name: true } }, dispatchedDate: true } },
+      product: { select: { id: true, name: true, unit: true } },
+    },
+  });
+
+  const byClientProduct = new Map<
+    string,
+    { clientId: number; clientName: string; productId: number; productName: string; unit: string; totalQuantity: number; dispatchCount: number; lastDispatchedDate: Date | null }
+  >();
+  for (const item of items) {
+    const key = `${item.dispatch.clientId}|${item.product.id}`;
+    const acc = byClientProduct.get(key) ?? {
+      clientId: item.dispatch.clientId,
+      clientName: item.dispatch.client.name,
+      productId: item.product.id,
+      productName: item.product.name,
+      unit: item.product.unit,
+      totalQuantity: 0,
+      dispatchCount: 0,
+      lastDispatchedDate: null,
+    };
+    acc.totalQuantity += Number(item.quantityDispatched);
+    acc.dispatchCount += 1;
+    if (item.dispatch.dispatchedDate && (!acc.lastDispatchedDate || item.dispatch.dispatchedDate > acc.lastDispatchedDate)) {
+      acc.lastDispatchedDate = item.dispatch.dispatchedDate;
+    }
+    byClientProduct.set(key, acc);
+  }
+
+  const result = [...byClientProduct.values()].sort((a, b) => a.clientName.localeCompare(b.clientName) || a.productName.localeCompare(b.productName));
+  res.json(result);
+});
+
 const createDispatchSchema = z.object({
   clientId: z.number().int(),
   items: z

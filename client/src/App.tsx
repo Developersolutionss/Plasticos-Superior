@@ -5,6 +5,7 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import InventoryDashboard from "./pages/InventoryDashboard";
 import Dispatches from "./pages/Dispatches";
+import DespachosPorCliente from "./pages/DespachosPorCliente";
 import ProductionUpload from "./pages/ProductionUpload";
 import Clients from "./pages/Clients";
 import Contactos from "./pages/Contactos";
@@ -127,6 +128,14 @@ export default function App() {
           element={
             <RequireRole roles={ALMACEN}>
               <Dispatches />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="despachos/por-cliente"
+          element={
+            <RequireRole roles={ALMACEN}>
+              <DespachosPorCliente />
             </RequireRole>
           }
         />

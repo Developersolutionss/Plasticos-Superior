@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
+import { useConfirm } from "../components/ConfirmDialog";
 import {
   DERIVATIONS,
   FINAL_STATIONS,
@@ -109,10 +110,12 @@ function printRollLabel(label: { code: string; orderNumber: string; productName:
 
 interface MateriaPrimaRow {
   ref: string;
-  /** Kg del insumo, cargado a mano igual que en el papel — es el único
-   * dato que se tipea; el % se calcula solo a partir de esto (ver
-   * `materiaPrimaPct` más abajo), no se vuelve a pedir por separado. */
-  kg: string;
+  /** % del insumo sobre la cantidad planificada de la OP — es el único
+   * dato que se tipea; el Kg se calcula solo como `% × cantidad
+   * planificada / 100` (ver handleSaveSpecs), no se vuelve a pedir por
+   * separado. Así lo pidió el cliente: al colocar el %, el sistema calcula
+   * los kg, no al revés. */
+  pct: string;
   lote: string;
 }
 
@@ -128,12 +131,13 @@ export default function OrdenProduccionDetalle() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [specsDraft, setSpecsDraft] = useState<Record<string, any>>({});
   const [materiaPrima, setMateriaPrima] = useState<MateriaPrimaRow[]>([]);
   const [colores, setColores] = useState<{ cara1: ColorRow[]; cara2: ColorRow[] }>({ cara1: [], cara2: [] });
-  const [headerDraft, setHeaderDraft] = useState({ quantityPlanned: "", measure: "", notes: "" });
+  const [headerDraft, setHeaderDraft] = useState({ quantityPlanned: "", measure: "", notes: "", alertThresholdKg: "" });
   const [dirty, setDirty] = useState(false);
   const [rollDraft, setRollDraft] = useState<Record<string, string>>({});
   const [sourceRoll, setSourceRoll] = useState<{ id: number; label: string | null; weightKg: unknown; createdBy?: { name: string } | null } | null>(null);
@@ -167,7 +171,7 @@ export default function OrdenProduccionDetalle() {
         const saved = savedRows.find((r) => r.ref === ref);
         return {
           ref,
-          kg: saved ? String(saved.kg ?? "") : "",
+          pct: saved ? String(saved.pct ?? "") : "",
           lote: saved ? String(saved.lote ?? "") : "",
         };
       })
@@ -176,7 +180,12 @@ export default function OrdenProduccionDetalle() {
       cara1: ((specs.coloresCara1 as any[]) ?? []).map((c) => ({ unidad: String(c.unidad ?? ""), color: String(c.color ?? ""), lote: String(c.lote ?? "") })),
       cara2: ((specs.coloresCara2 as any[]) ?? []).map((c) => ({ unidad: String(c.unidad ?? ""), color: String(c.color ?? ""), lote: String(c.lote ?? "") })),
     });
-    setHeaderDraft({ quantityPlanned: String(Number(order.quantityPlanned)), measure: order.measure ?? "", notes: order.notes ?? "" });
+    setHeaderDraft({
+      quantityPlanned: String(Number(order.quantityPlanned)),
+      measure: order.measure ?? "",
+      notes: order.notes ?? "",
+      alertThresholdKg: order.alertThresholdKg != null ? String(Number(order.alertThresholdKg)) : "",
+    });
     setDirty(false);
   }, [order]);
 
@@ -224,6 +233,14 @@ export default function OrdenProduccionDetalle() {
 
   const totalKg = order.rolls.reduce((acc: number, r: any) => acc + Number(r.weightKg), 0);
   const totalWaste = order.rolls.reduce((acc: number, r: any) => acc + Number(r.wasteKg), 0);
+  // La meta se completa con PESO + DESPERDICIO, no solo peso producido (así
+  // lo pidió el cliente) — una vez alcanzada, se oculta la fila de carga
+  // (el server además la rechaza si alguien la manda igual, ver
+  // POST /:id/rolls).
+  const plannedKg = Number(order.quantityPlanned);
+  const producedPlusWaste = totalKg + totalWaste;
+  const remainingKg = plannedKg > 0 ? Math.max(0, Math.round((plannedKg - producedPlusWaste) * 100) / 100) : 0;
+  const isQuantityComplete = plannedKg > 0 && producedPlusWaste >= plannedKg;
   // Acumulado hasta cada fila (columna TOTAL del papel) — order.rolls ya
   // viene ordenado por fecha/id asc desde el backend.
   const rollCumulative: number[] = [];
@@ -248,13 +265,16 @@ export default function OrdenProduccionDetalle() {
     try {
       const specs: Record<string, any> = { ...specsDraft };
       if (template.materiaPrimaRefs) {
-        const totalMpKg = materiaPrima.reduce((acc, r) => acc + (Number(r.kg) || 0), 0);
+        // El % es lo que se tipea; el Kg se calcula solo como su parte de
+        // la cantidad planificada de la OP — al revés de como era antes,
+        // a pedido del cliente.
+        const totalPlanned = Number(headerDraft.quantityPlanned) || 0;
         specs.materiaPrima = materiaPrima
-          .filter((r) => r.kg)
+          .filter((r) => r.pct)
           .map((r) => ({
             ref: r.ref,
-            pct: totalMpKg > 0 ? Math.round(((Number(r.kg) || 0) / totalMpKg) * 100 * 100) / 100 : undefined,
-            kg: r.kg ? Number(r.kg) : undefined,
+            pct: r.pct ? Number(r.pct) : undefined,
+            kg: r.pct && totalPlanned > 0 ? Math.round(((Number(r.pct) / 100) * totalPlanned) * 100) / 100 : undefined,
             lote: r.lote || undefined,
           }));
       }
@@ -270,6 +290,7 @@ export default function OrdenProduccionDetalle() {
         // "no tocar este campo", dejando pisado el valor viejo.
         measure: headerDraft.measure || null,
         notes: headerDraft.notes || null,
+        alertThresholdKg: headerDraft.alertThresholdKg ? Number(headerDraft.alertThresholdKg) : null,
       });
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
@@ -327,10 +348,10 @@ export default function OrdenProduccionDetalle() {
     }
     try {
       await api.createProductionRoll(orderId, {
-        // FECHA/HORA ya no se tipean — se omiten acá para que el server las
-        // deje en el momento real de guardado (`date DateTime @default(now())`),
-        // que es más confiable que lo que el operario recuerde escribir.
-        shift: rollDraft.shift || undefined,
+        // FECHA/HORA/TURNO ya no se tipean — se omiten acá para que el
+        // server los deje en el momento real de guardado (igual que
+        // `date DateTime @default(now())`), más confiable que lo que el
+        // operario recuerde escribir o el reloj de su navegador.
         // El operario SIEMPRE es quien está logueado, no un campo libre —
         // así el registro queda atado a la cuenta real, no a lo que alguien
         // tipee. Cada operario necesita su propia cuenta (Configuración →
@@ -361,7 +382,20 @@ export default function OrdenProduccionDetalle() {
       // instalada en tablets de planta), dejando los inputs sin responder
       // hasta recargar la página.
     } catch (err: any) {
-      setError(err?.message?.includes("403") ? "Tu rol no puede registrar rollos en esta estación" : "No se pudo registrar el rollo");
+      if (err?.message?.includes("403")) {
+        setError("Tu rol no puede registrar rollos en esta estación");
+      } else {
+        // El server manda mensajes específicos (ej. "quedan X kg
+        // disponibles") que vale la pena mostrar tal cual en vez del
+        // genérico — viene como un string JSON-stringificado.
+        let serverMessage: string | null = null;
+        try {
+          serverMessage = JSON.parse(err?.message ?? "");
+        } catch {
+          serverMessage = null;
+        }
+        setError(typeof serverMessage === "string" ? serverMessage : "No se pudo registrar el rollo");
+      }
     }
   }
 
@@ -481,9 +515,9 @@ export default function OrdenProduccionDetalle() {
     setError(null);
     const isFinal = FINAL_STATIONS.includes(station);
     const confirmMsg = isFinal
-      ? "¿Cerrar la OP? Pasará a revisión de Calidad y, si se aprueba, sus kilos entran al inventario."
-      : "¿Cerrar la OP? Quedará terminada (su material sigue en las OPs derivadas).";
-    if (!window.confirm(confirmMsg)) return;
+      ? "Pasará a revisión de Calidad y, si se aprueba, sus kilos entran al inventario."
+      : "Quedará terminada (su material sigue en las OPs derivadas).";
+    if (!(await confirm(confirmMsg, { title: "¿Cerrar la OP?", confirmLabel: "Cerrar OP" }))) return;
     try {
       await api.closeProductionOrder(orderId);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
@@ -495,12 +529,11 @@ export default function OrdenProduccionDetalle() {
 
   async function handleReopen() {
     setError(null);
-    if (
-      !window.confirm(
-        "¿Reabrir la OP para corregir un error? Si tenía calidad aprobada, se revierte la entrada al inventario; si es de Extrusión, se devuelve la materia prima descontada. Vas a tener que volver a cerrarla (y pasarla por Calidad si corresponde) después de corregirla."
-      )
-    )
-      return;
+    const shouldReopen = await confirm(
+      "Si tenía calidad aprobada, se revierte la entrada al inventario; si es de Extrusión, se devuelve la materia prima descontada. Vas a tener que volver a cerrarla (y pasarla por Calidad si corresponde) después de corregirla.",
+      { title: "¿Reabrir la OP para corregir un error?", confirmLabel: "Reabrir", tone: "danger" }
+    );
+    if (!shouldReopen) return;
     setReopening(true);
     try {
       await api.reopenProductionOrder(orderId);
@@ -515,7 +548,11 @@ export default function OrdenProduccionDetalle() {
 
   async function handleRelease() {
     setError(null);
-    if (!window.confirm(`¿Liberar esta OP a planta? A partir de ahora la va a ver la cola de ${STATION_LABELS[station]} y va a poder cargar rollos.`)) return;
+    const shouldRelease = await confirm(`A partir de ahora la va a ver la cola de ${STATION_LABELS[station]} y va a poder cargar rollos.`, {
+      title: "¿Liberar esta OP a planta?",
+      confirmLabel: "Liberar",
+    });
+    if (!shouldRelease) return;
     setReleasing(true);
     try {
       await api.releaseProductionOrder(orderId);
@@ -600,10 +637,10 @@ export default function OrdenProduccionDetalle() {
               <Send size={14} aria-hidden="true" /> {releasing ? "Liberando..." : "Liberar a planta"}
             </button>
           )}
-          {/* Derivar lo puede hacer Gestión o el operario de la estación que
-              está cerrando su parte — no hace falta que Gestión intervenga
-              para mandar la OP al siguiente paso. */}
-          {canOperate &&
+          {/* Derivar es exclusivo de Gestión/Planeación — ningún operario
+              puede mandar la OP al siguiente proceso, esa decisión la
+              pidió el cliente que quede siempre centralizada. */}
+          {canGestion &&
             derivations.map((target) => (
               <button
                 key={target}
@@ -686,7 +723,16 @@ export default function OrdenProduccionDetalle() {
               value={headerDraft.measure}
               disabled={!canEditSpecs}
               onChange={(e) => {
-                setHeaderDraft((h) => ({ ...h, measure: e.target.value }));
+                const value = e.target.value;
+                setHeaderDraft((h) => ({ ...h, measure: value }));
+                // El dueño pidió que si acá ponen "12x18", el primer número
+                // (el ancho) se cargue solo en la casilla ANCHO de más
+                // abajo — no hace falta tipearlo dos veces. Sigue siendo
+                // editable a mano después, esto solo la precarga.
+                const anchoMatch = /^(\d+(?:[.,]\d+)?)/.exec(value.trim());
+                if (anchoMatch) {
+                  setSpecsDraft((prev) => ({ ...prev, ancho: anchoMatch[1] }));
+                }
                 markDirty();
               }}
             />
@@ -708,6 +754,23 @@ export default function OrdenProduccionDetalle() {
           <div className={`${cellBorder} p-2`}>
             <span className={cellLabel}>Máquina</span>
             <input className={sheetInput} value={specsDraft.maquina ?? ""} disabled={!canEditSpecs} onChange={(e) => setSpec("maquina", e.target.value)} />
+          </div>
+          <div className={`${cellBorder} p-2`}>
+            <span className={cellLabel} title="A cuántos kg (peso + desperdicio) avisar que la OP está por completarse. Vacío = default (90% de lo planificado).">
+              Alertar a los (kg)
+            </span>
+            <input
+              className={sheetInput}
+              type="number"
+              step="0.01"
+              placeholder={plannedKg > 0 ? `def. ${Math.round(plannedKg * 0.9 * 100) / 100}` : "90% por defecto"}
+              value={headerDraft.alertThresholdKg}
+              disabled={!canEditSpecs}
+              onChange={(e) => {
+                setHeaderDraft((h) => ({ ...h, alertThresholdKg: e.target.value }));
+                markDirty();
+              }}
+            />
           </div>
           {order.parent && (
             <div className={`${cellBorder} p-2`}>
@@ -751,27 +814,27 @@ export default function OrdenProduccionDetalle() {
               </thead>
               <tbody>
                 {(() => {
-                  const totalMpKg = materiaPrima.reduce((acc, r) => acc + (Number(r.kg) || 0), 0);
+                  const totalPlanned = Number(headerDraft.quantityPlanned) || 0;
                   return materiaPrima.map((row, i) => {
-                    const kg = Number(row.kg) || 0;
-                    const pct = totalMpKg > 0 ? Math.round((kg / totalMpKg) * 100 * 100) / 100 : 0;
+                    const pct = Number(row.pct) || 0;
+                    const kg = totalPlanned > 0 ? Math.round(((pct / 100) * totalPlanned) * 100) / 100 : 0;
                     return (
                       <tr key={row.ref}>
                         <td className={`${cellBorder} px-2 py-1 font-medium`}>{row.ref}</td>
-                        <td className={`${cellBorder} px-2 py-1 text-slate-500 dark:text-slate-400`}>{kg > 0 ? `${pct}%` : "—"}</td>
                         <td className={`${cellBorder} px-2 py-1`}>
                           <input
                             className={sheetInput}
                             type="number"
                             step="0.01"
-                            value={row.kg}
+                            value={row.pct}
                             disabled={!canEditSpecs}
                             onChange={(e) => {
-                              setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, kg: e.target.value } : r)));
+                              setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, pct: e.target.value } : r)));
                               markDirty();
                             }}
                           />
                         </td>
+                        <td className={`${cellBorder} px-2 py-1 text-slate-500 dark:text-slate-400`}>{pct > 0 ? kg : "—"}</td>
                         <td className={`${cellBorder} px-2 py-1`}>
                           <input
                             className={sheetInput}
@@ -790,10 +853,14 @@ export default function OrdenProduccionDetalle() {
                 <tr className="font-semibold">
                   <td className={`${cellBorder} px-2 py-1`}>Total</td>
                   <td className={`${cellBorder} px-2 py-1`}>
-                    {materiaPrima.some((r) => Number(r.kg) > 0) ? "100%" : "0%"}
+                    {Math.round(materiaPrima.reduce((acc, r) => acc + (Number(r.pct) || 0), 0) * 100) / 100}%
                   </td>
                   <td className={`${cellBorder} px-2 py-1`}>
-                    {Math.round(materiaPrima.reduce((acc, r) => acc + (Number(r.kg) || 0), 0) * 100) / 100}
+                    {(() => {
+                      const totalPlanned = Number(headerDraft.quantityPlanned) || 0;
+                      const totalPct = materiaPrima.reduce((acc, r) => acc + (Number(r.pct) || 0), 0);
+                      return totalPlanned > 0 ? Math.round(((totalPct / 100) * totalPlanned) * 100) / 100 : 0;
+                    })()}
                   </td>
                   <td className={`${cellBorder} px-2 py-1`} />
                 </tr>
@@ -844,11 +911,9 @@ export default function OrdenProduccionDetalle() {
                 );
               })}
               {/* Mismo cuadro de "a dónde deriva" pero como acción directa,
-                  al lado de "Material para" — el operario elige la estación
-                  destino ahí mismo y dispara la derivación (mismo
-                  handleDerive que los botones "Derivar a..." de arriba),
-                  sin tener que subir a buscarlos. */}
-              {section.fields.some((f) => f.key === "materialPara") && canOperate && derivations.length > 0 && (
+                  al lado de "Material para" — exclusivo de Gestión, igual
+                  que los botones "Derivar a..." de arriba (ver comentario). */}
+              {section.fields.some((f) => f.key === "materialPara") && canGestion && derivations.length > 0 && (
                 <div className={`${cellBorder} p-2`}>
                   <span className={cellLabel}>Derivar a</span>
                   <select
@@ -1120,7 +1185,7 @@ export default function OrdenProduccionDetalle() {
               </tr>
             )}
             {/* Fila de carga inline */}
-            {canOperate && isOpen && (
+            {canOperate && isOpen && !isQuantityComplete && (
               <tr className="bg-sky-50 dark:bg-slate-800">
                 {template.rollColumns.map((col) => {
                   const key = rollDraftKey(col);
@@ -1146,6 +1211,25 @@ export default function OrdenProduccionDetalle() {
                         title={col.source === "label" ? "Se genera sola (código del rollo) al guardar" : "Se completa sola con el momento en que se guarda"}
                       >
                         se completa sola
+                      </td>
+                    );
+                  }
+                  // TURNO: solo hay Día/Noche en planta, se calcula solo de
+                  // la hora real de Colombia al guardar (mismo criterio que
+                  // FECHA/HORA) — acá se muestra una vista previa (hora de
+                  // Colombia, no la del huso del navegador/celular), el
+                  // valor que realmente queda es el que calcula el servidor
+                  // al momento de guardar la fila.
+                  if (col.source === "shift") {
+                    const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Bogota", hour: "numeric", hour12: false }).format(new Date())) % 24;
+                    const shiftPreview = hour >= 6 && hour < 18 ? "Día" : "Noche";
+                    return (
+                      <td
+                        key={col.detailKey ?? col.source}
+                        className={`${cellBorder} px-1.5 py-1 text-slate-500 dark:text-slate-400 text-center italic`}
+                        title="Se completa solo según la hora (6:00–17:59 Día, resto Noche)"
+                      >
+                        {shiftPreview}
                       </td>
                     );
                   }
@@ -1209,12 +1293,30 @@ export default function OrdenProduccionDetalle() {
                 </td>
               </tr>
             )}
+            {canOperate && isOpen && isQuantityComplete && (
+              <tr>
+                <td
+                  className={`${cellBorder} px-2 py-2 text-center text-emerald-700 dark:text-emerald-400 text-xs font-medium`}
+                  colSpan={template.rollColumns.length + 1}
+                >
+                  Ya se completaron los {plannedKg} kg planificados (peso + desperdicio) — no se pueden cargar más rollos.
+                </td>
+              </tr>
+            )}
             {/* Totales */}
             <tr className="font-semibold bg-slate-100 dark:bg-slate-800">
               <td className={`${cellBorder} px-1.5 py-1`} colSpan={Math.max(1, template.rollColumns.length - 2)}>
-                Total · {order.rolls.length} rollos
+                Total · {order.rolls.length} rollos · {Math.round(totalKg * 100) / 100} kg producidos
               </td>
-              <td className={`${cellBorder} px-1.5 py-1`}>{Math.round(totalKg * 100) / 100} kg</td>
+              <td className={`${cellBorder} px-1.5 py-1`}>
+                {plannedKg > 0 ? (
+                  <span className={isQuantityComplete ? "text-emerald-600 dark:text-emerald-400" : ""}>
+                    {isQuantityComplete ? "Completado" : `Restan ${remainingKg} kg`}
+                  </span>
+                ) : (
+                  `${Math.round(totalKg * 100) / 100} kg`
+                )}
+              </td>
               <td className={`${cellBorder} px-1.5 py-1`} colSpan={canOperate ? 2 : 1}>
                 Desp. {Math.round(totalWaste * 100) / 100} kg
               </td>

@@ -458,6 +458,54 @@ describe("despachos", () => {
     const res = await fetch(`${baseUrl}/api/dispatches`, { headers: headersFor("ventas") });
     assert.equal(res.status, 403);
   });
+
+  it("GET /summary-by-client agrupa lo YA despachado (no lo pendiente) por cliente+producto", async () => {
+    const clientsRes = await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() });
+    const clients = (await clientsRes.json()) as { id: number; name: string }[];
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const client = clients[0];
+
+    const forbidden = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: headersFor("ventas") });
+    assert.equal(forbidden.status, 403);
+
+    const before = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: authHeaders() });
+    const rowsBefore = (await before.json()) as { clientId: number; productId: number; totalQuantity: number; dispatchCount: number }[];
+    const beforeRow = rowsBefore.find((r) => r.clientId === client.id && r.productId === product.id);
+
+    const dispatch = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ clientId: client.id, items: [{ productId: product.id, quantityRequested: 5 }] }),
+    });
+    const dispatchBody = (await dispatch.json()) as { id: number; items: { id: number }[] };
+
+    // Pendiente todavía: no debe sumar al resumen (solo cuenta lo YA despachado).
+    const stillPending = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: authHeaders() });
+    const rowsPending = (await stillPending.json()) as typeof rowsBefore;
+    const pendingRow = rowsPending.find((r) => r.clientId === client.id && r.productId === product.id);
+    assert.equal(pendingRow?.totalQuantity ?? 0, beforeRow?.totalQuantity ?? 0, "un despacho pendiente (sin completar) no debe sumar al resumen");
+
+    // Se completa el item — ahora sí debe sumar.
+    await fetch(`${baseUrl}/api/dispatches/${dispatchBody.id}/items/${dispatchBody.items[0].id}`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ quantityDispatched: 5 }),
+    });
+
+    const after = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: authHeaders() });
+    const rowsAfter = (await after.json()) as typeof rowsBefore;
+    const afterRow = rowsAfter.find((r) => r.clientId === client.id && r.productId === product.id);
+    assert.ok(afterRow, "debe aparecer una fila para este cliente+producto");
+    assert.equal(afterRow!.totalQuantity - (beforeRow?.totalQuantity ?? 0), 5, "suma exactamente lo despachado de más");
+    assert.equal(afterRow!.dispatchCount - (beforeRow?.dispatchCount ?? 0), 1);
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatchBody.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "dispatch_item", referenceId: dispatchBody.items[0].id } });
+    await prisma.dispatch.delete({ where: { id: dispatchBody.id } });
+    // applyMovement() ya restó 5 al stock real del producto al completar el
+    // ítem (mismo caso que el otro test de despachos) — hay que reponerlo.
+    await prisma.inventoryStock.update({ where: { productId: product.id }, data: { currentQuantity: { increment: 5 } } });
+  });
 });
 
 describe("producción · alta manual e importación", () => {
@@ -624,6 +672,107 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
+  it("la meta (peso+desperdicio) bloquea cargar más rollos al completarse, y notifica a Gestión al cruzar el 90%", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 100 },
+    });
+
+    const notifsBefore = await prisma.notification.count({ where: { type: "op_proxima_a_completarse", message: { contains: order.orderNumber } } });
+    assert.equal(notifsBefore, 0);
+
+    // 85kg: todavía no cruza el 90% (90kg).
+    const r1 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 85, wasteKg: 0 }),
+    });
+    assert.equal(r1.status, 201);
+    const notifsAfterR1 = await prisma.notification.count({ where: { type: "op_proxima_a_completarse", message: { contains: order.orderNumber } } });
+    assert.equal(notifsAfterR1, 0, "todavía no llegó al 90%, no debe notificar");
+
+    // +10kg (peso) +2kg (desperdicio) = 97kg de 100 → cruza el 90% (peso+desperdicio cuenta para la meta).
+    // notifyRoles crea una fila POR usuario con rol de Gestión (fan-out), así
+    // que no se compara contra "1" sino contra "más que antes" — y que no
+    // vuelva a crecer en el siguiente rollo (ver r3).
+    const r2 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 10, wasteKg: 2 }),
+    });
+    assert.equal(r2.status, 201);
+    const notifsAfterR2 = await prisma.notification.count({ where: { type: "op_proxima_a_completarse", message: { contains: order.orderNumber } } });
+    assert.ok(notifsAfterR2 > notifsAfterR1, "cruzó el 90% (97/100), debe notificar a Gestión");
+
+    // Otro rollo que la deje justo en la meta (3kg más → 100kg exactos) no debe volver a notificar "próxima".
+    const r3 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 3, wasteKg: 0 }),
+    });
+    assert.equal(r3.status, 201);
+    const notifsAfterR3 = await prisma.notification.count({ where: { type: "op_proxima_a_completarse", message: { contains: order.orderNumber } } });
+    assert.equal(notifsAfterR3, notifsAfterR2, "ya llegó a la meta (no solo 'próxima'), no se vuelve a notificar 'próxima a completarse'");
+
+    // Ya en 100/100 — un rollo más se rechaza, aunque sea de otra estación con rol correcto.
+    const r4 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 1 }),
+    });
+    assert.equal(r4.status, 400, "ya se alcanzó la cantidad planificada, no se puede cargar más");
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.notification.deleteMany({ where: { type: "op_proxima_a_completarse", message: { contains: order.orderNumber } } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("un solo rollo grande no puede pasarse de largo de la meta, aunque todavía no se hubiera completado antes de cargarlo", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
+    });
+
+    // 33kg cargados (bien por debajo de 40) y entra un rollo de 44kg: antes
+    // del fix, esto se aceptaba porque solo se chequeaba "¿ya estaba
+    // completa ANTES de este rollo?" — 33 < 40, así que dejaba pasar
+    // cualquier cosa y terminaba en 82/40kg.
+    const r1 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 20, wasteKg: 0 }),
+    });
+    assert.equal(r1.status, 201);
+    const r2 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 12, wasteKg: 1 }),
+    });
+    assert.equal(r2.status, 201); // total: 33/40
+
+    const overshoot = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 44, wasteKg: 5 }),
+    });
+    assert.equal(overshoot.status, 400, "un rollo de 44+5kg sobre 33/40kg ya cargados se pasa de la meta, debe rechazarse");
+
+    // Uno que sí entra justo (7kg, deja el total en exactamente 40) se acepta.
+    const exact = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 7, wasteKg: 0 }),
+    });
+    assert.equal(exact.status, 201, "un rollo que deja el total EXACTO en la meta sí se acepta");
+
+    const totalAfter = await prisma.productionRoll.aggregate({
+      where: { productionOrderId: order.id },
+      _sum: { weightKg: true, wasteKg: true },
+    });
+    assert.equal(Number(totalAfter._sum.weightKg) + Number(totalAfter._sum.wasteKg), 40);
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
   it("GET /reports/por-operario agrupa los rollos por operario+día+proceso sin pedir datos nuevos", async () => {
     type OperarioRow = { operatorName: string; day: string; station: string; rollCount: number; weightKg: number; wasteKg: number };
     const today = new Date().toLocaleDateString("en-CA");
@@ -722,6 +871,119 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
 
+  it("derivar hereda specs en común del padre (formaMaterial→tipoMaterial, ancho, fuelles, calibre, color); campos vacíos no se copian; specs explícito pisa lo heredado", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: {
+        orderNumber: `OP-TEST-${Date.now()}`,
+        station: "extrusion",
+        productId,
+        quantityPlanned: 40,
+        specs: { formaMaterial: "Tubular", ancho: "30", anchoUnidad: "Cms.", fuelles: "SI", calibre: "0.6", color: "Natural", materialPara: "SELLADO", densidad: "0.92" },
+      },
+    });
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(res.status, 201);
+    const derived = (await res.json()) as { id: number; specs: any };
+    assert.equal(derived.specs.tipoMaterial, "Tubular", "formaMaterial del padre se mapea a tipoMaterial del hijo");
+    assert.equal(derived.specs.ancho, "30");
+    assert.equal(derived.specs.anchoUnidad, "Cms.");
+    assert.equal(derived.specs.fuelles, "SI");
+    assert.equal(derived.specs.calibre, "0.6");
+    assert.equal(derived.specs.color, "Natural");
+    assert.equal(derived.specs.materialPara, undefined, "materialPara es de ruteo de Extrusión, no un concepto de Sellado");
+    assert.equal(derived.specs.materialDensidad, undefined, "densidad (numérica) no se mapea a materialDensidad (BAJA/ALTA), son conceptos distintos");
+
+    await prisma.productionOrder.delete({ where: { id: derived.id } });
+
+    // Campo vacío en el padre (fuelles sin cargar) no debe pisar con "" al hijo.
+    const parentSinFuelles = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}b`, station: "extrusion", productId, quantityPlanned: 10, specs: { color: "Azul" } },
+    });
+    const derivedSinFuelles = await fetch(`${baseUrl}/api/production-orders/${parentSinFuelles.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "impresion" }),
+    });
+    const bodySinFuelles = (await derivedSinFuelles.json()) as { id: number; specs: any };
+    assert.equal(bodySinFuelles.specs.color, "Azul");
+    assert.equal(bodySinFuelles.specs.fuelles, undefined, "no se copia un campo que el padre no tenía cargado");
+    await prisma.productionOrder.delete({ where: { id: bodySinFuelles.id } });
+
+    // specs explícito en el body de /derive pisa lo heredado.
+    const derivedOverride = await fetch(`${baseUrl}/api/production-orders/${parentSinFuelles.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado", specs: { color: "Verde" } }),
+    });
+    const bodyOverride = (await derivedOverride.json()) as { id: number; specs: any };
+    assert.equal(bodyOverride.specs.color, "Verde", "el specs explícito del body gana sobre lo heredado");
+    await prisma.productionOrder.delete({ where: { id: bodyOverride.id } });
+
+    await prisma.productionOrder.delete({ where: { id: parentSinFuelles.id } });
+  });
+
+  it("editar specs de una OP ya derivada propaga los campos heredables a la(s) hija(s) existentes, en cascada, pisando lo que ya tuvieran", async () => {
+    const root = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40, specs: { formaMaterial: "Tubular", ancho: "10", color: "Rojo" } },
+    });
+
+    // Derivar a Precorte con lo que había en ese momento (ancho 10).
+    const deriveRes = await fetch(`${baseUrl}/api/production-orders/${root.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "precorte" }),
+    });
+    const precorte = (await deriveRes.json()) as { id: number; specs: any };
+    assert.equal(precorte.specs.ancho, "10");
+
+    // Precorte también deriva un nieto (Precorte no deriva realmente, así
+    // que se simula un nieto directo desde impresión en su lugar: se prueba
+    // la cascada con Extrusión → Impresión → Sellado).
+    const impRes = await fetch(`${baseUrl}/api/production-orders/${root.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "impresion" }),
+    });
+    const impresion = (await impRes.json()) as { id: number };
+    const selRes = await fetch(`${baseUrl}/api/production-orders/${impresion.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    const sellado = (await selRes.json()) as { id: number; specs: any };
+    assert.equal(sellado.specs.ancho, "10", "el nieto también heredó el ancho al derivar");
+
+    // El operario de Precorte ya había tocado el campo a mano — igual se pisa.
+    await prisma.productionOrder.update({ where: { id: precorte.id }, data: { specs: { ancho: "999", color: "Rojo", tipoMaterial: "Tubular" } } });
+
+    // Ahora Gestión edita Medidas/Ancho en la OP raíz (Extrusión), ya con hijas creadas.
+    const patchRes = await fetch(`${baseUrl}/api/production-orders/${root.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ specs: { formaMaterial: "Tubular", ancho: "25", color: "Azul" } }),
+    });
+    assert.equal(patchRes.status, 200);
+
+    const precorteAfter = await fetch(`${baseUrl}/api/production-orders/${precorte.id}`, { headers: headersFor("produccion") });
+    const precorteBody = (await precorteAfter.json()) as { specs: any };
+    assert.equal(precorteBody.specs.ancho, "25", "el cambio en el padre pisa el valor que ya tenía la hija");
+    assert.equal(precorteBody.specs.color, "Azul");
+
+    const selladoAfter = await fetch(`${baseUrl}/api/production-orders/${sellado.id}`, { headers: headersFor("produccion") });
+    const selladoBody = (await selladoAfter.json()) as { specs: any };
+    assert.equal(selladoBody.specs.ancho, "25", "propaga en cascada hasta el nieto (a través de Impresión)");
+
+    await prisma.productionOrder.delete({ where: { id: sellado.id } });
+    await prisma.productionOrder.delete({ where: { id: impresion.id } });
+    await prisma.productionOrder.delete({ where: { id: precorte.id } });
+    await prisma.productionOrder.delete({ where: { id: root.id } });
+  });
+
   it('PATCH /:id/material-para: el operario de la estación lo puede editar (no otros campos), un operario de otra estación no', async () => {
     const order = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10, specs: { color: "Natural" } },
@@ -758,7 +1020,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
-  it("derivar lo puede hacer el operario de la estación (no solo Gestión), pero no el de otra estación", async () => {
+  it("derivar es exclusivo de Gestión/Planeación — ningún operario puede, ni siquiera el de la estación de origen", async () => {
     const parent = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 20 },
     });
@@ -770,9 +1032,16 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     });
     assert.equal(wrongStation.status, 403, "un operario de impresión no puede derivar una OP de extrusión");
 
-    const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+    const ownStation = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
       method: "POST",
       headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(ownStation.status, 403, "ni siquiera el operario de la ESTACIÓN DE ORIGEN puede derivar — es exclusivo de Gestión");
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
       body: JSON.stringify({ station: "sellado" }),
     });
     assert.equal(res.status, 201);
@@ -980,6 +1249,95 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     assert.equal(notif!.link, "/calidad");
 
     await prisma.notification.delete({ where: { id: notif!.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("Impresión también es proceso final: cerrarla deja pendiente_calidad, y Calidad aprobándola suma al inventario — funciona aunque además tenga una OP derivada a Sellado", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "impresion", productId, quantityPlanned: 20 },
+    });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 20 } });
+
+    // Impresión puede además derivar a Sellado — cerrar y derivar son
+    // decisiones independientes, no debería bloquear una a la otra.
+    const derive = await fetch(`${baseUrl}/api/production-orders/${order.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(derive.status, 201);
+    const derived = (await derive.json()) as { id: number };
+
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId } });
+    const close = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(close.status, 200);
+    const closed = (await close.json()) as { status: string };
+    assert.equal(closed.status, "pendiente_calidad", "Impresión ahora es proceso final, no queda 'finalizada' directo");
+
+    const qc = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
+      method: "POST",
+      headers: headersFor("calidad"),
+      body: JSON.stringify({ result: "aprobado" }),
+    });
+    assert.equal(qc.status, 201);
+
+    const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId } });
+    assert.equal(
+      Number(stockDespues?.currentQuantity ?? 0),
+      Number(stockAntes?.currentQuantity ?? 0) + 20,
+      "al aprobarse, los 20kg de Impresión entran al inventario, igual que Sellado/Precorte"
+    );
+
+    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "manual_adjustment", productId, createdAt: { gte: order.createdAt } } });
+    await prisma.qualityCheck.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: derived.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+    await prisma.inventoryStock.update({ where: { productId }, data: { currentQuantity: stockAntes?.currentQuantity ?? 0 } });
+  });
+
+  it("alertThresholdKg configurable: al llegar al umbral elegido (no al 90% por defecto) notifica a Gestión", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 100, alertThresholdKg: 30 },
+    });
+
+    // 25kg: todavía no llega al umbral configurado (30kg) — con el 90% por
+    // defecto tampoco notificaría, pero lo importante acá es que el default
+    // NO se está usando, se está usando el umbral elegido.
+    const r1 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 25 }),
+    });
+    assert.equal(r1.status, 201);
+    const notifsAfterR1 = await prisma.notification.count({ where: { type: "op_proxima_a_completarse", message: { contains: order.orderNumber } } });
+    assert.equal(notifsAfterR1, 0);
+
+    // +6kg = 31kg, cruza el umbral de 30 configurado (muy por debajo del 90% default de 90kg).
+    const r2 = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 6 }),
+    });
+    assert.equal(r2.status, 201);
+    const notifsAfterR2 = await prisma.notification.count({ where: { type: "op_proxima_a_completarse", message: { contains: order.orderNumber } } });
+    assert.ok(notifsAfterR2 > notifsAfterR1, "cruzó el umbral configurado (30kg), aunque sea muy por debajo del 90% por defecto");
+
+    // Gestión puede editarlo por PATCH también.
+    const patch = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ alertThresholdKg: 50 }),
+    });
+    assert.equal(patch.status, 200);
+    const patched = (await patch.json()) as { alertThresholdKg: unknown };
+    assert.equal(Number(patched.alertThresholdKg), 50);
+
+    await prisma.notification.deleteMany({ where: { type: "op_proxima_a_completarse", message: { contains: order.orderNumber } } });
     await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
@@ -1325,7 +1683,7 @@ describe("etiquetas de bulto (E. BULTO escaneable en Sellado/Precorte)", () => {
     assert.equal(resolved.status, "disponible");
 
     const order = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10 },
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 200 },
     });
 
     const roll = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
@@ -1360,7 +1718,7 @@ describe("etiquetas de bulto (E. BULTO escaneable en Sellado/Precorte)", () => {
 
   it("un código de etiqueta inexistente da 400 al cargar el rollo, y 404 al resolverlo", async () => {
     const order = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10 },
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 50 },
     });
 
     const notFound = await fetch(`${baseUrl}/api/bulto-labels/by-code/BULTO-NOEXISTE`, { headers: headersFor("operario_sellado") });

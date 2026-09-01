@@ -562,6 +562,11 @@ model ProductionOrder {
   clientId            Int?                  @map("client_id")
   client              Client?               @relation(fields: [clientId], references: [id])
   quantityPlanned     Decimal               @map("quantity_planned") @db.Decimal(12, 2)
+  /// A cuántos kg (peso+desperdicio) avisarle a Gestión que la OP está por
+  /// completarse — lo pidió el cliente configurable a mano en vez del 90%
+  /// fijo. Null = usa el default (90% de quantityPlanned), ver POST
+  /// /:id/rolls.
+  alertThresholdKg    Decimal?              @map("alert_threshold_kg") @db.Decimal(12, 2)
   measure             String?
   status              ProductionOrderStatus @default(pendiente)
   specs               Json?

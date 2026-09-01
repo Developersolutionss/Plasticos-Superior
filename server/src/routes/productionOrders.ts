@@ -13,7 +13,7 @@ import { applyRawMaterialMovement } from "../services/rawMaterialStockService";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
 import { notifyRoles } from "../services/notify";
 import { buildOpPdf } from "../services/opPdf";
-import { DERIVATIONS, FINAL_STATIONS, OpStation, STATION_LABELS } from "../services/opTemplates";
+import { DERIVATIONS, FINAL_STATIONS, OpStation, STATION_LABELS, inheritSpecs } from "../services/opTemplates";
 
 const UPLOADS_DIR = path.join(__dirname, "..", "..", "uploads", "produccion");
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -440,9 +440,13 @@ const deriveSchema = z.object({
  * Deriva una OP hacia el siguiente proceso (Extrusión → Impresión/Sellado/
  * Precorte; Impresión → Sellado/Precorte). Hereda producto, cliente, medida
  * y cantidad del padre salvo que el body los pise. La OP hija nace directo
- * en "pendiente" (no "borrador"): el operario que la deriva ya tomó la
- * decisión de mandarla al siguiente paso, no hace falta otra liberación de
- * Gestión en el medio.
+ * en "pendiente" (no "borrador").
+ *
+ * Solo Gestión/Planeación puede derivar — NINGÚN operario, de ninguna
+ * estación (antes un operario podía mandar su propia OP al siguiente
+ * proceso; el cliente pidió que esa decisión quede siempre en manos de
+ * Gestión, para no perder el control de cuándo pasa cada OP a la siguiente
+ * planta).
  *
  * Caso especial: si la OP todavía no tiene proceso asignado (recién creada,
  * `station` null), este mismo endpoint es el que se lo asigna — pero NO crea
@@ -451,7 +455,7 @@ const deriveSchema = z.object({
  * cliente pidió explícitamente que la OP se cree en blanco y recién se
  * "derive a Extrusión" como primer paso, en vez de nacer ya asignada.
  */
-productionOrdersRouter.post("/:id/derive", requireOperarios, async (req, res) => {
+productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
   const parsed = deriveSchema.safeParse(req.body);
@@ -462,9 +466,6 @@ productionOrdersRouter.post("/:id/derive", requireOperarios, async (req, res) =>
   if (parent.status === "cancelada") return res.status(400).json({ error: "No se puede derivar de una OP cancelada" });
 
   if (parent.station === null) {
-    if (!ROLES.PRODUCCION_GESTION.includes(req.user!.role)) {
-      return res.status(403).json({ error: "Solo Gestión/Planeación puede asignar el primer proceso de una OP" });
-    }
     if (parsed.data.station !== "extrusion") {
       return res.status(400).json({ error: "El primer proceso de una OP siempre es Extrusión" });
     }
@@ -479,13 +480,6 @@ productionOrdersRouter.post("/:id/derive", requireOperarios, async (req, res) =>
       },
     });
     return res.json(updated);
-  }
-
-  // Mismo criterio que /rolls y /close: un operario solo dirige OPs de SU
-  // estación (Gestión/Planeación pueden cualquiera).
-  const allowedStations = OPERARIO_STATIONS[req.user!.role];
-  if (allowedStations && !allowedStations.includes(parent.station)) {
-    return res.status(403).json({ error: `Tu rol solo puede derivar OPs de: ${allowedStations.join(", ")}` });
   }
 
   const allowed = DERIVATIONS[parent.station as OpStation];
@@ -513,6 +507,15 @@ productionOrdersRouter.post("/:id/derive", requireOperarios, async (req, res) =>
   // El número de OP identifica la cadena completa, no cada etapa: la hija
   // hereda el mismo orderNumber del padre (que a su vez ya viene heredado
   // desde la raíz). Solo sube el consecutivo al crear una OP nueva, no acá.
+  //
+  // Specs: la hija no nace en blanco — hereda del padre todo lo que
+  // aplique (color, ancho, fuelles, calibre, tipo/forma de material, etc.,
+  // ver inheritSpecs) para que Gestión no tenga que volver a tipear lo que
+  // ya se sabe. Si además viene `specs` explícito en el body, se mergea
+  // encima (lo explícito gana sobre lo heredado).
+  const inherited = inheritSpecs(parent.station as OpStation, parsed.data.station, parent.specs as Record<string, unknown> | null);
+  const specs = { ...inherited, ...(parsed.data.specs ?? {}) };
+
   const order = await prisma.productionOrder.create({
     data: {
       orderNumber: parent.orderNumber,
@@ -521,7 +524,7 @@ productionOrdersRouter.post("/:id/derive", requireOperarios, async (req, res) =>
       clientId: parent.clientId,
       quantityPlanned: parsed.data.quantityPlanned ?? parent.quantityPlanned,
       measure: parsed.data.measure ?? parent.measure,
-      specs: parsed.data.specs as Prisma.InputJsonValue | undefined,
+      specs: Object.keys(specs).length ? (specs as Prisma.InputJsonValue) : undefined,
       notes: parsed.data.notes,
       parentOrderId: parent.id,
       createdById: req.user!.userId,
@@ -537,7 +540,42 @@ const updateOrderSchema = z.object({
   quantityPlanned: z.number().positive().optional(),
   clientId: z.number().int().nullable().optional(),
   notes: z.string().nullable().optional(),
+  /** A cuántos kg (peso+desperdicio) avisar que la OP está por completarse
+   * — configurable a mano por Gestión; null vuelve al default (90% de
+   * quantityPlanned), ver POST /:id/rolls. */
+  alertThresholdKg: z.number().positive().nullable().optional(),
 });
+
+/**
+ * Propaga los campos heredables (ver inheritSpecs) del padre a TODAS sus
+ * OPs derivadas, en cascada (hijas, nietas, ...) — no solo al momento de
+ * derivar. El cliente pidió que editar Medidas/Ancho/Fuelles/etc. en una OP
+ * ya derivada actualice también lo que ya se deriv, en vez de quedar
+ * pegado a la foto del momento en que se derivó. Pisa lo que ya tuviera
+ * cargado la hija en esos campos puntuales (así lo confirmó el cliente):
+ * el padre manda sobre esos datos, el resto de los campos de la hija
+ * (los que no son heredables) no se tocan.
+ */
+async function propagateSpecsToChildren(
+  tx: TxClient,
+  parentId: number,
+  parentStation: OpStation,
+  parentSpecs: Record<string, unknown> | null
+) {
+  const children = await tx.productionOrder.findMany({
+    where: { parentOrderId: parentId },
+    select: { id: true, station: true, specs: true },
+  });
+  for (const child of children) {
+    if (!child.station) continue;
+    const inherited = inheritSpecs(parentStation, child.station as OpStation, parentSpecs);
+    if (Object.keys(inherited).length === 0) continue;
+    const currentSpecs = child.specs && typeof child.specs === "object" ? (child.specs as Record<string, unknown>) : {};
+    const newSpecs = { ...currentSpecs, ...inherited };
+    await tx.productionOrder.update({ where: { id: child.id }, data: { specs: newSpecs as Prisma.InputJsonValue } });
+    await propagateSpecsToChildren(tx, child.id, child.station as OpStation, newSpecs);
+  }
+}
 
 /** Edita el encabezado/specs de una OP mientras siga abierta. */
 productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) => {
@@ -554,15 +592,22 @@ productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) 
     return res.status(400).json({ error: "Solo se puede editar una OP en borrador o abierta (pendiente o en proceso)" });
   }
 
-  const updated = await prisma.productionOrder.update({
-    where: { id },
-    data: {
-      specs: parsed.data.specs as Prisma.InputJsonValue | undefined,
-      measure: parsed.data.measure,
-      quantityPlanned: parsed.data.quantityPlanned,
-      clientId: parsed.data.clientId,
-      notes: parsed.data.notes,
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    const result = await tx.productionOrder.update({
+      where: { id },
+      data: {
+        specs: parsed.data.specs as Prisma.InputJsonValue | undefined,
+        measure: parsed.data.measure,
+        quantityPlanned: parsed.data.quantityPlanned,
+        clientId: parsed.data.clientId,
+        notes: parsed.data.notes,
+        alertThresholdKg: parsed.data.alertThresholdKg,
+      },
+    });
+    if (parsed.data.specs !== undefined && result.station) {
+      await propagateSpecsToChildren(tx, result.id, result.station as OpStation, result.specs as Record<string, unknown> | null);
+    }
+    return result;
   });
   res.json(updated);
 });
@@ -620,10 +665,13 @@ productionOrdersRouter.patch("/:id/status", requireProduccionGestion, async (req
 });
 
 /**
- * Cierra una OP. Extrusión/Impresión quedan "finalizada" directo (su material
- * pasa a la OP derivada, no mueven stock); Sellado/Precorte (procesos
- * finales) pasan a "pendiente_calidad" — recién cuando Calidad aprueba se
- * genera la entrada de inventario con la suma de kg de los rollos.
+ * Cierra una OP. Extrusión (siempre intermedia) queda "finalizada" directo,
+ * su material pasa a la OP derivada sin mover stock. Impresión/Sellado/
+ * Precorte (FINAL_STATIONS) pasan a "pendiente_calidad" — recién cuando
+ * Calidad aprueba se genera la entrada de inventario con la suma de kg de
+ * los rollos. Impresión puede cerrarse así AUNQUE también tenga OPs
+ * derivadas (a Sellado/Precorte): cerrar y derivar son decisiones
+ * independientes, no una excluye a la otra.
  */
 productionOrdersRouter.post("/:id/close", requireOperarios, async (req, res) => {
   const id = Number(req.params.id);
@@ -809,9 +857,22 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
   res.json({ ...updated, reversedProductKg, reversedRawMaterials });
 });
 
+/** Solo hay dos turnos reales en planta — se calcula solo de la hora del
+ * servidor al guardar (mismo criterio que `date`, que también se deja en
+ * blanco para que el default de Prisma la ponga), no se tipea ni se
+ * confía en lo que mande el cliente. 6:00–17:59 es "Día", el resto "Noche". */
+function autoShift(): string {
+  // Hora de Colombia explícita (America/Bogota, UTC-5 fijo, sin horario de
+  // verano) — no la del sistema operativo del server, que en el VPS puede
+  // estar en otro huso. Node a veces devuelve "24" para la medianoche con
+  // hour12:false, de ahí el % 24.
+  const hourStr = new Intl.DateTimeFormat("en-US", { timeZone: "America/Bogota", hour: "numeric", hour12: false }).format(new Date());
+  const hour = Number(hourStr) % 24;
+  return hour >= 6 && hour < 18 ? "Día" : "Noche";
+}
+
 const createRollSchema = z.object({
   date: z.string().optional(),
-  shift: z.string().optional(),
   machine: z.string().optional(),
   label: z.string().optional(),
   weightKg: z.number().positive(),
@@ -862,6 +923,31 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     }
   }
 
+  // La meta de la OP (quantityPlanned) se completa con PESO + DESPERDICIO,
+  // no solo peso — así lo pidió el cliente ("si son 200kg se tiene que
+  // descontar el desperdicio"). Una vez alcanzada, no se puede seguir
+  // cargando (chequeo acá, no solo en el frontend, para que sea real).
+  const existingRolls = await prisma.productionRoll.findMany({
+    where: { productionOrderId },
+    select: { weightKg: true, wasteKg: true },
+  });
+  const existingTotal = existingRolls.reduce((acc, r) => acc + Number(r.weightKg) + Number(r.wasteKg), 0);
+  const planned = Number(order.quantityPlanned);
+  // No alcanza con chequear "¿ya se completó antes de este rollo?" — un
+  // rollo grande podía colarse entero y pasarse de largo de la meta en un
+  // solo golpe (ej. OP de 40kg con 33kg cargados, entra un rollo de 44kg y
+  // queda en 82kg). Se rechaza si ESTE rollo, sumado a lo que ya hay, se
+  // pasaría de lo planificado — no solo si ya estaba completa de antes.
+  if (planned > 0 && existingTotal + parsed.data.weightKg + parsed.data.wasteKg > planned) {
+    const remaining = Math.round((planned - existingTotal) * 100) / 100;
+    return res.status(400).json({
+      error:
+        remaining <= 0
+          ? "Esta OP ya alcanzó la cantidad planificada — no se pueden cargar más rollos"
+          : `Este rollo se pasa de la cantidad planificada — quedan ${remaining} kg disponibles de ${planned} kg`,
+    });
+  }
+
   let roll;
   try {
     roll = await prisma.$transaction(async (tx) => {
@@ -883,7 +969,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
         data: {
           productionOrderId,
           date: parsed.data.date ? new Date(parsed.data.date) : undefined,
-          shift: parsed.data.shift,
+          shift: autoShift(),
           // El operario SIEMPRE sale del JWT, nunca del body — si no, cualquiera
           // con un token válido podría firmar rollos a nombre de otra persona
           // llamando la API directo (el frontend ya manda esto, pero no hay
@@ -915,6 +1001,21 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
       return res.status(400).json({ error: "Esa etiqueta de bulto no existe o ya fue usada" });
     }
     throw err;
+  }
+
+  // Aviso de "está por completarse" — se dispara una sola vez, justo al
+  // cruzar el umbral, no en cada rollo posterior mientras siga entre el
+  // umbral y el 100%. El umbral lo configura Gestión a mano
+  // (alertThresholdKg, en kg absolutos) — si no lo configuró, cae al
+  // default de siempre (90% de lo planificado).
+  const newTotal = existingTotal + Number(roll.weightKg) + Number(roll.wasteKg);
+  const threshold = order.alertThresholdKg != null ? Number(order.alertThresholdKg) : planned * 0.9;
+  if (planned > 0 && existingTotal < threshold && newTotal >= threshold && newTotal < planned) {
+    await notifyRoles(ROLES.PRODUCCION_GESTION, {
+      type: "op_proxima_a_completarse",
+      message: `OP #${order.orderNumber} está próxima a completarse (${Math.round(newTotal * 100) / 100} / ${planned} kg)`,
+      link: `/produccion/ordenes/${productionOrderId}`,
+    });
   }
 
   res.status(201).json(roll);

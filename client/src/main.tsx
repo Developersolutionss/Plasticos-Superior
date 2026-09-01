@@ -6,6 +6,7 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import { ShortcutsProvider } from "./components/useShortcuts";
+import { ConfirmProvider } from "./components/ConfirmDialog";
 import { ThemeProvider } from "./theme/ThemeContext";
 import "./index.css";
 
@@ -26,11 +27,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ThemeProvider>
-          <ShortcutsProvider>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
-          </ShortcutsProvider>
+          <ConfirmProvider>
+            <ShortcutsProvider>
+              <BrowserRouter>
+                <App />
+              </BrowserRouter>
+            </ShortcutsProvider>
+          </ConfirmProvider>
         </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>

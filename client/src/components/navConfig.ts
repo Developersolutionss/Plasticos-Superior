@@ -99,6 +99,7 @@ export const navSections: NavEntry[] = [
     ],
   },
   { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: ALMACEN, group: "Ventas" },
+  { id: "despachos-por-cliente", icon: "truck", label: "Despachos por cliente", to: "/despachos/por-cliente", roles: ALMACEN, group: "Ventas" },
   { id: "pedidos", icon: "package", label: "Pedidos", to: "/pedidos", roles: VENTAS, group: "Ventas" },
   // Oculto a pedido de Steban: el cliente factura en un sistema aparte.
   // Se deja el módulo creado (código, ruta, backend intactos) por si se

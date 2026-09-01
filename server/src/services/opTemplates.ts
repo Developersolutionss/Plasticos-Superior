@@ -107,7 +107,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         fields: [
           { key: "ancho", label: "Ancho", kind: "text" },
           { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
-          { key: "fuelles", label: "Fuelles", kind: "text" },
+          { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "densidad", label: "Densidad", kind: "text" },
           { key: "color", label: "Color", kind: "text" },
@@ -148,7 +148,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "color", label: "Color", kind: "text" },
           { key: "tratado", label: "Tratado", kind: "options", options: SI_NO },
           { key: "caras", label: "Caras", kind: "text" },
-          { key: "fuelles", label: "Fuelles", kind: "text" },
+          { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "ancho", label: "Ancho", kind: "text" },
           { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
@@ -198,7 +198,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "impreso", label: "Impreso", kind: "text" },
           { key: "caras", label: "Caras", kind: "text" },
           { key: "rollos", label: "Rollos", kind: "number" },
-          { key: "fuelles", label: "Fuelles", kind: "text" },
+          { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "ancho", label: "Ancho", kind: "text" },
           { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
@@ -243,7 +243,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "color", label: "Color", kind: "text" },
           { key: "impreso", label: "Impreso", kind: "text" },
           { key: "caras", label: "Caras", kind: "text" },
-          { key: "fuelles", label: "Fuelles", kind: "text" },
+          { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "ancho", label: "Ancho", kind: "text" },
           { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
@@ -271,6 +271,66 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
   },
 };
 
+/**
+ * Qué campo de specs del padre alimenta cuál campo del hijo al derivar
+ * (ver POST /:id/derive) — el cliente pidió que la OP derivada NO nazca en
+ * blanco, sino con todo lo que ya se sabe por venir de la OP anterior
+ * (color, ancho, fuelles, calibre, tipo/forma de material, etc.), en vez de
+ * que Gestión tenga que volver a tipearlo. Solo se mapean conceptos que
+ * realmente son "el mismo dato" entre plantillas (mismo nombre de campo, o
+ * el caso especial `formaMaterial` de Extrusión ↔ `tipoMaterial` del resto,
+ * que comparten las mismas opciones FORMA_MATERIAL) — `densidad` (numérica,
+ * Extrusión) y `materialDensidad` (BAJA/ALTA, el resto) NO se mapean entre
+ * sí porque son dos conceptos distintos con el mismo aire de familia.
+ */
+const SPEC_INHERITANCE: Partial<Record<string, Record<string, string>>> = {
+  "extrusion>impresion": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratado: "tratado" },
+  "extrusion>sellado": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color" },
+  "extrusion>precorte": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color" },
+  "impresion>sellado": {
+    tipoMaterial: "tipoMaterial",
+    materialDensidad: "materialDensidad",
+    color: "color",
+    caras: "caras",
+    fuelles: "fuelles",
+    calibre: "calibre",
+    ancho: "ancho",
+    anchoUnidad: "anchoUnidad",
+    cantidadKilos: "cantidadKilos",
+    cantidadRollos: "cantidadRollos",
+  },
+  "impresion>precorte": {
+    tipoMaterial: "tipoMaterial",
+    materialDensidad: "materialDensidad",
+    color: "color",
+    caras: "caras",
+    fuelles: "fuelles",
+    calibre: "calibre",
+    ancho: "ancho",
+    anchoUnidad: "anchoUnidad",
+    cantidadKilos: "cantidadKilos",
+    cantidadRollos: "cantidadRollos",
+  },
+};
+
+/** Arma el `specs` inicial de la OP hija copiando del padre lo que aplique
+ * (ver SPEC_INHERITANCE) — se ignoran los campos vacíos/no cargados del
+ * padre, no tiene sentido pisar con "" algo que Gestión todavía no llenó. */
+export function inheritSpecs(
+  parentStation: OpStation,
+  childStation: OpStation,
+  parentSpecs: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  const mapping = SPEC_INHERITANCE[`${parentStation}>${childStation}`];
+  if (!mapping || !parentSpecs) return {};
+  const result: Record<string, unknown> = {};
+  for (const [fromKey, toKey] of Object.entries(mapping)) {
+    const value = parentSpecs[fromKey];
+    if (value != null && value !== "") result[toKey] = value;
+  }
+  return result;
+}
+
 /** Derivaciones válidas entre procesos (Extrusión es el proceso base). */
 export const DERIVATIONS: Record<OpStation, OpStation[]> = {
   extrusion: ["impresion", "sellado", "precorte"],
@@ -280,4 +340,9 @@ export const DERIVATIONS: Record<OpStation, OpStation[]> = {
 };
 
 /** Estaciones cuyo cierre pasa por Calidad y genera entrada de inventario. */
-export const FINAL_STATIONS: OpStation[] = ["sellado", "precorte"];
+// Impresión también puede ser un proceso final: el cliente pidió poder
+// mandarla directo a Calidad/inventario/despacho sin obligarla a pasar
+// por Sellado o Precorte primero (además de poder seguir derivando a
+// esos dos como hasta ahora — cerrar y derivar son dos caminos, no uno
+// excluye al otro).
+export const FINAL_STATIONS: OpStation[] = ["impresion", "sellado", "precorte"];

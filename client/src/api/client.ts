@@ -16,6 +16,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   if (!res.ok) {
+    // El token guardado quedó vencido/inválido (ej. la sesión sigue abierta
+    // en el navegador de un día para otro) — sin esto, cada pantalla se
+    // queda con los datos vacíos en silencio (cada useQuery falla y no hay
+    // nada que muestre el error) y parece que "no carga nada" hasta que
+    // alguien cierra sesión a mano y vuelve a entrar. Se limpia la sesión
+    // vieja y se manda al login directo. Solo aplica si HABÍA un token (una
+    // contraseña incorrecta en el login en sí también da 401, pero ahí
+    // nunca se mandó Authorization — no hay que tocar esa pantalla).
+    if (res.status === 401 && token) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
+    }
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ? JSON.stringify(body.error) : `Error ${res.status}`);
   }
@@ -186,6 +201,8 @@ export const api = {
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<any[]>(`/dispatches${suffix}`);
   },
+  /** Histórico de cuánto se le despachó a cada cliente, agrupado por producto. */
+  getDispatchSummaryByClient: () => request<any[]>("/dispatches/summary-by-client"),
   createDispatch: (clientId: number, items: any[]) =>
     request<any>("/dispatches", { method: "POST", body: JSON.stringify({ clientId, items }) }),
   markItemDispatched: (dispatchId: number, itemId: number, quantityDispatched: number) =>
@@ -224,6 +241,7 @@ export const api = {
       quantityPlanned?: number;
       clientId?: number | null;
       notes?: string | null;
+      alertThresholdKg?: number | null;
     }
   ) => request<any>(`/production-orders/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   updateMaterialPara: (id: number, materialPara: string | null) =>
@@ -248,7 +266,6 @@ export const api = {
     productionOrderId: number,
     data: {
       date?: string;
-      shift?: string;
       operatorName: string;
       machine?: string;
       label?: string;
