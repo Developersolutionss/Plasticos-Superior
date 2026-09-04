@@ -474,14 +474,14 @@ export default function OrdenProduccionDetalle() {
         setRollDraft((d) => {
           const next = { ...d };
           if (template.originRollFields) {
-            next[`detail:${template.originRollFields.labelDetailKey}`] = roll.label ?? roll.code;
+            next[`detail:${template.originRollFields.labelDetailKey}`] = roll.label ?? code;
             next[`detail:${template.originRollFields.weightDetailKey}`] = String(Number(roll.weightKg));
           } else if (!template.labelIsOwnRoll) {
             // Sellado/Precorte no tienen columnas de detalle propias para el
             // rollo de origen (a diferencia de Impresión) — ahí la columna
             // base ETIQUETA/PESO directamente ES el rollo escaneado, no un
             // rollo nuevo de esta estación.
-            next.label = roll.label ?? roll.code;
+            next.label = roll.label ?? code;
             next.weight = String(Number(roll.weightKg));
           }
           // Pruebas SI/NO (ej. P. RESISTENCIA): si el rollo escaneado ya
