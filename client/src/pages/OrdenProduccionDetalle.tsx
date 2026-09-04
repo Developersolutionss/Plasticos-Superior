@@ -43,6 +43,25 @@ const cellLabel = "block text-[10px] font-semibold uppercase tracking-wide text-
 const sheetInput =
   "w-full bg-transparent text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:bg-sky-50 dark:focus:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-400";
 
+/** El dueño pidió que "Medidas" (ej. "12x18") precargue Ancho (primer
+ * número, casilla ANCHO de Especificaciones/Material) y, cuando el formato
+ * es "AxL", también el par Ancho/Largo de "Medidas finales" (medAncho/
+ * medLargo) — esas dos claves solo existen en Sellado/Precorte, así que en
+ * Extrusión/Impresión simplemente no aplican y no se setean. */
+function deriveSpecsFromMeasure(measure: string): Record<string, string> {
+  const value = measure.trim();
+  const result: Record<string, string> = {};
+  const anchoMatch = /^(\d+(?:[.,]\d+)?)/.exec(value);
+  if (anchoMatch) result.ancho = anchoMatch[1];
+
+  const parMatch = /^(\d+(?:[.,]\d+)?)\s*[xX]\s*(\d+(?:[.,]\d+)?)/.exec(value);
+  if (parMatch) {
+    result.medAncho = parMatch[1];
+    result.medLargo = parMatch[2];
+  }
+  return result;
+}
+
 function SheetBand({ children }: { children: React.ReactNode }) {
   return (
     <div className="bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5">
@@ -160,11 +179,14 @@ export default function OrdenProduccionDetalle() {
     if (!order) return;
     const specs = { ...(order.specs ?? {}) } as Record<string, any>;
     // Si la OP ya nace con Medidas cargadas (ej. viene de un pedido) pero
-    // nunca se guardó un Ancho, hay que precargarlo igual que cuando se
-    // tipea Medidas a mano — si no, queda vacío hasta que alguien lo retipee.
-    if (!specs.ancho && order.measure) {
-      const anchoMatch = /^(\d+(?:[.,]\d+)?)/.exec(order.measure.trim());
-      if (anchoMatch) specs.ancho = anchoMatch[1];
+    // nunca se guardaron Ancho/Largo, hay que precargarlos igual que cuando
+    // se tipea Medidas a mano — si no, quedan vacíos hasta que alguien los
+    // retipee. Solo completa lo que esté vacío, nunca pisa un valor guardado.
+    if (order.measure) {
+      const derived = deriveSpecsFromMeasure(order.measure);
+      for (const [key, value] of Object.entries(derived)) {
+        if (!specs[key]) specs[key] = value;
+      }
     }
     setSpecsDraft(specs);
     // Las filas de materia prima son fijas (las mismas 10 refs impresas en
@@ -733,13 +755,12 @@ export default function OrdenProduccionDetalle() {
                 const value = e.target.value;
                 setHeaderDraft((h) => ({ ...h, measure: value }));
                 // El dueño pidió que si acá ponen "12x18", el primer número
-                // (el ancho) se cargue solo en la casilla ANCHO de más
-                // abajo — no hace falta tipearlo dos veces. Sigue siendo
-                // editable a mano después, esto solo la precarga.
-                const anchoMatch = /^(\d+(?:[.,]\d+)?)/.exec(value.trim());
-                if (anchoMatch) {
-                  setSpecsDraft((prev) => ({ ...prev, ancho: anchoMatch[1] }));
-                }
+                // (el ancho) se cargue solo en la casilla ANCHO de más abajo
+                // — y en Sellado/Precorte, que también complete el par
+                // Ancho/Largo de "Medidas finales" (mismo "12x18" = ancho x
+                // largo del producto). No hace falta tipearlo varias veces;
+                // sigue siendo editable a mano después, esto solo precarga.
+                setSpecsDraft((prev) => ({ ...prev, ...deriveSpecsFromMeasure(value) }));
                 markDirty();
               }}
             />
