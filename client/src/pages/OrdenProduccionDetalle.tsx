@@ -1181,9 +1181,16 @@ export default function OrdenProduccionDetalle() {
                   ))}
                   {canOperate && (
                     <td className={`${cellBorder} px-1.5 py-1 text-center whitespace-nowrap`}>
-                      <button type="button" className="text-slate-500 dark:text-slate-400" title="Imprimir etiqueta" onClick={() => handlePrintLabel(roll.id)}>
-                        <Printer size={13} aria-hidden="true" />
-                      </button>
+                      {/* La etiqueta impresa solo sirve para que la estación
+                          siguiente la escanee como "rollo de origen" — en
+                          Sellado/Precorte (estaciones finales, DERIVATIONS
+                          vacío) no hay a quién escanearla, así que el botón
+                          no tiene ningún efecto y se oculta. */}
+                      {DERIVATIONS[station].length > 0 && (
+                        <button type="button" className="text-slate-500 dark:text-slate-400" title="Imprimir etiqueta" onClick={() => handlePrintLabel(roll.id)}>
+                          <Printer size={13} aria-hidden="true" />
+                        </button>
+                      )}
                       {canGestion && isOpen && (
                         <button type="button" className="text-red-600 dark:text-red-400 ml-1.5" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
                           <Trash2 size={13} aria-hidden="true" />
