@@ -2395,6 +2395,35 @@ describe("dashboard", () => {
     assert.ok(Array.isArray(body.topClientesSaldo));
   });
 
+  it("GET /resumen trae las secciones nuevas (embudo, alertas, ordenes en curso) y acepta period", async () => {
+    const res = await fetch(`${baseUrl}/api/dashboard/resumen`, { headers: authHeaders() });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      period: string;
+      ventasDelPeriodo: number;
+      kgProducidosDelPeriodo: number;
+      cotizacionesAbiertas: number;
+      valorCotizacionesAbiertas: number;
+      alertas: { severity: string; title: string; detail: string }[];
+      ordenesEnCurso: { id: number; orderNumber: string; avancePct: number }[];
+      ordenesEnCursoTotal: number;
+    };
+    assert.equal(body.period, "mes");
+    assert.equal(typeof body.ventasDelPeriodo, "number");
+    assert.equal(typeof body.kgProducidosDelPeriodo, "number");
+    assert.equal(typeof body.cotizacionesAbiertas, "number");
+    assert.equal(typeof body.valorCotizacionesAbiertas, "number");
+    assert.ok(Array.isArray(body.alertas));
+    assert.ok(Array.isArray(body.ordenesEnCurso));
+    assert.equal(typeof body.ordenesEnCursoTotal, "number");
+
+    const trimestre = await fetch(`${baseUrl}/api/dashboard/resumen?period=trimestre`, { headers: authHeaders() });
+    assert.equal((await trimestre.json() as { period: string }).period, "trimestre");
+
+    const invalido = await fetch(`${baseUrl}/api/dashboard/resumen?period=nope`, { headers: authHeaders() });
+    assert.equal((await invalido.json() as { period: string }).period, "mes");
+  });
+
   it("GET /indicadores devuelve la tasa de aprobación de calidad", async () => {
     const res = await fetch(`${baseUrl}/api/dashboard/indicadores`, { headers: authHeaders() });
     assert.equal(res.status, 200);

@@ -442,20 +442,37 @@ export const api = {
   getPublicLocation: (token: string) =>
     request<{ location: { code: string; label: string }; items: any[] }>(`/public/locations/${token}`),
 
-  getDashboardResumen: () =>
+  getDashboardResumen: (period: "mes" | "trimestre" | "anio" = "mes") =>
     request<{
-      ventasDelMes: number;
-      ventasMesAnterior: number;
+      period: "mes" | "trimestre" | "anio";
+      ventasDelPeriodo: number;
+      ventasPeriodoAnterior: number;
       cambioVentasPct: number | null;
-      ventasUltimos6Meses: { mes: string; total: number }[];
+      kgProducidosDelPeriodo: number;
+      kgProducidosPeriodoAnterior: number;
+      ventasUltimos6Meses: { mes: string; total: number; kg: number }[];
       carteraPendiente: number;
       carteraVencida: number;
       facturasConSaldo: number;
       opsEnCurso: number;
       pedidosEnProduccion: number;
       cotizacionesAbiertas: number;
+      valorCotizacionesAbiertas: number;
+      tasaCierrePct: number | null;
+      cotizacionesPorVencerSemana: number;
+      alertas: { severity: "critica" | "alta" | "media"; title: string; detail: string }[];
+      ordenesEnCurso: {
+        id: number;
+        orderNumber: string;
+        station: string | null;
+        status: string;
+        productName: string;
+        clientName: string | null;
+        avancePct: number;
+      }[];
+      ordenesEnCursoTotal: number;
       topClientesSaldo: { clientId: number; name: string; saldo: number }[];
-    }>("/dashboard/resumen"),
+    }>(`/dashboard/resumen?period=${period}`),
 
   getNotifications: () => request<any[]>("/notifications"),
   getUnreadNotificationCount: () => request<{ count: number }>("/notifications/unread-count"),
