@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import Modal from "./Modal";
 
@@ -15,6 +15,7 @@ interface BarcodeScannerProps {
  * decide qué hacer con el texto decodificado (`onDetected`). */
 export default function BarcodeScanner({ title = "Escanear código", onDetected, onClose }: BarcodeScannerProps) {
   const [error, setError] = useState<string | null>(null);
+  const [manualCode, setManualCode] = useState("");
   const detectedRef = useRef(false);
   // Ref en vez de dependencia del effect: así un `onDetected` inline nuevo en
   // cada render del padre no reinicia la cámara (solo se monta una vez).
@@ -58,12 +59,36 @@ export default function BarcodeScanner({ title = "Escanear código", onDetected,
     };
   }, []);
 
+  function handleManualSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (detectedRef.current || !manualCode.trim()) return;
+    detectedRef.current = true;
+    onDetectedRef.current(manualCode.trim());
+  }
+
   return (
     <Modal title={title} onClose={onClose}>
       <div className="space-y-3">
         {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
         <div id={SCANNER_ELEMENT_ID} className="w-full rounded overflow-hidden bg-slate-900" />
         <p className="text-xs text-slate-500 dark:text-slate-400">Apuntá la cámara al código QR.</p>
+
+        {/* Alternativa a la cámara: escribir el código a mano (el mismo
+            texto que codifica el QR, ej. "RL-123" o "BULTO-00045") — sirve
+            para probar sin celular a mano, y como respaldo real si la
+            cámara falla o el QR físico está dañado/ilegible. */}
+        <form onSubmit={handleManualSubmit} className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+          <input
+            type="text"
+            placeholder="...o escribí el código a mano"
+            value={manualCode}
+            onChange={(e) => setManualCode(e.target.value)}
+            className="flex-1 border rounded px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+          />
+          <button type="submit" className="bg-slate-800 text-white text-sm px-3 py-1.5 rounded whitespace-nowrap">
+            Usar código
+          </button>
+        </form>
       </div>
     </Modal>
   );

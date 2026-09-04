@@ -159,41 +159,61 @@ export default function EtiquetasBulto() {
 
       {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
 
-      {!isLoading && labels && (
-        <div className="bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-100 dark:bg-slate-800 text-left">
-              <tr>
-                <th className="p-3">Código</th>
-                <th className="p-3">Estado</th>
-                <th className="p-3">Usada por</th>
-                <th className="p-3">OP</th>
-                <th className="p-3">Fecha de uso</th>
-              </tr>
-            </thead>
-            <tbody>
-              {labels.map((l: any) => (
-                <tr key={l.id} className="border-t">
-                  <td className="p-3 font-medium flex items-center gap-1.5">
-                    <Tag size={13} className="text-slate-400" aria-hidden="true" /> {l.code}
-                  </td>
-                  <td className="p-3">
-                    <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[l.status]}`}>{STATUS_LABELS[l.status] ?? l.status}</span>
-                  </td>
-                  <td className="p-3">{l.usedBy?.name ?? "—"}</td>
-                  <td className="p-3">{l.usedByRoll?.productionOrder?.orderNumber ?? "—"}</td>
-                  <td className="p-3">{l.usedAt ? new Date(l.usedAt).toLocaleString() : "—"}</td>
-                </tr>
-              ))}
-              {labels.length === 0 && (
+      {!isLoading && labels && labels.length > 0 && (
+        <>
+          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                 <tr>
-                  <td colSpan={5} className="p-4 text-center text-slate-500 dark:text-slate-400">
-                    Todavía no hay etiquetas generadas.
-                  </td>
+                  <th className="p-3">Código</th>
+                  <th className="p-3">Estado</th>
+                  <th className="p-3">Usada por</th>
+                  <th className="p-3">OP</th>
+                  <th className="p-3">Fecha de uso</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {labels.map((l: any) => (
+                  <tr key={l.id} className="border-t">
+                    <td className="p-3 font-medium flex items-center gap-1.5">
+                      <Tag size={13} className="text-slate-400" aria-hidden="true" /> {l.code}
+                    </td>
+                    <td className="p-3">
+                      <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[l.status]}`}>{STATUS_LABELS[l.status] ?? l.status}</span>
+                    </td>
+                    <td className="p-3">{l.usedBy?.name ?? "—"}</td>
+                    <td className="p-3">{l.usedByRoll?.productionOrder?.orderNumber ?? "—"}</td>
+                    <td className="p-3">{l.usedAt ? new Date(l.usedAt).toLocaleString() : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
+            {labels.map((l: any) => (
+              <div key={l.id} className="p-3 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                    <Tag size={13} className="text-slate-400" aria-hidden="true" /> {l.code}
+                  </p>
+                  <span className={`text-xs rounded-full px-2 py-1 shrink-0 ${STATUS_COLORS[l.status]}`}>{STATUS_LABELS[l.status] ?? l.status}</span>
+                </div>
+                {l.status === "usada" && (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {l.usedBy?.name ?? "—"} · OP {l.usedByRoll?.productionOrder?.orderNumber ?? "—"} ·{" "}
+                    {l.usedAt ? new Date(l.usedAt).toLocaleString() : "—"}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!isLoading && labels && labels.length === 0 && (
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
+          Todavía no hay etiquetas generadas.
         </div>
       )}
     </div>

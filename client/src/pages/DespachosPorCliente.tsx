@@ -54,35 +54,61 @@ export default function DespachosPorCliente() {
       )}
 
       {!isLoading && filtered.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-100 dark:bg-slate-800 text-left">
-              <tr>
-                <th className="p-3">Cliente</th>
-                <th className="p-3">Producto</th>
-                <th className="p-3">Total despachado</th>
-                <th className="p-3"># Despachos</th>
-                <th className="p-3">Último despacho</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clientOrder.map((clientName) => {
-                const clientRows = filtered.filter((r) => r.clientName === clientName);
-                return clientRows.map((r, i) => (
-                  <tr key={`${r.clientId}-${r.productId}`} className="border-t hover:bg-slate-50 dark:hover:bg-slate-800">
-                    <td className="p-3 font-medium">{i === 0 ? r.clientName : ""}</td>
-                    <td className="p-3">{r.productName}</td>
-                    <td className="p-3">
-                      {Math.round(r.totalQuantity * 100) / 100} {r.unit}
-                    </td>
-                    <td className="p-3">{r.dispatchCount}</td>
-                    <td className="p-3">{r.lastDispatchedDate ? new Date(r.lastDispatchedDate).toLocaleDateString() : "—"}</td>
-                  </tr>
-                ));
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
+                <tr>
+                  <th className="p-3">Cliente</th>
+                  <th className="p-3">Producto</th>
+                  <th className="p-3">Total despachado</th>
+                  <th className="p-3"># Despachos</th>
+                  <th className="p-3">Último despacho</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clientOrder.map((clientName) => {
+                  const clientRows = filtered.filter((r) => r.clientName === clientName);
+                  return clientRows.map((r, i) => (
+                    <tr key={`${r.clientId}-${r.productId}`} className="border-t hover:bg-slate-50 dark:hover:bg-slate-800">
+                      <td className="p-3 font-medium">{i === 0 ? r.clientName : ""}</td>
+                      <td className="p-3">{r.productName}</td>
+                      <td className="p-3">
+                        {Math.round(r.totalQuantity * 100) / 100} {r.unit}
+                      </td>
+                      <td className="p-3">{r.dispatchCount}</td>
+                      <td className="p-3">{r.lastDispatchedDate ? new Date(r.lastDispatchedDate).toLocaleDateString() : "—"}</td>
+                    </tr>
+                  ));
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden space-y-3">
+            {clientOrder.map((clientName) => {
+              const clientRows = filtered.filter((r) => r.clientName === clientName);
+              return (
+                <div key={clientName} className="bg-white dark:bg-slate-900 rounded-lg shadow overflow-hidden">
+                  <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800 font-medium text-slate-800 dark:text-slate-100">{clientName}</div>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {clientRows.map((r) => (
+                      <div key={`${r.clientId}-${r.productId}`} className="p-3 space-y-1">
+                        <p className="font-medium text-slate-800 dark:text-slate-100">{r.productName}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                          {Math.round(r.totalQuantity * 100) / 100} {r.unit} · {r.dispatchCount} despacho{r.dispatchCount === 1 ? "" : "s"}
+                        </p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">
+                          Último: {r.lastDispatchedDate ? new Date(r.lastDispatchedDate).toLocaleDateString() : "—"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

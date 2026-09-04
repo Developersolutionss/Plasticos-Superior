@@ -26,7 +26,13 @@ export default function Layout() {
         onCloseMobile={() => setMobileOpen(false)}
       />
 
-      <div className="flex flex-col min-h-screen dark:bg-slate-950">
+      {/* min-w-0 es clave: sin esto, un ítem de grid no se achica por debajo
+          del ancho de su contenido más ancho (default CSS min-width: auto)
+          — cualquier página con algo horizontalmente ancho (ej. la fila de
+          categorías de Existencias) estiraba TODO el grid .app-shell, no
+          solo esa fila, haciendo que toda la app se viera "de escritorio"
+          en el celular hasta navegar a una pantalla sin ese contenido ancho. */}
+      <div className="flex flex-col min-h-screen min-w-0 dark:bg-slate-950">
         <header className="bg-white dark:bg-slate-900 dark:border-slate-800 border-b px-4 sm:px-6 py-3 flex items-center justify-between sm:justify-end gap-4">
           <button
             type="button"
