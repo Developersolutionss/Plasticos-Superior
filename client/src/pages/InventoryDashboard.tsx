@@ -24,7 +24,7 @@ export default function InventoryDashboard() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 overflow-x-auto">
+      <div className="hidden md:flex gap-2 overflow-x-auto">
         {CATEGORIES.map((c) => (
           <button
             key={c.value}
@@ -37,6 +37,22 @@ export default function InventoryDashboard() {
           </button>
         ))}
       </div>
+
+      {/* En escritorio las píldoras se ven y caben bien, pero en celular una
+          fila horizontal con scroll se siente "de página web" — un select
+          nativo es el patrón mobile-friendly que ya usa el resto de la app
+          (ej. filtro de estado en Etiquetas de bulto). */}
+      <select
+        className="md:hidden w-full border rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+        value={category}
+        onChange={(e) => setCategory(e.target.value)}
+      >
+        {CATEGORIES.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </select>
 
       {alerts && alerts.length > 0 && (
         <div className="bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 rounded px-4 py-2 text-sm flex items-start gap-2">
