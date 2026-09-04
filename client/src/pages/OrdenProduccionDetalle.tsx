@@ -714,6 +714,13 @@ export default function OrdenProduccionDetalle() {
 
       {/* ---- La hoja, con la estructura del formato en papel ---- */}
       <div className="bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-500 shadow overflow-x-auto">
+        {/* min-w-max: sin esto, la tabla de rollos (muchas columnas angostas)
+            puede terminar siendo más ancha que las grillas de specs/encabezado
+            de arriba y abajo — como cada sección es un div normal, todas
+            deberían estirarse igual, pero en la práctica quedaba una franja
+            vacía al final del scroll horizontal en vez de que todo comparta
+            el mismo ancho. Forzarlo acá evita esa franja muerta. */}
+        <div className="min-w-max">
         {/* Banda de título */}
         <div className="grid grid-cols-[1fr_2fr_1fr] border-b-2 border-slate-400 dark:border-slate-500">
           <div className={`${cellBorder} border-t-0 border-l-0 p-2 flex items-center`}>
@@ -1388,7 +1395,7 @@ export default function OrdenProduccionDetalle() {
         {/* Resultado de calidad, si ya pasó */}
         {order.qualityCheck && (
           <div
-            className={`px-3 py-2 text-sm border-t border-slate-300 dark:border-slate-600 ${
+            className={`px-3 py-2 text-sm border-t border-slate-300 dark:border-slate-600 max-w-[80vw] break-words ${
               order.qualityCheck.result === "aprobado"
                 ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400"
                 : "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400"
@@ -1399,6 +1406,7 @@ export default function OrdenProduccionDetalle() {
             {order.qualityCheck.createdBy?.name && <> · {order.qualityCheck.createdBy.name}</>}
           </div>
         )}
+        </div>
       </div>
 
       {/* Adjuntos */}
