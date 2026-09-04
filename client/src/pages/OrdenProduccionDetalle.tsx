@@ -158,7 +158,14 @@ export default function OrdenProduccionDetalle() {
   // Sincroniza los borradores locales cuando llega/cambia la OP del server.
   useEffect(() => {
     if (!order) return;
-    const specs = order.specs ?? {};
+    const specs = { ...(order.specs ?? {}) } as Record<string, any>;
+    // Si la OP ya nace con Medidas cargadas (ej. viene de un pedido) pero
+    // nunca se guardó un Ancho, hay que precargarlo igual que cuando se
+    // tipea Medidas a mano — si no, queda vacío hasta que alguien lo retipee.
+    if (!specs.ancho && order.measure) {
+      const anchoMatch = /^(\d+(?:[.,]\d+)?)/.exec(order.measure.trim());
+      if (anchoMatch) specs.ancho = anchoMatch[1];
+    }
     setSpecsDraft(specs);
     // Las filas de materia prima son fijas (las mismas 10 refs impresas en
     // el papel, en su mismo orden) — no una lista donde se van agregando;
