@@ -71,10 +71,14 @@ const DEFAULT_ROUTE_FOR_ROLE: Partial<Record<UserRole, string>> = {
   auditor: "/auditoria",
 };
 
-/** Índice ("/"): Existencias para quien puede verlas (ver ROLES.INVENTARIO
+/** Índice ("/"): Admin entra directo al Dashboard (resumen ejecutivo);
+ * Existencias para el resto de quienes pueden verlas (ver ROLES.INVENTARIO
  * en el backend, mismo criterio acá); el resto va a su pantalla habitual. */
 function IndexRoute() {
   const { user } = useAuth();
+  if (user && (ADMIN as UserRole[]).includes(user.role)) {
+    return <Navigate to="/dashboard-ejecutivo" replace />;
+  }
   if (user && !(INVENTARIO as UserRole[]).includes(user.role)) {
     const to = DEFAULT_ROUTE_FOR_ROLE[user.role];
     if (to) return <Navigate to={to} replace />;
