@@ -56,7 +56,13 @@ export default function NotificationBell() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 shadow-lg z-50 max-h-96 overflow-y-auto">
+          {/* En celular el panel no puede anclarse a la derecha de la
+              campanita con un ancho fijo (w-80): la campanita no está pegada
+              al borde de la pantalla (queda "Admin"/"Salir" a su derecha), así
+              que se salía por la izquierda y cortaba el texto. En móvil se
+              fija a los márgenes del viewport; en escritorio (md:) se vuelve
+              al dropdown anclado de siempre. */}
+          <div className="fixed left-2 right-2 top-16 md:absolute md:left-auto md:right-0 md:top-auto md:mt-2 md:w-80 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 shadow-lg z-50 max-h-96 overflow-y-auto">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 dark:border-slate-700">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notificaciones</p>
               <button className="text-xs text-slate-500 dark:text-slate-400 hover:underline" onClick={handleMarkAllRead}>
