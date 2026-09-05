@@ -1,0 +1,56 @@
+/* Tabla de rollos de la hoja de OP: en escritorio es una tabla normal (con
+   scroll horizontal si hace falta, ver el wrapper .overflow-x-auto en
+   OrdenProduccionDetalle.tsx). En celular, con hasta 10 columnas angostas,
+   obligaba a deslizar muchísimo para ver los datos de más a la derecha —
+   Steban lo reportó como "insufrible". Por debajo de 768px cada fila pasa a
+   ser una tarjeta apilada (label: valor), con el nombre de columna como
+   pseudo-elemento (::before con content: attr(data-label)) en vez de
+   duplicar toda la lógica de renderizado de celdas en dos componentes. */
+@media (max-width: 767px) {
+  .op-roll-table thead {
+    display: none;
+  }
+  .op-roll-table,
+  .op-roll-table tbody,
+  .op-roll-table tr {
+    display: block;
+    width: 100%;
+  }
+  .op-roll-table tr {
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    padding: 2px 10px;
+  }
+  .op-roll-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    border: none !important;
+    padding: 6px 0 !important;
+  }
+  .op-roll-table td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #64748b;
+    flex-shrink: 0;
+  }
+  /* Filas de mensaje (colSpan: "Sin rollos", "insumo: rollo...", "ya se
+     completaron los X kg...") no son pares label/valor — se muestran como
+     texto centrado normal, sin pseudo-etiqueta. */
+  .op-roll-table td:not([data-label]) {
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+.dark .op-roll-table tr {
+  border-color: #475569;
+}
+.dark .op-roll-table td[data-label]::before {
+  color: #94a3b8;
+}

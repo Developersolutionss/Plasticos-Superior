@@ -17,6 +17,7 @@ import {
   OpStation,
   STATION_LABELS,
 } from "../opTemplates";
+import "./OrdenProduccionDetalle.css";
 
 const STATUS_LABELS: Record<string, string> = {
   borrador: "Borrador",
@@ -1166,7 +1167,7 @@ export default function OrdenProduccionDetalle() {
           </div>
         )}
 
-        <table className="w-full text-xs sm:text-sm">
+        <table className="op-roll-table w-full text-xs sm:text-sm">
           <thead>
             <tr className="text-left text-[9px] sm:text-[10px] uppercase text-slate-500 dark:text-slate-400">
               {template.rollColumns.map((col) => (
@@ -1182,12 +1183,12 @@ export default function OrdenProduccionDetalle() {
               <Fragment key={roll.id}>
                 <tr>
                   {template.rollColumns.map((col) => (
-                    <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1.5 py-1 text-slate-800 dark:text-slate-100`}>
+                    <td key={col.detailKey ?? col.source} data-label={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-800 dark:text-slate-100`}>
                       {rollCellDisplay(roll, col, rollCumulative[i])}
                     </td>
                   ))}
                   {canOperate && (
-                    <td className={`${cellBorder} px-1.5 py-1 text-center whitespace-nowrap`}>
+                    <td data-label="Acciones" className={`${cellBorder} px-1.5 py-1 text-center whitespace-nowrap`}>
                       <button type="button" className="text-slate-500 dark:text-slate-400" title="Imprimir etiqueta" onClick={() => handlePrintLabel(roll.id)}>
                         <Printer size={13} aria-hidden="true" />
                       </button>
@@ -1226,14 +1227,14 @@ export default function OrdenProduccionDetalle() {
                   const key = rollDraftKey(col);
                   if (col.source === "operator") {
                     return (
-                      <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1.5 py-1 text-slate-500 dark:text-slate-400`} title="El operario es siempre la cuenta con la que iniciaste sesión">
+                      <td key={col.detailKey ?? col.source} data-label={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-500 dark:text-slate-400`} title="El operario es siempre la cuenta con la que iniciaste sesión">
                         {user!.name}
                       </td>
                     );
                   }
                   if (col.source === "cumulativeWeight") {
                     return (
-                      <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center`} title="Se calcula solo al guardar">
+                      <td key={col.detailKey ?? col.source} data-label={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center`} title="Se calcula solo al guardar">
                         —
                       </td>
                     );
@@ -1242,6 +1243,7 @@ export default function OrdenProduccionDetalle() {
                     return (
                       <td
                         key={col.detailKey ?? col.source}
+                        data-label={col.label}
                         className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center italic`}
                         title={col.source === "label" ? "Se genera sola (código del rollo) al guardar" : "Se completa sola con el momento en que se guarda"}
                       >
@@ -1261,6 +1263,7 @@ export default function OrdenProduccionDetalle() {
                     return (
                       <td
                         key={col.detailKey ?? col.source}
+                        data-label={col.label}
                         className={`${cellBorder} px-1.5 py-1 text-slate-500 dark:text-slate-400 text-center italic`}
                         title="Se completa solo según la hora (6:00–17:59 Día, resto Noche)"
                       >
@@ -1278,6 +1281,7 @@ export default function OrdenProduccionDetalle() {
                     return (
                       <td
                         key={col.detailKey ?? col.source}
+                        data-label={col.label}
                         className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center italic`}
                         title="Se completa al escanear el QR del rollo de origen"
                       >
@@ -1294,6 +1298,7 @@ export default function OrdenProduccionDetalle() {
                     return (
                       <td
                         key={col.detailKey ?? col.source}
+                        data-label={col.label}
                         className={`${cellBorder} px-1.5 py-1 text-center ${bultoLabel ? "text-slate-800 dark:text-slate-100 font-medium" : "text-slate-400 dark:text-slate-500 italic"}`}
                         title={bultoLabel ? undefined : "Se completa al escanear el QR de la etiqueta de bulto"}
                       >
@@ -1302,7 +1307,7 @@ export default function OrdenProduccionDetalle() {
                     );
                   }
                   return (
-                    <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1 py-1`}>
+                    <td key={col.detailKey ?? col.source} data-label={col.label} className={`${cellBorder} px-1 py-1`}>
                       {col.kind === "siNo" ? (
                         <select className={sheetInput} value={rollDraft[key] ?? ""} onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}>
                           <option value="">—</option>
@@ -1321,9 +1326,9 @@ export default function OrdenProduccionDetalle() {
                     </td>
                   );
                 })}
-                <td className={`${cellBorder} px-1 py-1`}>
+                <td data-label="Agregar" className={`${cellBorder} px-1 py-1`}>
                   <button type="button" onClick={handleAddRoll} className="bg-slate-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                    +
+                    + <span className="max-md:inline hidden">Agregar fila</span>
                   </button>
                 </td>
               </tr>
