@@ -130,6 +130,20 @@ export default function App() {
         }
       >
         <Route index element={<IndexRoute />} />
+        {/* Ruta propia (antes el link del menú apuntaba a "/", que para
+            Admin siempre redirige al Dashboard vía IndexRoute — el link de
+            "Existencias" quedaba en un loop que nunca mostraba la pantalla).
+            "/" sigue siendo el índice inteligente por rol; esta es la
+            pantalla en sí, a la que cualquier rol de EXISTENCIAS puede
+            entrar directo. */}
+        <Route
+          path="inventario/existencias"
+          element={
+            <RequireRole roles={EXISTENCIAS}>
+              <InventoryDashboard />
+            </RequireRole>
+          }
+        />
         <Route path="notificaciones" element={<Notificaciones />} />
         <Route
           path="despachos"
