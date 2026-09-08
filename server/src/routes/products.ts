@@ -41,6 +41,12 @@ const SKU_PREFIX: Record<(typeof CATEGORIES)[number], string> = {
   laminado: "LAM",
 };
 
+/** Asume que nunca se hace hard delete de un producto (el sistema solo
+ * desactiva con `active: false`) -- si algún día se borra uno del medio de
+ * la secuencia a mano en la base, el próximo `count()+1` de esa categoría
+ * puede volver a proponer un SKU que ya existe, y quedaría reintentando sin
+ * poder resolverlo solo (a diferencia de COT-/PED-/FAC-, acá el reintento no
+ * ayuda porque el conteo no cambia entre intentos). */
 async function nextSku(category: (typeof CATEGORIES)[number]) {
   const prefix = SKU_PREFIX[category];
   const count = await prisma.product.count({ where: { sku: { startsWith: `${prefix}-` } } });
