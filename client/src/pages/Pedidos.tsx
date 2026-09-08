@@ -54,12 +54,28 @@ export default function Pedidos() {
     queryFn: () => api.getPedidoAttachments(selectedPedidoId!),
     enabled: selectedPedidoId != null,
   });
+  const { data: topProducts } = useQuery({
+    queryKey: ["clientTopProducts", clientId],
+    queryFn: () => api.getClientTopProducts(Number(clientId)),
+    enabled: !!clientId,
+  });
 
   const selectedPedido = pedidos?.find((p: any) => p.id === selectedPedidoId);
   const latestVersion = versions?.[versions.length - 1];
 
   function productPrice(productId: string) {
     return products?.find((p: any) => p.id === Number(productId))?.unitPrice ?? "";
+  }
+
+  /** Atajo "productos que más pide": completa la primera fila vacía del
+   * pedido nuevo en vez de agregar siempre una fila más. */
+  function addTopProductShortcut(productId: number) {
+    setItems((prev) => {
+      const emptyIndex = prev.findIndex((it) => !it.productId);
+      const draft = { productId: String(productId), quantity: "", unitPrice: String(productPrice(String(productId))) };
+      if (emptyIndex === -1) return [...prev, draft];
+      return prev.map((it, i) => (i === emptyIndex ? draft : it));
+    });
   }
 
   function itemRows(list: ItemDraft[], setList: (v: ItemDraft[]) => void) {
@@ -238,6 +254,21 @@ export default function Pedidos() {
               </option>
             ))}
           </select>
+          {!!clientId && topProducts && topProducts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-slate-500 dark:text-slate-400">Pide seguido:</span>
+              {topProducts.map((tp) => (
+                <button
+                  key={tp.product.id}
+                  type="button"
+                  onClick={() => addTopProductShortcut(tp.product.id)}
+                  className="text-xs border border-sky-300 dark:border-sky-700 text-sky-700 dark:text-sky-400 rounded-full px-2.5 py-1 hover:bg-sky-50 dark:hover:bg-sky-950"
+                >
+                  + {tp.product.name}
+                </button>
+              ))}
+            </div>
+          )}
           {itemRows(items, setItems)}
           <input
             className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"

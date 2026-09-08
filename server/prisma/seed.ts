@@ -118,6 +118,31 @@ async function main() {
         },
       });
     }
+
+    // Un segundo pedido demo repitiendo el bulto (distinta cantidad, sin el
+    // rollo) para que "Productos que más pide" tenga algo real que mostrar
+    // apenas se entra al sistema: bulto queda con frecuencia 2, rollo con 1.
+    const existingSeedPedido2 = await prisma.pedido.findUnique({ where: { orderNumber: "PED-SEED-TOP-PRODUCTOS" } });
+    if (!existingSeedPedido2) {
+      await prisma.pedido.create({
+        data: {
+          orderNumber: "PED-SEED-TOP-PRODUCTOS",
+          clientId: norte.id,
+          status: "aprobado",
+          currentVersion: 1,
+          versions: {
+            create: {
+              versionNumber: 1,
+              status: "aprobado",
+              notes: "Segundo pedido demo, mismo cliente, para poblar productos que más pide",
+              items: {
+                create: [{ productId: bulto.id, quantity: 20, unitPrice: bulto.unitPrice, measure: bulto.measure }],
+              },
+            },
+          },
+        },
+      });
+    }
   }
 
   // Cadena demo de OPs por proceso (modelo nuevo: una OP por estación con

@@ -9,7 +9,7 @@ import ClienteForm from "../components/ClienteForm";
 import ContactoForm from "../components/ContactoForm";
 import { byFrequency, nextInteraction } from "../lib/frequency";
 
-type Tab = "contactos" | "direcciones" | "historial" | "cartera" | "editar";
+type Tab = "contactos" | "direcciones" | "historial" | "productos" | "cartera" | "editar";
 type Filter = "abc" | "antiguedad" | "frecuentes";
 type View = "list" | "cajas";
 
@@ -73,6 +73,11 @@ export default function Clients() {
   const { data: cartera } = useQuery({
     queryKey: ["clientCartera", selectedClientId],
     queryFn: () => api.getClientCartera(selectedClientId!),
+    enabled: selectedClientId != null,
+  });
+  const { data: topProducts } = useQuery({
+    queryKey: ["clientTopProducts", selectedClientId],
+    queryFn: () => api.getClientTopProducts(selectedClientId!),
     enabled: selectedClientId != null,
   });
   const { data: interactions } = useQuery({
@@ -229,6 +234,7 @@ export default function Clients() {
     { key: "contactos", label: "Contactos" },
     { key: "direcciones", label: "Direcciones" },
     { key: "historial", label: "Historial" },
+    { key: "productos", label: "Productos" },
     { key: "cartera", label: "Cartera" },
     { key: "editar", label: "Editar / Eliminar" },
   ];
@@ -569,6 +575,29 @@ export default function Clients() {
                       Registrar
                     </button>
                   </form>
+                </div>
+              )}
+
+              {activeTab === "productos" && (
+                <div className="space-y-2">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Los productos que más pide este cliente, según sus pedidos.</p>
+                  <ul className="divide-y">
+                    {topProducts?.map((tp) => (
+                      <li key={tp.product.id} className="py-3 flex items-center justify-between text-sm">
+                        <div>
+                          <p className="font-medium text-slate-800 dark:text-slate-100">
+                            {tp.product.name} <span className="text-slate-400 dark:text-slate-500 font-normal">({tp.product.sku})</span>
+                          </p>
+                          <p className="text-slate-500 dark:text-slate-400 text-xs">
+                            En {tp.frequency} pedido{tp.frequency === 1 ? "" : "s"} · {tp.totalQuantity} {tp.measure ?? tp.product.unit} en total
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                    {topProducts?.length === 0 && (
+                      <p className="text-slate-500 dark:text-slate-400 text-sm py-2">Todavía no tiene pedidos registrados.</p>
+                    )}
+                  </ul>
                 </div>
               )}
 

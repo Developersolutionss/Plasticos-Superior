@@ -1962,6 +1962,66 @@ describe("cotizaciones → pedido → factura → pagos", () => {
   });
 });
 
+describe("clientes · productos que más pide", () => {
+  let clientId = 0;
+  let productA = 0;
+  let productB = 0;
+
+  before(async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-TOPPROD-CLIENT-${Date.now()}` } });
+    clientId = client.id;
+    productA = (await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } })).id;
+    productB = (await prisma.product.findFirstOrThrow({ where: { sku: "ROL-PL-001" } })).id;
+  });
+
+  after(async () => {
+    await prisma.client.delete({ where: { id: clientId } }).catch(() => {});
+  });
+
+  it("ordena por en cuántos pedidos distintos aparece cada producto, no por cantidad total", async () => {
+    // productA aparece en 2 pedidos (cantidades chicas); productB en 1 solo
+    // pedido pero con una cantidad grande — productA debe salir primero por
+    // frecuencia, aunque su cantidad total sea menor.
+    for (const items of [
+      [{ productId: productA, quantity: 2 }],
+      [{ productId: productA, quantity: 3 }, { productId: productB, quantity: 100 }],
+    ]) {
+      const res = await fetch(`${baseUrl}/api/pedidos`, {
+        method: "POST",
+        headers: headersFor("ventas"),
+        body: JSON.stringify({ clientId, items }),
+      });
+      assert.equal(res.status, 201);
+    }
+
+    const topRes = await fetch(`${baseUrl}/api/clients/${clientId}/top-products`, { headers: headersFor("ventas") });
+    assert.equal(topRes.status, 200);
+    const top = (await topRes.json()) as { product: { id: number }; frequency: number; totalQuantity: number }[];
+    assert.equal(top.length, 2);
+    assert.equal(top[0].product.id, productA, "productA aparece en 2 pedidos, debe ir primero pese a tener menos cantidad total");
+    assert.equal(top[0].frequency, 2);
+    assert.equal(top[0].totalQuantity, 5);
+    assert.equal(top[1].product.id, productB);
+    assert.equal(top[1].frequency, 1);
+    assert.equal(top[1].totalQuantity, 100);
+
+    await prisma.pedidoVersionItem.deleteMany({ where: { pedidoVersion: { pedido: { clientId } } } });
+    await prisma.pedidoVersion.deleteMany({ where: { pedido: { clientId } } });
+    await prisma.pedido.deleteMany({ where: { clientId } });
+  });
+
+  it("devuelve lista vacía para un cliente sin pedidos, y 404 para uno inexistente", async () => {
+    const otroCliente = await prisma.client.create({ data: { name: `TEST-TOPPROD-VACIO-${Date.now()}` } });
+    const res = await fetch(`${baseUrl}/api/clients/${otroCliente.id}/top-products`, { headers: headersFor("ventas") });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), []);
+    await prisma.client.delete({ where: { id: otroCliente.id } });
+
+    const notFound = await fetch(`${baseUrl}/api/clients/999999999/top-products`, { headers: headersFor("ventas") });
+    assert.equal(notFound.status, 404);
+  });
+});
+
 describe("dashboard · indicadores con rango de fechas", () => {
   it("con from/to filtra por ese rango exacto (sin depender de cuántos checks reales haya hoy)", async () => {
     const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });

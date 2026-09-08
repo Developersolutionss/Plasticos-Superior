@@ -234,6 +234,62 @@ clientsRouter.get("/:id/cartera", async (req, res) => {
   });
 });
 
+/**
+ * Productos que más pide el cliente: se cuenta sobre los PEDIDOS (lo que
+ * realmente ordenó), tomando de cada uno solo la versión VIGENTE
+ * (currentVersion) — versiones viejas quedaron reemplazadas, no reflejan lo
+ * que el cliente pidió al final. Se usa tanto en la ficha del cliente
+ * (informativo) como en el selector rápido al armar una cotización/pedido
+ * nuevo. Orden: primero por en cuántos pedidos distintos apareció el
+ * producto (frecuencia), después por la cantidad total pedida — un producto
+ * que se repite en muchos pedidos chicos es más "lo que más pide" que uno
+ * pedido una sola vez en cantidad grande.
+ */
+clientsRouter.get("/:id/top-products", async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId)) return res.status(400).json({ error: "Id inválido" });
+
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+
+  const limitParam = Number(req.query.limit);
+  const limit = Number.isInteger(limitParam) && limitParam > 0 ? Math.min(limitParam, 20) : 5;
+
+  const pedidos = await prisma.pedido.findMany({
+    where: { clientId },
+    select: {
+      currentVersion: true,
+      versions: {
+        select: {
+          versionNumber: true,
+          items: { select: { productId: true, quantity: true, measure: true, product: { select: { id: true, sku: true, name: true, unit: true } } } },
+        },
+      },
+    },
+  });
+
+  const stats = new Map<number, { product: { id: number; sku: string; name: string; unit: string }; measure: string | null; frequency: number; totalQuantity: number }>();
+  for (const pedido of pedidos) {
+    const vigente = pedido.versions.find((v) => v.versionNumber === pedido.currentVersion);
+    if (!vigente) continue;
+    for (const item of vigente.items) {
+      const prev = stats.get(item.productId);
+      stats.set(item.productId, {
+        product: item.product,
+        measure: prev?.measure ?? item.measure ?? null,
+        frequency: (prev?.frequency ?? 0) + 1,
+        totalQuantity: (prev?.totalQuantity ?? 0) + Number(item.quantity),
+      });
+    }
+  }
+
+  const topProducts = [...stats.values()]
+    .sort((a, b) => b.frequency - a.frequency || b.totalQuantity - a.totalQuantity)
+    .slice(0, limit);
+
+  res.json(topProducts);
+});
+
 /** Lista global de contactos de todos los clientes (pantalla CRM "Contactos"),
  * con datos de la empresa relacionada para mostrar su avatar y nombre. */
 clientsRouter.get("/contacts", async (_req, res) => {

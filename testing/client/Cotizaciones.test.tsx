@@ -10,6 +10,7 @@ vi.mock("../../client/src/api/client", () => ({
     getClients: vi.fn(),
     getProducts: vi.fn().mockResolvedValue([]),
     getCotizaciones: vi.fn().mockResolvedValue([]),
+    getClientTopProducts: vi.fn().mockResolvedValue([]),
     createCotizacion: vi.fn(),
     downloadCotizacionPdf: vi.fn().mockResolvedValue(undefined),
   },
@@ -50,6 +51,34 @@ describe("Cotizaciones · preselección desde el botón Cotizar", () => {
     renderCotizaciones();
     await screen.findByLabelText("Buscar cliente");
     expect(screen.queryByLabelText("Quitar cliente")).not.toBeInTheDocument();
+  });
+});
+
+describe("Cotizaciones · atajo de productos que más pide", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getClients).mockResolvedValue(CLIENTS);
+    vi.mocked(api.getProducts).mockResolvedValue([{ id: 5, name: "Bulto 25kg Tipo A", unitPrice: 12000 }] as any);
+  });
+
+  it("con un cliente elegido y con historial, muestra un chip por producto y lo carga al tocarlo", async () => {
+    vi.mocked(api.getClientTopProducts).mockResolvedValue([
+      { product: { id: 5, sku: "BUL-001", name: "Bulto 25kg Tipo A", unit: "unidad" }, measure: null, frequency: 3, totalQuantity: 30 },
+    ]);
+    const user = userEvent.setup();
+    renderCotizaciones({ clientId: 2 });
+
+    const chip = await screen.findByRole("button", { name: "+ Bulto 25kg Tipo A" });
+    await user.click(chip);
+
+    const select = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
+    expect(select.value).toBe("5");
+  });
+
+  it("sin cliente elegido no muestra ningún atajo", async () => {
+    renderCotizaciones();
+    await screen.findByLabelText("Buscar cliente");
+    expect(screen.queryByText("Pide seguido:")).not.toBeInTheDocument();
   });
 });
 

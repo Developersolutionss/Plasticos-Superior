@@ -176,6 +176,10 @@ export const api = {
   ) => request<any>(`/clients/${clientId}/interactions`, { method: "POST", body: JSON.stringify(data) }),
   getClientCartera: (clientId: number) =>
     request<{ creditLimit: number; saldoPendiente: number; facturasPendientes: any[] }>(`/clients/${clientId}/cartera`),
+  getClientTopProducts: (clientId: number, limit?: number) =>
+    request<
+      { product: { id: number; sku: string; name: string; unit: string }; measure: string | null; frequency: number; totalQuantity: number }[]
+    >(`/clients/${clientId}/top-products${limit ? `?limit=${limit}` : ""}`),
 
   createProductionEntry: (data: Record<string, unknown>) =>
     request<any>("/production/entries", { method: "POST", body: JSON.stringify(data) }),
