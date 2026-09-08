@@ -68,6 +68,12 @@ export const ROLES = {
   ] as UserRole[],
   CALIDAD: ["super_admin", "admin", "calidad"] as UserRole[],
   AUDITORIA: ["super_admin", "admin", "auditor"] as UserRole[],
+  // Cerrar una OP (POST /:id/close) es del operario de esa estación, no de
+  // Gestión — a pedido del cliente. Gerente de Producción/Planeación quedan
+  // afuera (a diferencia de OPERARIOS de arriba, que sí los incluye para
+  // cargar rollos/derivar); el chequeo de a qué estación pertenece cada
+  // operario sigue siendo OPERARIO_STATIONS más abajo.
+  CIERRE_OP: ["super_admin", "admin", "operario_extrusion", "operario_impresion", "operario_sellado_precorte"] as UserRole[],
   // Quién puede elegir productos del catálogo (GET /inventory/products,
   // reusado por Cotizaciones/Pedidos/Facturas/OrdenesProduccion para el
   // selector de producto) — antes GET /inventory, /alerts y /products no

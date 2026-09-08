@@ -70,6 +70,8 @@ export const STATION_LABELS: Record<OpStation, string> = {
 
 const FORMA_MATERIAL = ["Tubular", "Semitubular", "Lám. PH", "Lám. Indiv.", "Fuelles"];
 const SI_NO = ["SI", "NO"];
+const DENSIDAD = ["ALTA", "BAJA"];
+const COLORES = ["Negro", "Transparente", "Blanco", "Rojo", "Verde", "Verde claro"];
 
 const MEDIDAS_FINALES: OpSpecSection = {
   title: "MEDIDAS FINALES",
@@ -109,8 +111,8 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
           { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
-          { key: "densidad", label: "Densidad", kind: "text" },
-          { key: "color", label: "Color", kind: "text" },
+          { key: "densidad", label: "Densidad", kind: "options", options: DENSIDAD },
+          { key: "color", label: "Color", kind: "options", options: COLORES },
           { key: "tratado", label: "Tratado", kind: "options", options: SI_NO },
           { key: "tratadoCaras", label: "Caras tratadas", kind: "text" },
           { key: "grafilado", label: "Grafilado", kind: "options", options: SI_NO },
@@ -145,7 +147,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         title: "CARACTERISTICAS DE LOS ROLLOS",
         fields: [
           { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
-          { key: "color", label: "Color", kind: "text" },
+          { key: "color", label: "Color", kind: "options", options: COLORES },
           { key: "tratado", label: "Tratado", kind: "options", options: SI_NO },
           { key: "caras", label: "Caras", kind: "text" },
           { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
@@ -194,7 +196,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         title: "MATERIAL",
         fields: [
           { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
-          { key: "color", label: "Color", kind: "text" },
+          { key: "color", label: "Color", kind: "options", options: COLORES },
           { key: "impreso", label: "Impreso", kind: "text" },
           { key: "caras", label: "Caras", kind: "text" },
           { key: "rollos", label: "Rollos", kind: "number" },
@@ -240,7 +242,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         title: "MATERIAL",
         fields: [
           { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
-          { key: "color", label: "Color", kind: "text" },
+          { key: "color", label: "Color", kind: "options", options: COLORES },
           { key: "impreso", label: "Impreso", kind: "text" },
           { key: "caras", label: "Caras", kind: "text" },
           { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },

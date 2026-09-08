@@ -351,9 +351,16 @@ describe("materia prima", () => {
     });
     await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 10 } });
 
-    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
+    // Cerrar es del operario de esa estación, no de Gestión (ver ROLES.CIERRE_OP).
+    const denied = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
       method: "POST",
       headers: headersFor("produccion"),
+    });
+    assert.equal(denied.status, 403);
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
     });
     assert.equal(res.status, 200);
     const body = (await res.json()) as { status: string; skippedRawMaterialRefs: string[] };
@@ -393,7 +400,7 @@ describe("materia prima", () => {
 
     const close2 = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("operario_extrusion"),
     });
     assert.equal(close2.status, 200);
 
@@ -1241,7 +1248,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
     const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("operario_sellado"),
     });
     assert.equal(res.status, 200);
 
@@ -1282,7 +1289,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId } });
     const close = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("operario_impresion"),
     });
     assert.equal(close.status, 200);
     const closed = (await close.json()) as { status: string };
@@ -2169,8 +2176,8 @@ describe("auditoría", () => {
 });
 
 describe("productos", () => {
-  const sku = `TEST-SKU-${Date.now()}`;
   let productId = 0;
+  let productSku = "";
 
   after(async () => {
     if (productId) await prisma.product.delete({ where: { id: productId } }).catch(() => {});
@@ -2187,35 +2194,73 @@ describe("productos", () => {
     const res = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
       headers: headersFor("ventas"),
-      body: JSON.stringify({ sku, name: "Test", category: "bultos", unit: "kg", minStock: 0, unitPrice: 100 }),
+      body: JSON.stringify({ name: "Test", category: "bultos", unit: "kg", minStock: 0, unitPrice: 100 }),
     });
     assert.equal(res.status, 403);
   });
 
-  it("crea un producto y rechaza SKU duplicado", async () => {
+  it("genera el SKU solo (el cliente no lo entendía, ver comentario en products.ts) con el prefijo de la categoría, sin pedirlo en el body", async () => {
     const res = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ sku, name: "Test Producto", category: "bultos", unit: "kg", minStock: 5, unitPrice: 1000 }),
+      body: JSON.stringify({
+        sku: "ESTO-SE-IGNORA",
+        name: "Test Producto",
+        category: "bultos",
+        unit: "kg",
+        minStock: 5,
+        unitPrice: 1000,
+        talla: "M",
+        color: "Negro",
+        densidad: "ALTA",
+        medidaRef: "Ref-1",
+        calibre: "0.5",
+        measureUnit: "Cms.",
+      }),
     });
     assert.equal(res.status, 201);
-    const product = (await res.json()) as { id: number; active: boolean };
+    const product = (await res.json()) as { id: number; active: boolean; sku: string; color: string; densidad: string };
     productId = product.id;
+    productSku = product.sku;
     assert.equal(product.active, true);
+    assert.match(product.sku, /^BUL-\d{3}$/, "el SKU se genera con el prefijo BUL de la categoría, no con el que mandó el body");
+    assert.notEqual(product.sku, "ESTO-SE-IGNORA");
+    assert.equal(product.color, "Negro");
+    assert.equal(product.densidad, "ALTA");
 
-    const dup = await fetch(`${baseUrl}/api/products`, {
+    // Un segundo producto de la misma categoría saca el siguiente consecutivo.
+    const second = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ sku, name: "Otro", category: "bultos", unit: "kg", minStock: 0, unitPrice: 1 }),
+      body: JSON.stringify({ name: "Test Producto 2", category: "bultos", unit: "kg", minStock: 0, unitPrice: 1 }),
     });
-    assert.equal(dup.status, 409);
+    assert.equal(second.status, 201);
+    const secondProduct = (await second.json()) as { id: number; sku: string };
+    assert.notEqual(secondProduct.sku, productSku, "cada producto de la misma categoría saca un SKU distinto");
+    await prisma.product.delete({ where: { id: secondProduct.id } }).catch(() => {});
+  });
+
+  it("rechaza un color/densidad fuera de la lista fija", async () => {
+    const res = await fetch(`${baseUrl}/api/products`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ name: "Test", category: "bultos", unit: "kg", minStock: 0, unitPrice: 1, color: "Fucsia" }),
+    });
+    assert.equal(res.status, 400);
+
+    const res2 = await fetch(`${baseUrl}/api/products`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ name: "Test", category: "bultos", unit: "kg", minStock: 0, unitPrice: 1, densidad: "MEDIA" }),
+    });
+    assert.equal(res2.status, 400);
   });
 
   it("GET /:id/label devuelve un QR en data URL", async () => {
     const res = await fetch(`${baseUrl}/api/products/${productId}/label`, { headers: headersFor("produccion") });
     assert.equal(res.status, 200);
     const body = (await res.json()) as { sku: string; qrDataUrl: string };
-    assert.equal(body.sku, sku);
+    assert.equal(body.sku, productSku);
     assert.ok(body.qrDataUrl.startsWith("data:image"));
   });
 
@@ -2245,7 +2290,7 @@ describe("productos", () => {
 
     const catalog = await fetch(`${baseUrl}/api/inventory/products`, { headers: authHeaders() });
     const catalogBody = (await catalog.json()) as { sku: string }[];
-    assert.ok(!catalogBody.some((p) => p.sku === sku), "un producto inactivo no debe verse en el selector de venta");
+    assert.ok(!catalogBody.some((p) => p.sku === productSku), "un producto inactivo no debe verse en el selector de venta");
 
     const reactivate = await fetch(`${baseUrl}/api/products/${productId}/reactivate`, { method: "POST", headers: headersFor("produccion") });
     assert.equal(reactivate.status, 200);
@@ -2943,40 +2988,32 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
 });
 
 describe("productos", () => {
-  it("crea un producto con el rol correcto, rechaza el rol incorrecto, y rechaza SKU duplicado", async () => {
-    const sku = `TEST-SKU-${Date.now()}`;
+  it("crea un producto con el rol correcto, rechaza el rol incorrecto, y genera el SKU con el prefijo de la categoría", async () => {
     const forbidden = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
       headers: headersFor("almacen"),
-      body: JSON.stringify({ sku, name: "Producto de test", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
+      body: JSON.stringify({ name: "Producto de test", category: "tubular", unit: "unidad", minStock: 1, unitPrice: 100 }),
     });
     assert.equal(forbidden.status, 403);
 
     const res = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ sku, name: "Producto de test", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
+      body: JSON.stringify({ name: "Producto de test", category: "tubular", unit: "unidad", minStock: 1, unitPrice: 100 }),
     });
     assert.equal(res.status, 201);
-    const product = (await res.json()) as { id: number };
-
-    const dup = await fetch(`${baseUrl}/api/products`, {
-      method: "POST",
-      headers: headersFor("produccion"),
-      body: JSON.stringify({ sku, name: "Otro", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
-    });
-    assert.equal(dup.status, 409);
+    const product = (await res.json()) as { id: number; sku: string };
+    assert.match(product.sku, /^TUB-\d{3}$/);
 
     await prisma.product.delete({ where: { id: product.id } });
   });
 
   it("edita, desactiva y reactiva un producto — desactivado sale del selector filtrado pero no del catálogo completo", async () => {
-    const sku = `TEST-SKU-${Date.now()}-2`;
     const created = (await (
       await fetch(`${baseUrl}/api/products`, {
         method: "POST",
         headers: headersFor("produccion"),
-        body: JSON.stringify({ sku, name: "Producto B", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
+        body: JSON.stringify({ name: "Producto B", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
       })
     ).json()) as { id: number };
 

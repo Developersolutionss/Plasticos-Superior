@@ -32,6 +32,9 @@ enum ProductCategory {
   mangueta
   tiras
   control_impresion
+  tubular
+  semitubular
+  laminado
 }
 
 enum ProductUnit {
@@ -221,6 +224,18 @@ model Product {
   name      String
   category  ProductCategory
   measure   String?
+  /// Unidad de la medida ("Pulgadas"/"Cms.") -- el cliente pidió poder
+  /// aclarar en qué unidad viene `measure`, en vez de asumir siempre cm.
+  measureUnit String?  @map("measure_unit")
+  /// Talla/color/densidad/medida de referencia/calibre: atributos que el
+  /// cliente pidió poder cargar al crear el producto (antes solo existía
+  /// `measure` como texto libre) -- opcionales porque no todas las
+  /// categorías de producto los usan.
+  talla     String?
+  color     String?
+  densidad  String?
+  medidaRef String?         @map("medida_ref")
+  calibre   String?
   unit      ProductUnit
   minStock  Decimal         @default(0) @map("min_stock") @db.Decimal(12, 2)
   unitPrice Decimal         @default(0) @map("unit_price") @db.Decimal(12, 2)

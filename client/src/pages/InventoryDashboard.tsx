@@ -11,6 +11,9 @@ const CATEGORIES = [
   { value: "mangueta", label: "Mangueta" },
   { value: "tiras", label: "Tiras" },
   { value: "control_impresion", label: "Control Impresión" },
+  { value: "tubular", label: "Tubular" },
+  { value: "semitubular", label: "Semi tubular" },
+  { value: "laminado", label: "Laminado" },
 ];
 
 export default function InventoryDashboard() {

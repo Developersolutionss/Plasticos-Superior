@@ -673,7 +673,7 @@ productionOrdersRouter.patch("/:id/status", requireProduccionGestion, async (req
  * derivadas (a Sellado/Precorte): cerrar y derivar son decisiones
  * independientes, no una excluye a la otra.
  */
-productionOrdersRouter.post("/:id/close", requireOperarios, async (req, res) => {
+productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
 

@@ -93,6 +93,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   mangueta: "Mangueta",
   tiras: "Tiras",
   control_impresion: "Control Impresión",
+  tubular: "Tubular",
+  semitubular: "Semi tubular",
+  laminado: "Laminado",
 };
 
 function formatCOP(n: number) {

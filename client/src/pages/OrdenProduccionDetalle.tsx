@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { FileDown, GitBranch, Lock, Paperclip, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
-import { OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
+import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { useConfirm } from "../components/ConfirmDialog";
 import {
@@ -36,6 +36,16 @@ const STATION_OPERATE: Record<OpStation, UserRole[]> = {
   impresion: OP_IMPRESION,
   sellado: OP_SELLADO,
   precorte: OP_SELLADO,
+};
+
+/** Cerrar la OP es del operario de esa estación, no de Gestión (espejo de
+ * ROLES.CIERRE_OP del backend) — a diferencia de STATION_OPERATE de arriba,
+ * que sí deja cargar rollos/derivar a Gestión. */
+const STATION_CLOSE: Record<OpStation, UserRole[]> = {
+  extrusion: [...ADMIN, "operario_extrusion"],
+  impresion: [...ADMIN, "operario_impresion"],
+  sellado: [...ADMIN, "operario_sellado_precorte"],
+  precorte: [...ADMIN, "operario_sellado_precorte"],
 };
 
 // Clases compartidas de la "hoja" estilo Excel
@@ -257,6 +267,7 @@ export default function OrdenProduccionDetalle() {
   const isOpen = OPEN_STATUSES.includes(order.status);
   const isReopenable = REOPENABLE_STATUSES.includes(order.status);
   const canOperate = !!user && STATION_OPERATE[station].includes(user.role);
+  const canClose = !!user && STATION_CLOSE[station].includes(user.role);
   // En "borrador" también se edita specs — es justo cuando Gestión carga
   // materia prima/medidas/cliente/referencia antes de liberarla a planta.
   const canEditSpecs = canGestion && (isDraft || isOpen);
@@ -681,7 +692,7 @@ export default function OrdenProduccionDetalle() {
                 <GitBranch size={14} aria-hidden="true" /> Derivar a {STATION_LABELS[target]}
               </button>
             ))}
-          {canOperate && isOpen && (
+          {canClose && isOpen && (
             <button
               type="button"
               onClick={handleClose}
@@ -865,7 +876,20 @@ export default function OrdenProduccionDetalle() {
                             value={row.pct}
                             disabled={!canEditSpecs}
                             onChange={(e) => {
-                              setMateriaPrima((prev) => prev.map((r, idx) => (idx === i ? { ...r, pct: e.target.value } : r)));
+                              const typed = e.target.value;
+                              setMateriaPrima((prev) => {
+                                // El total entre todas las refs no puede pasar
+                                // de 100% — el pedido del cliente fue que se
+                                // "bloquee" al completar el 100%, salvo que
+                                // se borre/reduzca otra fila para liberar
+                                // espacio. Se recorta acá en vez de con un
+                                // input disabled porque esto último no deja
+                                // reducir una fila para hacerle lugar a otra.
+                                const othersTotal = prev.reduce((acc, r, idx) => (idx === i ? acc : acc + (Number(r.pct) || 0)), 0);
+                                const room = Math.max(0, 100 - othersTotal);
+                                const clamped = typed === "" ? "" : String(Math.min(Number(typed) || 0, room));
+                                return prev.map((r, idx) => (idx === i ? { ...r, pct: clamped } : r));
+                              });
                               markDirty();
                             }}
                           />

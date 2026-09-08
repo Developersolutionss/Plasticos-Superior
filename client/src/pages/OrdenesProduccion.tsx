@@ -239,7 +239,18 @@ export default function OrdenesProduccion() {
           <select
             className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             value={productId}
-            onChange={(e) => setProductId(e.target.value)}
+            onChange={(e) => {
+              const id = e.target.value;
+              setProductId(id);
+              // El cliente pidió que si el producto ya tiene medidas
+              // cargadas (ver ProductoForm.tsx), se usen solas acá en vez de
+              // tipearlas de nuevo — solo si el campo está vacío, para no
+              // pisar algo que la persona ya haya escrito a mano.
+              if (!measure) {
+                const selected = products?.find((p: any) => String(p.id) === id);
+                if (selected?.measure) setMeasure(selected.measure);
+              }
+            }}
           >
             <option value="">Producto (referencia)...</option>
             {products?.map((p: any) => (

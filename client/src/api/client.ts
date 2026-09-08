@@ -69,17 +69,35 @@ export const api = {
    * activos usado como dropdown en Cotizaciones/Facturas/OPs/Pedidos. */
   getAllProducts: () => request<any[]>("/products"),
   createProduct: (data: {
-    sku: string;
     name: string;
     category: string;
     measure?: string;
+    measureUnit?: string;
+    talla?: string;
+    color?: string;
+    densidad?: string;
+    medidaRef?: string;
+    calibre?: string;
     unit: string;
     minStock: number;
     unitPrice: number;
   }) => request<any>("/products", { method: "POST", body: JSON.stringify(data) }),
   updateProduct: (
     productId: number,
-    data: Partial<{ sku: string; name: string; category: string; measure?: string; unit: string; minStock: number; unitPrice: number }>
+    data: Partial<{
+      name: string;
+      category: string;
+      measure?: string;
+      measureUnit?: string;
+      talla?: string;
+      color?: string;
+      densidad?: string;
+      medidaRef?: string;
+      calibre?: string;
+      unit: string;
+      minStock: number;
+      unitPrice: number;
+    }>
   ) => request<any>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(data) }),
   deactivateProduct: (productId: number) => request<any>(`/products/${productId}`, { method: "DELETE" }),
   reactivateProduct: (productId: number) => request<any>(`/products/${productId}/reactivate`, { method: "POST" }),

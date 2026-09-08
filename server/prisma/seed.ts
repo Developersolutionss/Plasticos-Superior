@@ -31,8 +31,33 @@ async function main() {
   });
 
   const products = [
-    { sku: "BUL-001", name: "Bulto 25kg Tipo A", category: "bultos", measure: "25kg", unit: "unidad", minStock: 50, unitPrice: 12000 },
-    { sku: "ROL-PL-001", name: "Rollo Precintado/Laminado 20x30", category: "rollos_prec_lam", measure: "20x30", unit: "kg", minStock: 100, unitPrice: 8500 },
+    {
+      sku: "BUL-001",
+      name: "Bulto 25kg Tipo A",
+      category: "bultos",
+      measure: "25kg",
+      measureUnit: "Cms.",
+      talla: "L",
+      color: "Negro",
+      densidad: "ALTA",
+      calibre: "0.45",
+      unit: "unidad",
+      minStock: 50,
+      unitPrice: 12000,
+    },
+    {
+      sku: "ROL-PL-001",
+      name: "Rollo Precintado/Laminado 20x30",
+      category: "rollos_prec_lam",
+      measure: "20x30",
+      measureUnit: "Cms.",
+      color: "Transparente",
+      densidad: "BAJA",
+      medidaRef: "Ref-20x30",
+      unit: "kg",
+      minStock: 100,
+      unitPrice: 8500,
+    },
     { sku: "ROL-F-001", name: "Rollo Fuelle 15x40", category: "rollos_fuelle", measure: "15x40", unit: "kg", minStock: 80, unitPrice: 9200 },
     { sku: "MAN-001", name: "Mangueta Estándar", category: "mangueta", measure: "30cm", unit: "kg", minStock: 60, unitPrice: 7000 },
     { sku: "TIR-001", name: "Tiras 5cm", category: "tiras", measure: "5cm", unit: "kg", minStock: 40, unitPrice: 5000 },
@@ -40,9 +65,10 @@ async function main() {
   ] as const;
 
   for (const product of products) {
+    const { sku, unitPrice, ...attrs } = product;
     await prisma.product.upsert({
-      where: { sku: product.sku },
-      update: { unitPrice: product.unitPrice, active: true },
+      where: { sku },
+      update: { unitPrice, active: true, ...attrs },
       create: product as any,
     });
   }
