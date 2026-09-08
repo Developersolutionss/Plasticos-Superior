@@ -68,11 +68,17 @@ export const ROLES = {
   ] as UserRole[],
   CALIDAD: ["super_admin", "admin", "calidad"] as UserRole[],
   AUDITORIA: ["super_admin", "admin", "auditor"] as UserRole[],
-  // Espejo exacto del grupo INVENTARIO de client/src/components/navConfig.ts
-  // (quién ve "Existencias" en el menú) — antes GET /inventory, /alerts y
-  // /products no tenían ningún guard de rol, así que un operario de planta
-  // veía el inventario completo con solo estar logueado.
+  // Quién puede elegir productos del catálogo (GET /inventory/products,
+  // reusado por Cotizaciones/Pedidos/Facturas/OrdenesProduccion para el
+  // selector de producto) — antes GET /inventory, /alerts y /products no
+  // tenían ningún guard de rol, así que un operario de planta veía el
+  // inventario completo con solo estar logueado.
   INVENTARIO: ["super_admin", "admin", "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"] as UserRole[],
+  // Quién ve el stock real (GET /inventory, /alerts — "Existencias" en el
+  // menú): a diferencia de INVENTARIO de arriba, Gerente de Producción
+  // queda afuera a pedido del cliente — sigue pudiendo elegir productos
+  // (INVENTARIO) para armar OPs, pero no ver cuánto stock hay.
+  EXISTENCIAS: ["super_admin", "admin", "almacen_despachos", "planeacion", "ventas_pedidos"] as UserRole[],
 };
 
 /**

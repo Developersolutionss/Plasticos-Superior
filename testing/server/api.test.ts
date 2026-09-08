@@ -226,6 +226,16 @@ describe("inventario", () => {
     }
   });
 
+  it("gerente de producción no ve Existencias/alertas (a pedido del cliente), pero sí puede elegir productos del catálogo", async () => {
+    const denied = ["/api/inventory", "/api/inventory/alerts"];
+    for (const route of denied) {
+      const res = await fetch(`${baseUrl}${route}`, { headers: headersFor("produccion") });
+      assert.equal(res.status, 403, `${route} debería rechazar a gerente_produccion`);
+    }
+    const products = await fetch(`${baseUrl}/api/inventory/products`, { headers: headersFor("produccion") });
+    assert.equal(products.status, 200, "gerente_produccion sigue necesitando el catálogo para armar OPs");
+  });
+
   it("GET /movements exige rol de almacén y devuelve paginado", async () => {
     const denied = await fetch(`${baseUrl}/api/inventory/movements`, { headers: headersFor("ventas") });
     assert.equal(denied.status, 403);

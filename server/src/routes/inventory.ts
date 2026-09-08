@@ -7,14 +7,15 @@ export const inventoryRouter = Router();
 inventoryRouter.use(requireAuth);
 
 const requireInventario = requireRole(...ROLES.INVENTARIO);
+const requireExistencias = requireRole(...ROLES.EXISTENCIAS);
 
-inventoryRouter.get("/", requireInventario, async (req, res) => {
+inventoryRouter.get("/", requireExistencias, async (req, res) => {
   const stock = await getStockByCategory();
   const category = req.query.category as string | undefined;
   res.json(category ? stock.filter((p) => p.category === category) : stock);
 });
 
-inventoryRouter.get("/alerts", requireInventario, async (_req, res) => {
+inventoryRouter.get("/alerts", requireExistencias, async (_req, res) => {
   res.json(await getLowStockAlerts());
 });
 

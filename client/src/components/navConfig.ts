@@ -30,6 +30,10 @@ export const OP_SELLADO: UserRole[] = [...PRODUCCION_GESTION, "operario_sellado_
 export const CALIDAD: UserRole[] = [...ADMIN, "calidad"];
 export const AUDITORIA: UserRole[] = [...ADMIN, "auditor"];
 export const INVENTARIO: UserRole[] = [...ADMIN, "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"];
+// A diferencia de INVENTARIO (quién puede elegir productos del catálogo,
+// reusado en Cotizaciones/Pedidos/OPs), Gerente de Producción no ve stock
+// real de Existencias — a pedido del cliente.
+export const EXISTENCIAS: UserRole[] = [...ADMIN, "almacen_despachos", "planeacion", "ventas_pedidos"];
 const TODOS: UserRole[] = [
   "super_admin",
   "admin",
@@ -146,7 +150,7 @@ export const navSections: NavEntry[] = [
     roles: INVENTARIO,
     group: "Inventario",
     children: [
-      { id: "inventario-existencias", label: "Existencias", to: "/" },
+      { id: "inventario-existencias", label: "Existencias", to: "/", roles: EXISTENCIAS },
       { id: "inventario-productos", label: "Productos", to: "/inventario/productos", roles: PRODUCCION_GESTION },
       { id: "inventario-materia-prima", label: "Materia prima", to: "/inventario/materia-prima", roles: PRODUCCION_GESTION },
       { id: "inventario-movimientos", label: "Movimientos", to: "/inventario/movimientos", roles: ALMACEN },

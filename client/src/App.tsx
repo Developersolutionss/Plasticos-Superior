@@ -47,7 +47,7 @@ import {
   OP_SELLADO,
   CALIDAD,
   AUDITORIA,
-  INVENTARIO,
+  EXISTENCIAS,
 } from "./components/navConfig";
 
 /** La hoja de una OP la ven todos los que participan del ciclo: operarios y
@@ -60,7 +60,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return children;
 }
 
-/** A dónde manda "/" a un rol que no ve Existencias (INVENTARIO) — su
+/** A dónde manda "/" a un rol que no ve Existencias (EXISTENCIAS) — su
  * pantalla de trabajo habitual, para no dejarlo varado en una página vacía
  * ni mostrarle el inventario completo solo por estar logueado. */
 const DEFAULT_ROUTE_FOR_ROLE: Partial<Record<UserRole, string>> = {
@@ -69,17 +69,21 @@ const DEFAULT_ROUTE_FOR_ROLE: Partial<Record<UserRole, string>> = {
   operario_sellado_precorte: "/produccion/estacion/sellado",
   calidad: "/calidad",
   auditor: "/auditoria",
+  // No ve Existencias (a pedido del cliente) aunque sigue en INVENTARIO
+  // para poder elegir productos al armar OPs — su pantalla habitual es la
+  // cola de órdenes de producción.
+  gerente_produccion: "/produccion/ordenes",
 };
 
 /** Índice ("/"): Admin entra directo al Dashboard (resumen ejecutivo);
- * Existencias para el resto de quienes pueden verlas (ver ROLES.INVENTARIO
+ * Existencias para el resto de quienes pueden verlas (ver ROLES.EXISTENCIAS
  * en el backend, mismo criterio acá); el resto va a su pantalla habitual. */
 function IndexRoute() {
   const { user } = useAuth();
   if (user && (ADMIN as UserRole[]).includes(user.role)) {
     return <Navigate to="/dashboard-ejecutivo" replace />;
   }
-  if (user && !(INVENTARIO as UserRole[]).includes(user.role)) {
+  if (user && !(EXISTENCIAS as UserRole[]).includes(user.role)) {
     const to = DEFAULT_ROUTE_FOR_ROLE[user.role];
     if (to) return <Navigate to={to} replace />;
   }
