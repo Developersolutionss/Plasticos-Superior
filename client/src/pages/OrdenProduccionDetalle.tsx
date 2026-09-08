@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
+import { Fragment, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FileDown, GitBranch, Lock, Paperclip, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
@@ -17,7 +17,6 @@ import {
   OpStation,
   STATION_LABELS,
 } from "../opTemplates";
-import "./OrdenProduccionDetalle.css";
 
 const STATUS_LABELS: Record<string, string> = {
   borrador: "Borrador",
@@ -672,6 +671,75 @@ export default function OrdenProduccionDetalle() {
     }
   }
 
+  /** Contenido de una celda de la fila de carga inline (la de escribir un
+   * rollo nuevo), factorizado para reusarlo tal cual en la tabla de
+   * escritorio y en las tarjetas de celular — antes esta lógica vivía
+   * duplicada como puro JSX dentro del `<tr>`, ahora es una sola función que
+   * decide qué mostrar según la columna. */
+  function draftCellContent(col: OpRollColumn): { content: ReactNode; locked?: boolean; title?: string } {
+    const key = rollDraftKey(col);
+    if (col.source === "operator") {
+      return { content: user!.name, locked: true, title: "El operario es siempre la cuenta con la que iniciaste sesión" };
+    }
+    if (col.source === "cumulativeWeight") {
+      return { content: "—", locked: true, title: "Se calcula solo al guardar" };
+    }
+    if (col.source === "date" || col.source === "time" || (col.source === "label" && template.labelIsOwnRoll)) {
+      return {
+        content: "se completa sola",
+        locked: true,
+        title: col.source === "label" ? "Se genera sola (código del rollo) al guardar" : "Se completa sola con el momento en que se guarda",
+      };
+    }
+    // TURNO: solo hay Día/Noche en planta, se calcula solo de la hora real
+    // de Colombia al guardar (mismo criterio que FECHA/HORA) — acá se
+    // muestra una vista previa (hora de Colombia, no la del huso del
+    // navegador/celular), el valor que realmente queda es el que calcula el
+    // servidor al momento de guardar la fila.
+    if (col.source === "shift") {
+      const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Bogota", hour: "numeric", hour12: false }).format(new Date())) % 24;
+      const shiftPreview = hour >= 6 && hour < 18 ? "Día" : "Noche";
+      return { content: shiftPreview, locked: true, title: "Se completa solo según la hora (6:00–17:59 Día, resto Noche)" };
+    }
+    // ETIQUETA/PESO son el rollo de ORIGEN en Sellado/Precorte (a diferencia
+    // de Extrusión/Impresión, donde arriba ya se resuelve como "rollo
+    // propio"). El jefe pidió que acá no se pueda tipear a mano: se
+    // bloquean hasta escanear el QR del rollo de origen, que es lo que los
+    // rellena — recién ahí quedan editables por si hace falta corregir algo.
+    if ((col.source === "label" || col.source === "weight") && !template.labelIsOwnRoll && !sourceRoll) {
+      return { content: "escaneá el QR", locked: true, title: "Se completa al escanear el QR del rollo de origen" };
+    }
+    // E. BULTO: etiqueta física pre-impresa (ver EtiquetasBulto.tsx) — se
+    // completa sola al escanearla y queda de solo lectura (no editable como
+    // el resto: el código ya quedó consumido del lado del servidor,
+    // "corregirlo" a mano lo desconectaría de la etiqueta física real).
+    if (col.scanBultoLabel) {
+      return {
+        content: bultoLabel ? bultoLabel.code : "escaneá el QR",
+        locked: !bultoLabel,
+        title: bultoLabel ? undefined : "Se completa al escanear el QR de la etiqueta de bulto",
+      };
+    }
+    return {
+      content:
+        col.kind === "siNo" ? (
+          <select className={sheetInput} value={rollDraft[key] ?? ""} onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}>
+            <option value="">—</option>
+            <option value="SI">SI</option>
+            <option value="NO">NO</option>
+          </select>
+        ) : (
+          <input
+            className={sheetInput}
+            type={col.kind === "number" ? "number" : "text"}
+            step={col.kind === "number" ? "0.01" : undefined}
+            value={rollDraft[key] ?? ""}
+            onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}
+          />
+        ),
+    };
+  }
+
   function rollDraftKey(col: OpRollColumn) {
     return col.source === "detail" ? `detail:${col.detailKey}` : col.source === "operator" ? "operator" : col.source;
   }
@@ -1205,14 +1273,15 @@ export default function OrdenProduccionDetalle() {
           </div>
         )}
 
-        {/* Scroll propio solo para esta tabla (la más ancha, hasta 11
-            columnas en Extrusión) en vez de para toda la hoja — así el resto
-            de las secciones (encabezado, materia prima, especificaciones) se
-            ven enteras sin deslizar, incluso en pantallas de escritorio no
-            tan anchas. En celular no aplica: .op-roll-table pasa a tarjetas
-            apiladas (ver OrdenProduccionDetalle.css), no hay tabla ancha. */}
-        <div className="overflow-x-auto">
-        <table className="op-roll-table w-full text-xs sm:text-sm">
+        {/* Tabla real solo en escritorio, con scroll propio (la más ancha,
+            hasta 11 columnas en Extrusión) en vez de para toda la hoja — así
+            el resto de las secciones se ven enteras sin deslizar. En celular
+            se reemplaza por tarjetas de verdad más abajo (md:hidden) — un
+            intento anterior con un truco de CSS (pseudo-elemento con el
+            nombre de columna) no se renderizaba bien en algunos navegadores
+            de celular, mostraba etiquetas y valores por separado. */}
+        <div className="hidden md:block overflow-x-auto">
+        <table className="w-full text-xs sm:text-sm">
           <thead>
             <tr className="text-left text-[9px] sm:text-[10px] uppercase text-slate-500 dark:text-slate-400">
               {template.rollColumns.map((col) => (
@@ -1228,12 +1297,12 @@ export default function OrdenProduccionDetalle() {
               <Fragment key={roll.id}>
                 <tr>
                   {template.rollColumns.map((col) => (
-                    <td key={col.detailKey ?? col.source} data-label={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-800 dark:text-slate-100`}>
+                    <td key={col.detailKey ?? col.source} className={`${cellBorder} px-1.5 py-1 text-slate-800 dark:text-slate-100`}>
                       {rollCellDisplay(roll, col, rollCumulative[i])}
                     </td>
                   ))}
                   {canOperate && (
-                    <td data-label="Acciones" className={`${cellBorder} px-1.5 py-1 text-center whitespace-nowrap`}>
+                    <td className={`${cellBorder} px-1.5 py-1 text-center whitespace-nowrap`}>
                       <button type="button" className="text-slate-500 dark:text-slate-400" title="Imprimir etiqueta" onClick={() => handlePrintLabel(roll.id)}>
                         <Printer size={13} aria-hidden="true" />
                       </button>
@@ -1269,111 +1338,20 @@ export default function OrdenProduccionDetalle() {
             {canOperate && isOpen && !isQuantityComplete && (
               <tr className="bg-sky-50 dark:bg-slate-800">
                 {template.rollColumns.map((col) => {
-                  const key = rollDraftKey(col);
-                  if (col.source === "operator") {
-                    return (
-                      <td key={col.detailKey ?? col.source} data-label={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-500 dark:text-slate-400`} title="El operario es siempre la cuenta con la que iniciaste sesión">
-                        {user!.name}
-                      </td>
-                    );
-                  }
-                  if (col.source === "cumulativeWeight") {
-                    return (
-                      <td key={col.detailKey ?? col.source} data-label={col.label} className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center`} title="Se calcula solo al guardar">
-                        —
-                      </td>
-                    );
-                  }
-                  if (col.source === "date" || col.source === "time" || (col.source === "label" && template.labelIsOwnRoll)) {
-                    return (
-                      <td
-                        key={col.detailKey ?? col.source}
-                        data-label={col.label}
-                        className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center italic`}
-                        title={col.source === "label" ? "Se genera sola (código del rollo) al guardar" : "Se completa sola con el momento en que se guarda"}
-                      >
-                        se completa sola
-                      </td>
-                    );
-                  }
-                  // TURNO: solo hay Día/Noche en planta, se calcula solo de
-                  // la hora real de Colombia al guardar (mismo criterio que
-                  // FECHA/HORA) — acá se muestra una vista previa (hora de
-                  // Colombia, no la del huso del navegador/celular), el
-                  // valor que realmente queda es el que calcula el servidor
-                  // al momento de guardar la fila.
-                  if (col.source === "shift") {
-                    const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Bogota", hour: "numeric", hour12: false }).format(new Date())) % 24;
-                    const shiftPreview = hour >= 6 && hour < 18 ? "Día" : "Noche";
-                    return (
-                      <td
-                        key={col.detailKey ?? col.source}
-                        data-label={col.label}
-                        className={`${cellBorder} px-1.5 py-1 text-slate-500 dark:text-slate-400 text-center italic`}
-                        title="Se completa solo según la hora (6:00–17:59 Día, resto Noche)"
-                      >
-                        {shiftPreview}
-                      </td>
-                    );
-                  }
-                  // ETIQUETA/PESO son el rollo de ORIGEN en Sellado/Precorte
-                  // (a diferencia de Extrusión/Impresión, donde arriba ya se
-                  // resuelve como "rollo propio"). El jefe pidió que acá no
-                  // se pueda tipear a mano: se bloquean hasta escanear el QR
-                  // del rollo de origen, que es lo que los rellena — recién
-                  // ahí quedan editables por si hace falta corregir algo.
-                  if ((col.source === "label" || col.source === "weight") && !template.labelIsOwnRoll && !sourceRoll) {
-                    return (
-                      <td
-                        key={col.detailKey ?? col.source}
-                        data-label={col.label}
-                        className={`${cellBorder} px-1.5 py-1 text-slate-400 dark:text-slate-500 text-center italic`}
-                        title="Se completa al escanear el QR del rollo de origen"
-                      >
-                        escaneá el QR
-                      </td>
-                    );
-                  }
-                  // E. BULTO: etiqueta física pre-impresa (ver EtiquetasBulto.tsx)
-                  // — se completa sola al escanearla y queda de solo lectura
-                  // (no editable como el resto: el código ya quedó consumido
-                  // del lado del servidor, "corregirlo" a mano lo desconectaría
-                  // de la etiqueta física real).
-                  if (col.scanBultoLabel) {
-                    return (
-                      <td
-                        key={col.detailKey ?? col.source}
-                        data-label={col.label}
-                        className={`${cellBorder} px-1.5 py-1 text-center ${bultoLabel ? "text-slate-800 dark:text-slate-100 font-medium" : "text-slate-400 dark:text-slate-500 italic"}`}
-                        title={bultoLabel ? undefined : "Se completa al escanear el QR de la etiqueta de bulto"}
-                      >
-                        {bultoLabel ? bultoLabel.code : "escaneá el QR"}
-                      </td>
-                    );
-                  }
+                  const { content, locked, title } = draftCellContent(col);
                   return (
-                    <td key={col.detailKey ?? col.source} data-label={col.label} className={`${cellBorder} px-1 py-1`}>
-                      {col.kind === "siNo" ? (
-                        <select className={sheetInput} value={rollDraft[key] ?? ""} onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}>
-                          <option value="">—</option>
-                          <option value="SI">SI</option>
-                          <option value="NO">NO</option>
-                        </select>
-                      ) : (
-                        <input
-                          className={sheetInput}
-                          type={col.kind === "number" ? "number" : "text"}
-                          step={col.kind === "number" ? "0.01" : undefined}
-                          value={rollDraft[key] ?? ""}
-                          onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}
-                        />
-                      )}
+                    <td
+                      key={col.detailKey ?? col.source}
+                      className={`${cellBorder} px-1.5 py-1 ${locked ? "text-slate-400 dark:text-slate-500 text-center italic" : ""}`}
+                      title={title}
+                    >
+                      {content}
                     </td>
                   );
                 })}
-                <td data-label="Agregar" className={`${cellBorder} px-1 py-1`}>
+                <td className={`${cellBorder} px-1 py-1`}>
                   <button type="button" onClick={handleAddRoll} className="bg-slate-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                    + <span className="max-md:inline hidden">Agregar fila</span>
+                    +
                   </button>
                 </td>
               </tr>
@@ -1408,6 +1386,88 @@ export default function OrdenProduccionDetalle() {
             </tr>
           </tbody>
         </table>
+        </div>
+
+        {/* Tarjetas en celular: cada rollo es una tarjeta con pares
+            "etiqueta: valor" en HTML real (no un truco de CSS) — más
+            confiable entre navegadores que el pseudo-elemento que se probó
+            antes. */}
+        <div className="md:hidden space-y-2 p-2">
+          {order.rolls.map((roll: any, i: number) => (
+            <div key={roll.id} className="border border-slate-300 dark:border-slate-600 rounded-lg overflow-hidden">
+              <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                {template.rollColumns.map((col) => (
+                  <div key={col.detailKey ?? col.source} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                    <span className="uppercase tracking-wide text-slate-500 dark:text-slate-400 shrink-0">{col.label}</span>
+                    <span className="text-slate-800 dark:text-slate-100 text-right">{rollCellDisplay(roll, col, rollCumulative[i])}</span>
+                  </div>
+                ))}
+                {canOperate && (
+                  <div className="flex items-center justify-end gap-3 px-3 py-1.5">
+                    <button type="button" className="text-slate-500 dark:text-slate-400" title="Imprimir etiqueta" onClick={() => handlePrintLabel(roll.id)}>
+                      <Printer size={15} aria-hidden="true" />
+                    </button>
+                    {canGestion && isOpen && (
+                      <button type="button" className="text-red-600 dark:text-red-400" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
+                        <Trash2 size={15} aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {roll.sourceRoll && (
+                <div className="bg-slate-50 dark:bg-slate-800/60 px-3 py-1.5 text-[10px] text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700">
+                  Insumo: rollo {roll.sourceRoll.label ?? `#${roll.sourceRoll.id}`} ({Number(roll.sourceRoll.weightKg)} kg) — escaneado por{" "}
+                  {roll.createdBy?.name ?? roll.operatorName}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {order.rolls.length === 0 && (
+            <p className="text-center text-slate-500 dark:text-slate-400 text-sm py-3">Sin rollos registrados todavía.</p>
+          )}
+
+          {canOperate && isOpen && !isQuantityComplete && (
+            <div className="border-2 border-sky-300 dark:border-sky-700 rounded-lg overflow-hidden bg-sky-50 dark:bg-slate-800">
+              <div className="divide-y divide-sky-200 dark:divide-slate-700">
+                {template.rollColumns.map((col) => {
+                  const { content, locked, title } = draftCellContent(col);
+                  return (
+                    <div key={col.detailKey ?? col.source} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs" title={title}>
+                      <span className="uppercase tracking-wide text-slate-500 dark:text-slate-400 shrink-0">{col.label}</span>
+                      <span className={locked ? "text-slate-400 dark:text-slate-500 italic" : "flex-1 flex justify-end"}>{content}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <button type="button" onClick={handleAddRoll} className="w-full bg-slate-800 text-white text-sm px-3 py-2">
+                + Agregar fila
+              </button>
+            </div>
+          )}
+
+          {canOperate && isOpen && isQuantityComplete && (
+            <p className="text-center text-emerald-700 dark:text-emerald-400 text-xs font-medium py-2">
+              Ya se completaron los {plannedKg} kg planificados (peso + desperdicio) — no se pueden cargar más rollos.
+            </p>
+          )}
+
+          <div className="border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-100 dark:bg-slate-800 px-3 py-2 text-xs font-semibold space-y-0.5">
+            <p>
+              Total · {order.rolls.length} rollos · {Math.round(totalKg * 100) / 100} kg producidos
+            </p>
+            <p>
+              {plannedKg > 0 ? (
+                <span className={isQuantityComplete ? "text-emerald-600 dark:text-emerald-400" : ""}>
+                  {isQuantityComplete ? "Completado" : `Restan ${remainingKg} kg`}
+                </span>
+              ) : (
+                `${Math.round(totalKg * 100) / 100} kg`
+              )}
+              {" · "}Desp. {Math.round(totalWaste * 100) / 100} kg
+            </p>
+          </div>
         </div>
 
         {/* Notas / Observaciones — Sellado las tiene como dos cuadros
