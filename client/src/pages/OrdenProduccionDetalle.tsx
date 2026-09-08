@@ -676,18 +676,23 @@ export default function OrdenProduccionDetalle() {
    * escritorio y en las tarjetas de celular — antes esta lógica vivía
    * duplicada como puro JSX dentro del `<tr>`, ahora es una sola función que
    * decide qué mostrar según la columna. */
-  function draftCellContent(col: OpRollColumn): { content: ReactNode; locked?: boolean; title?: string } {
+  /** `className` es exactamente lo que tenía cada celda en la versión vieja
+   * (antes de factorizar esto en una función) — cada caso tenía un tono/
+   * alineación levemente distinto (ej. el operario no iba centrado ni en
+   * cursiva, a diferencia de los demás "se completa sola"), no son todos
+   * iguales aunque varios compartan el estado "bloqueado". */
+  function draftCellContent(col: OpRollColumn): { content: ReactNode; className: string; title?: string } {
     const key = rollDraftKey(col);
     if (col.source === "operator") {
-      return { content: user!.name, locked: true, title: "El operario es siempre la cuenta con la que iniciaste sesión" };
+      return { content: user!.name, className: "text-slate-500 dark:text-slate-400", title: "El operario es siempre la cuenta con la que iniciaste sesión" };
     }
     if (col.source === "cumulativeWeight") {
-      return { content: "—", locked: true, title: "Se calcula solo al guardar" };
+      return { content: "—", className: "text-slate-400 dark:text-slate-500 text-center", title: "Se calcula solo al guardar" };
     }
     if (col.source === "date" || col.source === "time" || (col.source === "label" && template.labelIsOwnRoll)) {
       return {
         content: "se completa sola",
-        locked: true,
+        className: "text-slate-400 dark:text-slate-500 text-center italic",
         title: col.source === "label" ? "Se genera sola (código del rollo) al guardar" : "Se completa sola con el momento en que se guarda",
       };
     }
@@ -699,7 +704,7 @@ export default function OrdenProduccionDetalle() {
     if (col.source === "shift") {
       const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Bogota", hour: "numeric", hour12: false }).format(new Date())) % 24;
       const shiftPreview = hour >= 6 && hour < 18 ? "Día" : "Noche";
-      return { content: shiftPreview, locked: true, title: "Se completa solo según la hora (6:00–17:59 Día, resto Noche)" };
+      return { content: shiftPreview, className: "text-slate-500 dark:text-slate-400 text-center italic", title: "Se completa solo según la hora (6:00–17:59 Día, resto Noche)" };
     }
     // ETIQUETA/PESO son el rollo de ORIGEN en Sellado/Precorte (a diferencia
     // de Extrusión/Impresión, donde arriba ya se resuelve como "rollo
@@ -707,7 +712,7 @@ export default function OrdenProduccionDetalle() {
     // bloquean hasta escanear el QR del rollo de origen, que es lo que los
     // rellena — recién ahí quedan editables por si hace falta corregir algo.
     if ((col.source === "label" || col.source === "weight") && !template.labelIsOwnRoll && !sourceRoll) {
-      return { content: "escaneá el QR", locked: true, title: "Se completa al escanear el QR del rollo de origen" };
+      return { content: "escaneá el QR", className: "text-slate-400 dark:text-slate-500 text-center italic", title: "Se completa al escanear el QR del rollo de origen" };
     }
     // E. BULTO: etiqueta física pre-impresa (ver EtiquetasBulto.tsx) — se
     // completa sola al escanearla y queda de solo lectura (no editable como
@@ -716,11 +721,12 @@ export default function OrdenProduccionDetalle() {
     if (col.scanBultoLabel) {
       return {
         content: bultoLabel ? bultoLabel.code : "escaneá el QR",
-        locked: !bultoLabel,
+        className: `text-center ${bultoLabel ? "text-slate-800 dark:text-slate-100 font-medium" : "text-slate-400 dark:text-slate-500 italic"}`,
         title: bultoLabel ? undefined : "Se completa al escanear el QR de la etiqueta de bulto",
       };
     }
     return {
+      className: "",
       content:
         col.kind === "siNo" ? (
           <select className={sheetInput} value={rollDraft[key] ?? ""} onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}>
@@ -1338,11 +1344,11 @@ export default function OrdenProduccionDetalle() {
             {canOperate && isOpen && !isQuantityComplete && (
               <tr className="bg-sky-50 dark:bg-slate-800">
                 {template.rollColumns.map((col) => {
-                  const { content, locked, title } = draftCellContent(col);
+                  const { content, className, title } = draftCellContent(col);
                   return (
                     <td
                       key={col.detailKey ?? col.source}
-                      className={`${cellBorder} px-1.5 py-1 ${locked ? "text-slate-400 dark:text-slate-500 text-center italic" : ""}`}
+                      className={`${cellBorder} ${className ? "px-1.5 py-1" : "px-1 py-1"} ${className}`}
                       title={title}
                     >
                       {content}
@@ -1432,11 +1438,18 @@ export default function OrdenProduccionDetalle() {
             <div className="border-2 border-sky-300 dark:border-sky-700 rounded-lg overflow-hidden bg-sky-50 dark:bg-slate-800">
               <div className="divide-y divide-sky-200 dark:divide-slate-700">
                 {template.rollColumns.map((col) => {
-                  const { content, locked, title } = draftCellContent(col);
+                  const { content, className, title } = draftCellContent(col);
                   return (
                     <div key={col.detailKey ?? col.source} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs" title={title}>
                       <span className="uppercase tracking-wide text-slate-500 dark:text-slate-400 shrink-0">{col.label}</span>
-                      <span className={locked ? "text-slate-400 dark:text-slate-500 italic" : "flex-1 flex justify-end"}>{content}</span>
+                      {className ? (
+                        <span className={className}>{content}</span>
+                      ) : (
+                        // Sin estilo "bloqueado" = es un input/select real
+                        // editable — un div en vez de span para que el
+                        // flex-1/justify-end lo estire bien.
+                        <div className="flex-1 flex justify-end">{content}</div>
+                      )}
                     </div>
                   );
                 })}
