@@ -746,14 +746,7 @@ export default function OrdenProduccionDetalle() {
       {message && <p className="text-emerald-700 dark:text-emerald-400 text-sm">{message}</p>}
 
       {/* ---- La hoja, con la estructura del formato en papel ---- */}
-      <div className="bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-500 shadow overflow-x-auto">
-        {/* min-w-max: sin esto, la tabla de rollos (muchas columnas angostas)
-            puede terminar siendo más ancha que las grillas de specs/encabezado
-            de arriba y abajo — como cada sección es un div normal, todas
-            deberían estirarse igual, pero en la práctica quedaba una franja
-            vacía al final del scroll horizontal en vez de que todo comparta
-            el mismo ancho. Forzarlo acá evita esa franja muerta. */}
-        <div className="min-w-max">
+      <div className="bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-500 shadow">
         {/* Banda de título */}
         <div className="grid grid-cols-[1fr_2fr_1fr] border-b-2 border-slate-400 dark:border-slate-500">
           <div className={`${cellBorder} border-t-0 border-l-0 p-2 flex items-center`}>
@@ -1212,6 +1205,13 @@ export default function OrdenProduccionDetalle() {
           </div>
         )}
 
+        {/* Scroll propio solo para esta tabla (la más ancha, hasta 11
+            columnas en Extrusión) en vez de para toda la hoja — así el resto
+            de las secciones (encabezado, materia prima, especificaciones) se
+            ven enteras sin deslizar, incluso en pantallas de escritorio no
+            tan anchas. En celular no aplica: .op-roll-table pasa a tarjetas
+            apiladas (ver OrdenProduccionDetalle.css), no hay tabla ancha. */}
+        <div className="overflow-x-auto">
         <table className="op-roll-table w-full text-xs sm:text-sm">
           <thead>
             <tr className="text-left text-[9px] sm:text-[10px] uppercase text-slate-500 dark:text-slate-400">
@@ -1408,6 +1408,7 @@ export default function OrdenProduccionDetalle() {
             </tr>
           </tbody>
         </table>
+        </div>
 
         {/* Notas / Observaciones — Sellado las tiene como dos cuadros
             separados en el papel; el resto solo tiene "Observaciones:". */}
@@ -1449,7 +1450,6 @@ export default function OrdenProduccionDetalle() {
             {order.qualityCheck.createdBy?.name && <> · {order.qualityCheck.createdBy.name}</>}
           </div>
         )}
-        </div>
       </div>
 
       {/* Adjuntos */}
