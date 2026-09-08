@@ -10,7 +10,7 @@ interface ProductoFormProps {
 
 const CATEGORIES: { value: string; label: string }[] = [
   { value: "bultos", label: "Bultos" },
-  { value: "rollos_prec_lam", label: "Rollos Precintado/Laminado" },
+  { value: "rollos_prec_lam", label: "Rollo Precortado" },
   { value: "rollos_fuelle", label: "Rollos Fuelle" },
   { value: "mangueta", label: "Mangueta" },
   { value: "tiras", label: "Tiras" },

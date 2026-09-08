@@ -88,7 +88,7 @@ function printLabels(labels: { sku: string; name: string; qrDataUrl: string }[])
 
 const CATEGORY_LABELS: Record<string, string> = {
   bultos: "Bultos",
-  rollos_prec_lam: "Rollos Precintado/Laminado",
+  rollos_prec_lam: "Rollo Precortado",
   rollos_fuelle: "Rollos Fuelle",
   mangueta: "Mangueta",
   tiras: "Tiras",

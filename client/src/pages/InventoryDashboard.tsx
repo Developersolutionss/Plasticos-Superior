@@ -6,7 +6,7 @@ import { api } from "../api/client";
 const CATEGORIES = [
   { value: "", label: "Todos" },
   { value: "bultos", label: "Bultos" },
-  { value: "rollos_prec_lam", label: "Rollos Prec y Lam" },
+  { value: "rollos_prec_lam", label: "Rollo Precortado" },
   { value: "rollos_fuelle", label: "Rollos Fuelle" },
   { value: "mangueta", label: "Mangueta" },
   { value: "tiras", label: "Tiras" },
