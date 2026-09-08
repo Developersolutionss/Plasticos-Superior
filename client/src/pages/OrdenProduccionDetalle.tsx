@@ -193,10 +193,31 @@ export default function OrdenProduccionDetalle() {
     // nunca se guardaron Ancho/Largo, hay que precargarlos igual que cuando
     // se tipea Medidas a mano — si no, quedan vacíos hasta que alguien los
     // retipee. Solo completa lo que esté vacío, nunca pisa un valor guardado.
-    if (order.measure) {
-      const derived = deriveSpecsFromMeasure(order.measure);
+    // Igual que arriba pero con las Medidas propias del producto (ver
+    // ProductoForm.tsx) como segunda fuente, por si la OP no nació con
+    // "Medidas" propia (ej. creada directo por API) — Medidas de la OP
+    // manda si existe, si no se usa la del producto.
+    for (const source of [order.measure, order.product.measure]) {
+      if (!source) continue;
+      const derived = deriveSpecsFromMeasure(source);
       for (const [key, value] of Object.entries(derived)) {
         if (!specs[key]) specs[key] = value;
+      }
+    }
+    // El resto de los atributos del producto (Color/Densidad/Calibre/Unidad
+    // de ancho, ver ProductoForm.tsx) se precargan en cualquier campo de
+    // Especificaciones de esta estación que tenga la misma clave — cada
+    // plantilla usa nombres un poco distintos (ej. "densidad" en Extrusión
+    // vs. "materialDensidad" en las demás), así que se prueban ambos.
+    if (order.station) {
+      const fieldKeys = new Set(OP_TEMPLATES[order.station as OpStation].sections.flatMap((s) => s.fields.map((f) => f.key)));
+      const product = order.product;
+      if (product.calibre && fieldKeys.has("calibre") && !specs.calibre) specs.calibre = product.calibre;
+      if (product.color && fieldKeys.has("color") && !specs.color) specs.color = product.color;
+      if (product.measureUnit && fieldKeys.has("anchoUnidad") && !specs.anchoUnidad) specs.anchoUnidad = product.measureUnit;
+      if (product.densidad) {
+        if (fieldKeys.has("densidad") && !specs.densidad) specs.densidad = product.densidad;
+        if (fieldKeys.has("materialDensidad") && !specs.materialDensidad) specs.materialDensidad = product.densidad;
       }
     }
     setSpecsDraft(specs);
