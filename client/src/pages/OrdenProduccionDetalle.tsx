@@ -1012,6 +1012,13 @@ export default function OrdenProduccionDetalle() {
                   </td>
                   <td className={`${cellBorder} px-2 py-1`} />
                 </tr>
+                {materiaPrima.reduce((acc, r) => acc + (Number(r.pct) || 0), 0) >= 100 && (
+                  <tr>
+                    <td colSpan={4} className={`${cellBorder} px-2 py-1.5 text-center text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950`}>
+                      Completaste el 100%. Si deseás añadir más, bajá los porcentajes de las demás refs.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </>
