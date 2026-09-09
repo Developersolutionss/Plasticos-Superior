@@ -10,6 +10,13 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+/** Impresora térmica de stickers, 40x30mm (una etiqueta = una "página" de
+ * ese tamaño exacto, para que el navegador no intente acomodar varias en
+ * una hoja grande como con una impresora normal) — si el modelo de
+ * impresora/tamaño de sticker cambia, ajustar acá y en el `@page`. */
+const LABEL_WIDTH_MM = 40;
+const LABEL_HEIGHT_MM = 30;
+
 function printBultoLabels(labels: { code: string; qrDataUrl: string }[]) {
   const win = window.open("", "_blank");
   if (!win) return;
@@ -30,22 +37,21 @@ function printBultoLabels(labels: { code: string; qrDataUrl: string }[]) {
       <head>
         <title>Etiquetas de bulto</title>
         <style>
+          @page { size: ${LABEL_WIDTH_MM}mm ${LABEL_HEIGHT_MM}mm; margin: 0; }
           * { box-sizing: border-box; }
-          body { font-family: sans-serif; margin: 0; padding: 8mm; }
-          .grid { display: flex; flex-wrap: wrap; gap: 4mm; }
+          body { font-family: sans-serif; margin: 0; }
           .label {
-            width: 4.2cm; height: 5cm;
-            border: 1px dashed #999; border-radius: 3mm;
-            padding: 3mm; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2mm;
-            page-break-inside: avoid;
+            width: ${LABEL_WIDTH_MM}mm; height: ${LABEL_HEIGHT_MM}mm;
+            padding: 1.5mm; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1mm;
+            page-break-after: always;
           }
-          .label img { width: 3cm; height: 3cm; }
-          .label .code { font-weight: bold; font-size: 10pt; margin: 0; text-align: center; overflow-wrap: anywhere; }
-          @media print { body { padding: 0; } }
+          .label:last-child { page-break-after: auto; }
+          .label img { width: 20mm; height: 20mm; }
+          .label .code { font-weight: bold; font-size: 8pt; margin: 0; text-align: center; overflow-wrap: anywhere; line-height: 1; }
         </style>
       </head>
       <body>
-        <div class="grid">${cards}</div>
+        ${cards}
       </body>
     </html>`);
   win.document.close();
