@@ -30,3 +30,18 @@
   transition-timing-function: ease;
   transition-duration: 200ms;
 }
+
+/* Popup de error (ver ErrorToast.tsx) — entra deslizando desde abajo. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-toast-in {
+  animation: toast-in 200ms ease-out;
+}

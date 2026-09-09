@@ -7,6 +7,7 @@ import { useAuth, type UserRole } from "../auth/AuthContext";
 import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { useConfirm } from "../components/ConfirmDialog";
+import ErrorToast from "../components/ErrorToast";
 import {
   DERIVATIONS,
   FINAL_STATIONS,
@@ -298,7 +299,7 @@ export default function OrdenProduccionDetalle() {
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Esta OP todavía no tiene un proceso asignado. El primer paso siempre es Extrusión.
         </p>
-        {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+        <ErrorToast message={error} onClose={() => setError(null)} />
         {canGestion ? (
           <button onClick={() => handleDerive("extrusion")} className="inline-flex items-center gap-2 bg-slate-800 text-white text-sm px-4 py-2 rounded">
             <Send size={14} /> Derivar a Extrusión
@@ -850,7 +851,7 @@ export default function OrdenProduccionDetalle() {
         </div>
       </div>
 
-      {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+      <ErrorToast message={error} onClose={() => setError(null)} />
       {message && <p className="text-emerald-700 dark:text-emerald-400 text-sm">{message}</p>}
 
       {/* ---- La hoja, con la estructura del formato en papel ---- */}
