@@ -198,6 +198,7 @@ model User {
   rawMaterialMovements  RawMaterialMovement[]
   bultoLabelsUsed       BultoLabel[] @relation("BultoLabelUsedBy")
   bultoLabelsCreated    BultoLabel[] @relation("BultoLabelCreatedBy")
+  clientManualProducts  ClientManualProduct[]
 
   @@map("users")
 }
@@ -252,6 +253,7 @@ model Product {
   pedidoVersionItems PedidoVersionItem[]
   facturaItems       FacturaItem[]
   stockLocations     StockLocation[]
+  clientManualProducts ClientManualProduct[]
 
   @@map("products")
 }
@@ -286,8 +288,33 @@ model Client {
   pedidos           Pedido[]
   facturas          Factura[]
   productionOrders  ProductionOrder[]
+  manualProducts    ClientManualProduct[]
 
   @@map("clients")
+}
+
+/// Productos que un cliente pide, cargados a mano -- aparte de los que ya
+/// salen solos en GET /:id/top-products (calculados del historial real de
+/// pedidos). Sirve para un cliente nuevo que todavía no tiene pedidos en el
+/// sistema, o para dejar registrado lo que pedía antes de este sistema.
+/// Nunca se mezcla con la lista calculada: se muestran como dos secciones
+/// separadas en la ficha del cliente.
+model ClientManualProduct {
+  id          Int      @id @default(autoincrement())
+  clientId    Int      @map("client_id")
+  client      Client   @relation(fields: [clientId], references: [id])
+  productId   Int      @map("product_id")
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Decimal? @db.Decimal(12, 2)
+  notes       String?
+  createdById Int?     @map("created_by")
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  /// Cargar el mismo producto dos veces para el mismo cliente actualiza la
+  /// fila existente en vez de duplicarla (ver POST /:id/manual-products).
+  @@unique([clientId, productId])
+  @@map("client_manual_products")
 }
 
 /// Direcciones de entrega del cliente (un cliente puede tener varias

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { LayoutGrid, List, Pencil, Plus, Receipt, Search } from "lucide-react";
+import { LayoutGrid, List, Pencil, Plus, Receipt, Search, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ClienteAvatar from "../components/ClienteAvatar";
@@ -52,6 +52,7 @@ export default function Clients() {
     type: "nota",
     description: "",
   });
+  const [manualProductForm, setManualProductForm] = useState({ productId: "", quantity: "", notes: "" });
   const [creditLimitInput, setCreditLimitInput] = useState("");
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [editingContact, setEditingContact] = useState(false);
@@ -80,6 +81,15 @@ export default function Clients() {
     queryFn: () => api.getClientTopProducts(selectedClientId!),
     enabled: selectedClientId != null,
   });
+  const { data: manualProducts } = useQuery({
+    queryKey: ["clientManualProducts", selectedClientId],
+    queryFn: () => api.getClientManualProducts(selectedClientId!),
+    enabled: selectedClientId != null,
+  });
+  // Catálogo completo para el selector de "cargar producto a mano" — mismo
+  // endpoint que ya usa el resto de la app para elegir un producto (ver
+  // OrdenesProduccion.tsx), no el listado de gestión (GET /products).
+  const { data: products } = useQuery({ queryKey: ["products"], queryFn: api.getProducts });
   const { data: interactions } = useQuery({
     queryKey: ["clientInteractions", selectedClientId],
     queryFn: () => api.getClientInteractions(selectedClientId!),
@@ -200,6 +210,34 @@ export default function Clients() {
       queryClient.invalidateQueries({ queryKey: ["clientInteractions", selectedClientId] });
     } catch {
       setError("No se pudo registrar la interacción");
+    }
+  }
+
+  async function handleAddManualProduct(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!selectedClientId || !manualProductForm.productId) return;
+    try {
+      await api.addClientManualProduct(selectedClientId, {
+        productId: Number(manualProductForm.productId),
+        quantity: manualProductForm.quantity ? Number(manualProductForm.quantity) : undefined,
+        notes: manualProductForm.notes || undefined,
+      });
+      setManualProductForm({ productId: "", quantity: "", notes: "" });
+      queryClient.invalidateQueries({ queryKey: ["clientManualProducts", selectedClientId] });
+    } catch {
+      setError("No se pudo cargar el producto");
+    }
+  }
+
+  async function handleDeleteManualProduct(manualProductId: number) {
+    if (!selectedClientId) return;
+    setError(null);
+    try {
+      await api.deleteClientManualProduct(selectedClientId, manualProductId);
+      queryClient.invalidateQueries({ queryKey: ["clientManualProducts", selectedClientId] });
+    } catch {
+      setError("No se pudo quitar el producto");
     }
   }
 
@@ -579,25 +617,96 @@ export default function Clients() {
               )}
 
               {activeTab === "productos" && (
-                <div className="space-y-2">
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Los productos que más pide este cliente, según sus pedidos.</p>
-                  <ul className="divide-y">
-                    {topProducts?.map((tp) => (
-                      <li key={tp.product.id} className="py-3 flex items-center justify-between text-sm">
-                        <div>
-                          <p className="font-medium text-slate-800 dark:text-slate-100">
-                            {tp.product.name} <span className="text-slate-400 dark:text-slate-500 font-normal">({tp.product.sku})</span>
-                          </p>
-                          <p className="text-slate-500 dark:text-slate-400 text-xs">
-                            En {tp.frequency} pedido{tp.frequency === 1 ? "" : "s"} · {tp.totalQuantity} {tp.measure ?? tp.product.unit} en total
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                    {topProducts?.length === 0 && (
-                      <p className="text-slate-500 dark:text-slate-400 text-sm py-2">Todavía no tiene pedidos registrados.</p>
-                    )}
-                  </ul>
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Los productos que más pide este cliente, según sus pedidos.</p>
+                    <ul className="divide-y">
+                      {topProducts?.map((tp) => (
+                        <li key={tp.product.id} className="py-3 flex items-center justify-between text-sm">
+                          <div>
+                            <p className="font-medium text-slate-800 dark:text-slate-100">
+                              {tp.product.name} <span className="text-slate-400 dark:text-slate-500 font-normal">({tp.product.sku})</span>
+                            </p>
+                            <p className="text-slate-500 dark:text-slate-400 text-xs">
+                              En {tp.frequency} pedido{tp.frequency === 1 ? "" : "s"} · {tp.totalQuantity} {tp.measure ?? tp.product.unit} en total
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                      {topProducts?.length === 0 && (
+                        <p className="text-slate-500 dark:text-slate-400 text-sm py-2">Todavía no tiene pedidos registrados.</p>
+                      )}
+                    </ul>
+                  </div>
+
+                  <div className="space-y-2 border-t pt-4">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      Productos cargados a mano — para un cliente nuevo sin pedidos todavía, o para dejar registrado lo que pedía antes de
+                      este sistema. No se mezclan con la lista de arriba.
+                    </p>
+                    <ul className="divide-y">
+                      {manualProducts?.map((mp) => (
+                        <li key={mp.id} className="py-3 flex items-center justify-between text-sm gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium text-slate-800 dark:text-slate-100">
+                              {mp.product.name} <span className="text-slate-400 dark:text-slate-500 font-normal">({mp.product.sku})</span>
+                            </p>
+                            <p className="text-slate-500 dark:text-slate-400 text-xs">
+                              {mp.quantity != null && `${mp.quantity} ${mp.product.unit} · `}
+                              {mp.notes && `${mp.notes} · `}
+                              Cargado por {mp.createdBy?.name ?? "—"}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteManualProduct(mp.id)}
+                            className="shrink-0 text-red-600 dark:text-red-400 p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-950"
+                            title="Quitar"
+                          >
+                            <Trash2 size={14} strokeWidth={2} />
+                          </button>
+                        </li>
+                      ))}
+                      {manualProducts?.length === 0 && (
+                        <p className="text-slate-500 dark:text-slate-400 text-sm py-2">Todavía no hay productos cargados a mano.</p>
+                      )}
+                    </ul>
+
+                    <form onSubmit={handleAddManualProduct} className="border-t pt-4 space-y-2">
+                      {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+                      <select
+                        className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                        value={manualProductForm.productId}
+                        onChange={(e) => setManualProductForm({ ...manualProductForm, productId: e.target.value })}
+                      >
+                        <option value="">Producto...</option>
+                        {products?.map((p: any) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.sku})
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex gap-2">
+                        <input
+                          className="border rounded px-3 py-2 text-sm w-32 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                          placeholder="Cantidad"
+                          type="number"
+                          step="0.01"
+                          value={manualProductForm.quantity}
+                          onChange={(e) => setManualProductForm({ ...manualProductForm, quantity: e.target.value })}
+                        />
+                        <input
+                          className="border rounded px-3 py-2 text-sm flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                          placeholder="Notas (opcional)"
+                          value={manualProductForm.notes}
+                          onChange={(e) => setManualProductForm({ ...manualProductForm, notes: e.target.value })}
+                        />
+                      </div>
+                      <button className="bg-slate-800 text-white text-sm px-4 py-2 rounded" type="submit">
+                        Cargar producto
+                      </button>
+                    </form>
+                  </div>
                 </div>
               )}
 

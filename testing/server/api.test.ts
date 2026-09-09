@@ -2088,6 +2088,102 @@ describe("clientes · productos que más pide", () => {
   });
 });
 
+describe("clientes · productos cargados a mano", () => {
+  let clientId = 0;
+  let productA = 0;
+  let productB = 0;
+
+  before(async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-MANUALPROD-CLIENT-${Date.now()}` } });
+    clientId = client.id;
+    productA = (await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } })).id;
+    productB = (await prisma.product.findFirstOrThrow({ where: { sku: "ROL-PL-001" } })).id;
+  });
+
+  after(async () => {
+    await prisma.clientManualProduct.deleteMany({ where: { clientId } });
+    await prisma.client.delete({ where: { id: clientId } }).catch(() => {});
+  });
+
+  it("un rol sin acceso a Ventas no puede ver ni cargar (403)", async () => {
+    const get = await fetch(`${baseUrl}/api/clients/${clientId}/manual-products`, { headers: headersFor("almacen") });
+    assert.equal(get.status, 403);
+
+    const post = await fetch(`${baseUrl}/api/clients/${clientId}/manual-products`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ productId: productA }),
+    });
+    assert.equal(post.status, 403);
+  });
+
+  it("carga un producto a mano, no se mezcla con los calculados por pedidos, y cargar el mismo producto de nuevo actualiza en vez de duplicar", async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/manual-products`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ productId: productA, quantity: 15, notes: "Lo pedía antes del sistema" }),
+    });
+    assert.equal(res.status, 201);
+    const created = (await res.json()) as { id: number; quantity: string; notes: string; product: { id: number } };
+    assert.equal(created.product.id, productA);
+    assert.equal(Number(created.quantity), 15);
+    assert.equal(created.notes, "Lo pedía antes del sistema");
+
+    const list = (await (
+      await fetch(`${baseUrl}/api/clients/${clientId}/manual-products`, { headers: headersFor("ventas") })
+    ).json()) as { id: number }[];
+    assert.equal(list.length, 1);
+
+    // top-products (calculado por pedidos) sigue vacío -- las dos listas son independientes.
+    const top = await (await fetch(`${baseUrl}/api/clients/${clientId}/top-products`, { headers: headersFor("ventas") })).json();
+    assert.deepEqual(top, []);
+
+    // Cargar el mismo producto de nuevo actualiza la fila (upsert), no duplica.
+    const upsert = await fetch(`${baseUrl}/api/clients/${clientId}/manual-products`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ productId: productA, quantity: 40 }),
+    });
+    assert.equal(upsert.status, 201);
+    const upserted = (await upsert.json()) as { id: number; quantity: string };
+    assert.equal(upserted.id, created.id, "mismo id: actualizó la fila existente");
+    assert.equal(Number(upserted.quantity), 40);
+
+    const listAfter = (await (
+      await fetch(`${baseUrl}/api/clients/${clientId}/manual-products`, { headers: headersFor("ventas") })
+    ).json()) as { id: number }[];
+    assert.equal(listAfter.length, 1, "sigue habiendo una sola fila, no dos");
+  });
+
+  it("DELETE quita el producto cargado a mano; 404 si no pertenece a ese cliente", async () => {
+    const res = await fetch(`${baseUrl}/api/clients/${clientId}/manual-products`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ productId: productB }),
+    });
+    const created = (await res.json()) as { id: number };
+
+    const otroCliente = await prisma.client.create({ data: { name: `TEST-MANUALPROD-OTRO-${Date.now()}` } });
+    const wrongClient = await fetch(`${baseUrl}/api/clients/${otroCliente.id}/manual-products/${created.id}`, {
+      method: "DELETE",
+      headers: headersFor("ventas"),
+    });
+    assert.equal(wrongClient.status, 404, "no se puede borrar pasando el id de otro cliente");
+    await prisma.client.delete({ where: { id: otroCliente.id } });
+
+    const del = await fetch(`${baseUrl}/api/clients/${clientId}/manual-products/${created.id}`, {
+      method: "DELETE",
+      headers: headersFor("ventas"),
+    });
+    assert.equal(del.status, 204);
+
+    const listAfter = (await (
+      await fetch(`${baseUrl}/api/clients/${clientId}/manual-products`, { headers: headersFor("ventas") })
+    ).json()) as { id: number }[];
+    assert.ok(!listAfter.some((mp) => mp.id === created.id));
+  });
+});
+
 describe("dashboard · indicadores con rango de fechas", () => {
   it("con from/to filtra por ese rango exacto (sin depender de cuántos checks reales haya hoy)", async () => {
     const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });

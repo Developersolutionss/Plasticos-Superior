@@ -198,6 +198,20 @@ export const api = {
     request<
       { product: { id: number; sku: string; name: string; unit: string }; measure: string | null; frequency: number; totalQuantity: number }[]
     >(`/clients/${clientId}/top-products${limit ? `?limit=${limit}` : ""}`),
+  getClientManualProducts: (clientId: number) =>
+    request<
+      {
+        id: number;
+        product: { id: number; sku: string; name: string; unit: string };
+        quantity: number | null;
+        notes: string | null;
+        createdBy: { name: string } | null;
+      }[]
+    >(`/clients/${clientId}/manual-products`),
+  addClientManualProduct: (clientId: number, data: { productId: number; quantity?: number; notes?: string }) =>
+    request<any>(`/clients/${clientId}/manual-products`, { method: "POST", body: JSON.stringify(data) }),
+  deleteClientManualProduct: (clientId: number, manualProductId: number) =>
+    request<void>(`/clients/${clientId}/manual-products/${manualProductId}`, { method: "DELETE" }),
 
   createProductionEntry: (data: Record<string, unknown>) =>
     request<any>("/production/entries", { method: "POST", body: JSON.stringify(data) }),

@@ -290,6 +290,82 @@ clientsRouter.get("/:id/top-products", async (req, res) => {
   res.json(topProducts);
 });
 
+/** Productos que un cliente pide, cargados a mano -- aparte de los que salen
+ * solos en GET /:id/top-products (calculados del historial real de
+ * pedidos). Útil para un cliente nuevo sin pedidos todavía, o para dejar
+ * registrado lo que pedía antes de este sistema. */
+clientsRouter.get("/:id/manual-products", async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId)) return res.status(400).json({ error: "Id inválido" });
+
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+
+  const manualProducts = await prisma.clientManualProduct.findMany({
+    where: { clientId },
+    include: { product: { select: { id: true, sku: true, name: true, unit: true } }, createdBy: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  res.json(manualProducts);
+});
+
+const manualProductSchema = z.object({
+  productId: z.number().int(),
+  quantity: z.number().min(0).optional(),
+  notes: z.string().optional(),
+});
+
+/** Cargar el mismo producto dos veces para el mismo cliente actualiza la
+ * fila existente (cantidad/notas) en vez de duplicarla -- ver el
+ * @@unique([clientId, productId]) del modelo. */
+clientsRouter.post("/:id/manual-products", async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId)) return res.status(400).json({ error: "Id inválido" });
+
+  const parsed = manualProductSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+
+  const product = await prisma.product.findUnique({ where: { id: parsed.data.productId } });
+  if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+
+  const manualProduct = await prisma.clientManualProduct.upsert({
+    where: { clientId_productId: { clientId, productId: parsed.data.productId } },
+    create: {
+      clientId,
+      productId: parsed.data.productId,
+      quantity: parsed.data.quantity,
+      notes: parsed.data.notes,
+      createdById: req.user!.userId,
+    },
+    update: {
+      quantity: parsed.data.quantity,
+      notes: parsed.data.notes,
+      createdById: req.user!.userId,
+    },
+    include: { product: { select: { id: true, sku: true, name: true, unit: true } }, createdBy: { select: { name: true } } },
+  });
+  res.status(201).json(manualProduct);
+});
+
+clientsRouter.delete("/:id/manual-products/:manualProductId", async (req, res) => {
+  const clientId = Number(req.params.id);
+  const manualProductId = Number(req.params.manualProductId);
+  if (!Number.isInteger(clientId) || !Number.isInteger(manualProductId)) {
+    return res.status(400).json({ error: "Id inválido" });
+  }
+
+  const manualProduct = await prisma.clientManualProduct.findUnique({ where: { id: manualProductId } });
+  if (!manualProduct || manualProduct.clientId !== clientId) {
+    return res.status(404).json({ error: "Producto cargado a mano no encontrado" });
+  }
+
+  await prisma.clientManualProduct.delete({ where: { id: manualProductId } });
+  res.status(204).end();
+});
+
 /** Lista global de contactos de todos los clientes (pantalla CRM "Contactos"),
  * con datos de la empresa relacionada para mostrar su avatar y nombre. */
 clientsRouter.get("/contacts", async (_req, res) => {

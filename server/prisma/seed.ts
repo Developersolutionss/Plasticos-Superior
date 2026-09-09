@@ -110,6 +110,26 @@ async function main() {
         },
       });
     }
+
+    // Producto cargado a mano (aparte de los que salen solos por historial de
+    // pedidos, ver GET /:id/top-products) -- MAN-001 a propósito no aparece
+    // en ningún pedido demo, para que se vea claro que es una sección
+    // distinta en la pestaña "Productos" del cliente.
+    const mangueta = await prisma.product.findFirst({ where: { sku: "MAN-001" } });
+    if (mangueta) {
+      const admin = await prisma.user.findUnique({ where: { email: "administrador@empresa.com" } });
+      await prisma.clientManualProduct.upsert({
+        where: { clientId_productId: { clientId: acme.id, productId: mangueta.id } },
+        create: {
+          clientId: acme.id,
+          productId: mangueta.id,
+          quantity: 50,
+          notes: "Lo pedía antes de este sistema",
+          createdById: admin?.id,
+        },
+        update: {},
+      });
+    }
   }
 
   // Pedido demo ya aprobado y sin OP generada, para poder probar el módulo
