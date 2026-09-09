@@ -1095,6 +1095,11 @@ export default function OrdenProduccionDetalle() {
                         value={specsDraft[field.key] ?? ""}
                         disabled={!canEditThis}
                         title={isParentDerivedTotal ? "Es el pesaje real de la OP de Extrusión padre, no se puede editar acá" : undefined}
+                        // El title no se ve en celular (touch, sin hover) — si
+                        // encima el campo queda vacío (el padre todavía no
+                        // tiene rollos pesados), el placeholder es la única
+                        // pista visible de por qué está bloqueado y en blanco.
+                        placeholder={isParentDerivedTotal ? "se completa con el pesaje del padre" : undefined}
                         onChange={(e) => setSpec(field.key, e.target.value)}
                       />
                     )}
