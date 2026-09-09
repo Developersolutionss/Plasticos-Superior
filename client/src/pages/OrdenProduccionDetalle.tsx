@@ -55,9 +55,12 @@ const sheetInput =
 
 /** El dueño pidió que "Medidas" (ej. "12x18") precargue Ancho (primer
  * número, casilla ANCHO de Especificaciones/Material) y, cuando el formato
- * es "AxL", también el par Ancho/Largo de "Medidas finales" (medAncho/
- * medLargo) — esas dos claves solo existen en Sellado/Precorte, así que en
- * Extrusión/Impresión simplemente no aplican y no se setean. */
+ * es "AxB", el segundo número se reparte según pinta: si es chico/decimal
+ * (< 1, ej. "0.00045") es un CALIBRE, no un largo — se guarda en `calibre`
+ * (existe en las 4 estaciones). Si es un número "de tamaño normal" (ej.
+ * "18"), se interpreta como el Largo del par Ancho/Largo de "Medidas
+ * finales" (medAncho/medLargo) — esas dos claves solo existen en Sellado/
+ * Precorte, en Extrusión/Impresión simplemente no aplican y no se setean. */
 function deriveSpecsFromMeasure(measure: string): Record<string, string> {
   const value = measure.trim();
   const result: Record<string, string> = {};
@@ -66,8 +69,13 @@ function deriveSpecsFromMeasure(measure: string): Record<string, string> {
 
   const parMatch = /^(\d+(?:[.,]\d+)?)\s*[xX]\s*(\d+(?:[.,]\d+)?)/.exec(value);
   if (parMatch) {
-    result.medAncho = parMatch[1];
-    result.medLargo = parMatch[2];
+    const second = Number(parMatch[2].replace(",", "."));
+    if (second > 0 && second < 1) {
+      result.calibre = parMatch[2];
+    } else {
+      result.medAncho = parMatch[1];
+      result.medLargo = parMatch[2];
+    }
   }
   return result;
 }
