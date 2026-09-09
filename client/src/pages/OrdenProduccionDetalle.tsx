@@ -226,6 +226,22 @@ export default function OrdenProduccionDetalle() {
         if (fieldKeys.has("densidad") && !specs.densidad) specs.densidad = product.densidad;
         if (fieldKeys.has("materialDensidad") && !specs.materialDensidad) specs.materialDensidad = product.densidad;
       }
+      // "Cantidad (kilos)"/"Cantidad (rollos)" (Impresión/Sellado/Precorte)
+      // son el material que LLEGÓ de la OP de Extrusión padre, no lo que se
+      // produce en esta misma OP (eso ya se ve aparte en la fila "Total" de
+      // la tabla de rollos de acá abajo) — el cliente pidió que salgan del
+      // pesaje final real de esa OP padre en vez de tipearse a mano.
+      if (order.parent) {
+        const parentRolls = (order.parent.rolls ?? []) as { weightKg: unknown }[];
+        if (parentRolls.length > 0) {
+          if (fieldKeys.has("cantidadKilos") && !specs.cantidadKilos) {
+            specs.cantidadKilos = String(parentRolls.reduce((acc, r) => acc + Number(r.weightKg), 0));
+          }
+          if (fieldKeys.has("cantidadRollos") && !specs.cantidadRollos) {
+            specs.cantidadRollos = String(parentRolls.length);
+          }
+        }
+      }
     }
     setSpecsDraft(specs);
     // Las filas de materia prima son fijas (las mismas 10 refs impresas en
