@@ -235,7 +235,12 @@ export default function OrdenProduccionDetalle() {
         const parentRolls = (order.parent.rolls ?? []) as { weightKg: unknown }[];
         if (parentRolls.length > 0) {
           if (fieldKeys.has("cantidadKilos") && !specs.cantidadKilos) {
-            specs.cantidadKilos = String(parentRolls.reduce((acc, r) => acc + Number(r.weightKg), 0));
+            // Redondeado igual que el panel de solo lectura "ORDEN DE
+            // EXTRUSIÓN" de más arriba (mismo dato) -- sin esto, el error de
+            // punto flotante de sumar decimales de a dos puede dejar algo
+            // como "60.599999999999994" en vez de "60.6".
+            const sumaKg = parentRolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
+            specs.cantidadKilos = String(Math.round(sumaKg * 100) / 100);
           }
           if (fieldKeys.has("cantidadRollos") && !specs.cantidadRollos) {
             specs.cantidadRollos = String(parentRolls.length);
