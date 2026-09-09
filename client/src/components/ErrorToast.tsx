@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 /** Antes los errores de esta pantalla se mostraban como un <p> arriba del
@@ -8,11 +8,20 @@ import { AlertTriangle, X } from "lucide-react";
  * Este popup queda fijo abajo de la pantalla (a mano, visible sin scrollear)
  * y se cierra solo a los 5s o al tocarlo. */
 export default function ErrorToast({ message, onClose }: { message: string | null; onClose: () => void }) {
+  // `onClose` llega como una closure nueva en cada render del padre (la
+  // hoja de OP tiene muchos inputs controlados que re-renderizan en cada
+  // tecla) — si estuviera en las dependencias de abajo, el timer se
+  // reiniciaría en cada tecla y el popup nunca llegaría a cerrarse solo
+  // mientras el operario sigue tipeando. El ref guarda siempre la versión
+  // más nueva sin forzar que el timer dependa de su identidad.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!message) return;
-    const timer = setTimeout(onClose, 5000);
+    const timer = setTimeout(() => onCloseRef.current(), 5000);
     return () => clearTimeout(timer);
-  }, [message, onClose]);
+  }, [message]);
 
   if (!message) return null;
 
