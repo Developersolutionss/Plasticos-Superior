@@ -1064,7 +1064,13 @@ export default function OrdenProduccionDetalle() {
                 // solo Gestión — y se guarda solo al cambiarlo (ver
                 // handleMaterialParaChange), no con el botón general.
                 const isMaterialPara = field.key === "materialPara";
-                const canEditThis = isMaterialPara ? canEditSpecs || canOperate : canEditSpecs;
+                // "Cantidad (kilos)"/"Cantidad (rollos)" son el pesaje real
+                // de la OP de Extrusión padre (ver más arriba en este mismo
+                // useEffect) — el cliente pidió que no se puedan tocar a
+                // mano, ya que "corregirlas" acá las desconectaría del dato
+                // real que ya quedó pesado y cerrado en la OP padre.
+                const isParentDerivedTotal = (field.key === "cantidadKilos" || field.key === "cantidadRollos") && !!order.parent;
+                const canEditThis = isMaterialPara ? canEditSpecs || canOperate : isParentDerivedTotal ? false : canEditSpecs;
                 return (
                   <div key={field.key} className={`${cellBorder} p-2`}>
                     <span className={cellLabel}>{field.label}</span>
@@ -1088,6 +1094,7 @@ export default function OrdenProduccionDetalle() {
                         type={field.kind === "number" ? "number" : "text"}
                         value={specsDraft[field.key] ?? ""}
                         disabled={!canEditThis}
+                        title={isParentDerivedTotal ? "Es el pesaje real de la OP de Extrusión padre, no se puede editar acá" : undefined}
                         onChange={(e) => setSpec(field.key, e.target.value)}
                       />
                     )}
