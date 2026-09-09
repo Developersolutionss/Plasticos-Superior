@@ -199,7 +199,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         fields: [
           { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
           { key: "color", label: "Color", kind: "options", options: COLORES },
-          { key: "impreso", label: "Impreso", kind: "text" },
+          { key: "impreso", label: "Impreso", kind: "options", options: SI_NO },
           { key: "caras", label: "Caras", kind: "text" },
           { key: "rollos", label: "Rollos", kind: "number" },
           { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
@@ -241,7 +241,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         fields: [
           { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
           { key: "color", label: "Color", kind: "options", options: COLORES },
-          { key: "impreso", label: "Impreso", kind: "text" },
+          { key: "impreso", label: "Impreso", kind: "options", options: SI_NO },
           { key: "caras", label: "Caras", kind: "text" },
           { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
