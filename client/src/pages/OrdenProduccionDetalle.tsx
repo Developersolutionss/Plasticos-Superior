@@ -422,15 +422,13 @@ export default function OrdenProduccionDetalle() {
       setError("Escaneá el rollo de origen antes de registrar la fila");
       return;
     }
-    // E. BULTO ya no es obligatorio escanearlo — se puede tipear a mano
-    // (mercancía comprada afuera) o dejar vacío (se autogenera al guardar,
-    // ver rollCellDisplay). Si SÍ se escaneó una etiqueta física, igual se
-    // manda por separado como `bultoLabelCode` más abajo (el server la
-    // marca "usada" y pisa `details.eBulto` con ese código, ver
-    // POST /:id/rolls) — no hay conflicto en mandar ambos.
+    // E. BULTO no se tipea a mano — o se escanea la etiqueta física (se
+    // manda por separado como `bultoLabelCode` más abajo) o se deja vacío y
+    // se autogenera al guardar (ver rollCellDisplay), pero nunca es un
+    // input editable como el resto de las columnas de detalle.
     const details: Record<string, string> = {};
     for (const col of template.rollColumns) {
-      if (col.source === "detail" && rollDraft[`detail:${col.detailKey}`]) {
+      if (col.source === "detail" && !col.scanBultoLabel && rollDraft[`detail:${col.detailKey}`]) {
         details[col.detailKey!] = rollDraft[`detail:${col.detailKey}`];
       }
     }
@@ -569,11 +567,6 @@ export default function OrdenProduccionDetalle() {
           return;
         }
         setBultoLabel(label);
-        // Además de guardar el label para mandar `bultoLabelCode` al crear
-        // el rollo (ver handleAddRoll), se refleja en el input ya editable
-        // de E. BULTO para que se vea de una — sigue siendo editable si hay
-        // que corregirlo.
-        setRollDraft((d) => ({ ...d, "detail:eBulto": label.code }));
       })
       .catch(() => setError('No se encontró ninguna etiqueta con ese código. ¿Es un QR de etiqueta de bulto válido?'));
   }
@@ -702,9 +695,8 @@ export default function OrdenProduccionDetalle() {
         const value = roll.details?.[col.detailKey!];
         if (value != null && value !== "") return String(value);
         // E. BULTO: igual que ETIQUETA en Extrusión/Impresión — si no se
-        // escaneó ni se tipeó nada, se autogenera un identificador propio
-        // en vez de dejarlo en blanco (mercancía comprada afuera sí lo trae
-        // tipeado a mano, y por eso queda editable en vez de bloqueado).
+        // escaneó ninguna etiqueta física, se autogenera un identificador
+        // propio en vez de dejarlo en blanco.
         return col.scanBultoLabel ? `BULTO-${roll.id}` : "—";
       }
     }
@@ -753,12 +745,20 @@ export default function OrdenProduccionDetalle() {
     if ((col.source === "label" || col.source === "weight") && !template.labelIsOwnRoll && !sourceRoll) {
       return { content: "escaneá el QR", className: "text-slate-400 dark:text-slate-500 text-center italic", title: "Se completa al escanear el QR del rollo de origen" };
     }
-    // E. BULTO: igual que la ETIQUETA de Extrusión — se puede escanear una
-    // etiqueta física pre-impresa (ver EtiquetasBulto.tsx) como atajo, pero
-    // ya NO es obligatorio: si es mercancía comprada afuera se tipea el
-    // código a mano, y si se deja vacío se autogenera solo al guardar
-    // (BULTO-<id>, ver rollCellDisplay), no hace falta ni escanear ni
-    // tipear nada para bultos propios.
+    // E. BULTO: no se tipea a mano — se puede escanear una etiqueta física
+    // pre-impresa (ver EtiquetasBulto.tsx) como atajo opcional (mercancía
+    // comprada afuera), y si se deja vacío se autogenera solo al guardar
+    // (BULTO-<id>, ver rollCellDisplay), pero el campo en sí queda
+    // bloqueado, nunca es un input libre.
+    if (col.scanBultoLabel) {
+      return {
+        content: bultoLabel ? bultoLabel.code : "se completa sola",
+        className: `text-center ${bultoLabel ? "text-slate-800 dark:text-slate-100 font-medium" : "text-slate-400 dark:text-slate-500 italic"}`,
+        title: bultoLabel
+          ? undefined
+          : "Se autogenera sola si es un bulto propio, o escaneá la etiqueta física si viene de mercadería comprada afuera",
+      };
+    }
     return {
       className: "",
       content:
@@ -1329,7 +1329,7 @@ export default function OrdenProduccionDetalle() {
               </div>
             )}
             <span className="text-[10px] text-slate-500 dark:text-slate-400">
-              Opcional — si el bulto es propio no hace falta, se identifica solo. Si viene de un lote comprado afuera, escaneá su etiqueta o tipeá el código en E. BULTO más abajo.
+              Opcional — si el bulto es propio no hace falta, se identifica solo. Si viene de un lote comprado afuera, escaneá su etiqueta.
             </span>
           </div>
         )}
