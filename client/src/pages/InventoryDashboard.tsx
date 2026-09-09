@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { api } from "../api/client";
+import AsyncState from "../components/AsyncState";
+import { SkeletonRows } from "../components/Skeleton";
 
 const CATEGORIES = [
   { value: "", label: "Todos" },
@@ -19,11 +21,14 @@ const CATEGORIES = [
 export default function InventoryDashboard() {
   const [category, setCategory] = useState("");
 
-  const { data: alerts } = useQuery({ queryKey: ["alerts"], queryFn: api.getAlerts });
-  const { data: stock, isLoading } = useQuery({
+  const stockQuery = useQuery({
     queryKey: ["inventory", category],
     queryFn: () => api.getInventory(category || undefined),
   });
+  // Las alertas son un aviso secundario (banda amarilla arriba) — si fallan,
+  // no tiene sentido bloquear toda la pantalla de existencias por eso, así
+  // que se dejan sin AsyncState y simplemente no se muestran.
+  const { data: alerts } = useQuery({ queryKey: ["alerts"], queryFn: api.getAlerts });
 
   return (
     <div className="space-y-4">
@@ -66,66 +71,71 @@ export default function InventoryDashboard() {
         </div>
       )}
 
-      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
-
-      {!isLoading && stock && (
-        <>
-          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
-                <tr>
-                  <th className="p-3">SKU</th>
-                  <th className="p-3">Producto</th>
-                  <th className="p-3">Medida</th>
-                  <th className="p-3">Stock actual</th>
-                  <th className="p-3">Mínimo</th>
-                  <th className="p-3">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stock.map((p: any) => (
-                  <tr key={p.id} className="border-t">
-                    <td className="p-3">{p.sku}</td>
-                    <td className="p-3">{p.name}</td>
-                    <td className="p-3">{p.measure ?? "-"}</td>
-                    <td className="p-3">
-                      {p.currentStock} {p.unit}
-                    </td>
-                    <td className="p-3">{p.minStock}</td>
-                    <td className="p-3">
-                      {p.belowMinimum ? (
-                        <span className="text-amber-700 dark:text-amber-400 font-medium">Bajo mínimo</span>
-                      ) : (
-                        <span className="text-emerald-700 dark:text-emerald-400">OK</span>
-                      )}
-                    </td>
+      <AsyncState
+        query={stockQuery}
+        skeleton={<SkeletonRows rows={6} cols={6} />}
+        emptyMessage="No hay productos en esta categoría."
+        errorMessage="No se pudieron cargar las existencias."
+      >
+        {(stock) => (
+          <>
+            <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-100 dark:bg-slate-800 text-left">
+                  <tr>
+                    <th className="p-3">SKU</th>
+                    <th className="p-3">Producto</th>
+                    <th className="p-3">Medida</th>
+                    <th className="p-3">Stock actual</th>
+                    <th className="p-3">Mínimo</th>
+                    <th className="p-3">Estado</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {stock.map((p: any) => (
+                    <tr key={p.id} className="border-t">
+                      <td className="p-3">{p.sku}</td>
+                      <td className="p-3">{p.name}</td>
+                      <td className="p-3">{p.measure ?? "-"}</td>
+                      <td className="p-3">
+                        {p.currentStock} {p.unit}
+                      </td>
+                      <td className="p-3">{p.minStock}</td>
+                      <td className="p-3">
+                        {p.belowMinimum ? (
+                          <span className="text-amber-700 dark:text-amber-400 font-medium">Bajo mínimo</span>
+                        ) : (
+                          <span className="text-emerald-700 dark:text-emerald-400">OK</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
-            {stock.map((p: any) => (
-              <div key={p.id} className="p-4 space-y-1">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium text-slate-800 dark:text-slate-100">
-                    {p.name} <span className="text-slate-400 dark:text-slate-400 font-normal">({p.sku})</span>
+            <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
+              {stock.map((p: any) => (
+                <div key={p.id} className="p-4 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-slate-800 dark:text-slate-100">
+                      {p.name} <span className="text-slate-400 dark:text-slate-400 font-normal">({p.sku})</span>
+                    </p>
+                    {p.belowMinimum ? (
+                      <span className="text-amber-700 dark:text-amber-400 font-medium text-xs shrink-0">Bajo mínimo</span>
+                    ) : (
+                      <span className="text-emerald-700 dark:text-emerald-400 text-xs shrink-0">OK</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {p.measure ?? "-"} · Stock: {p.currentStock} {p.unit} · Mínimo: {p.minStock}
                   </p>
-                  {p.belowMinimum ? (
-                    <span className="text-amber-700 dark:text-amber-400 font-medium text-xs shrink-0">Bajo mínimo</span>
-                  ) : (
-                    <span className="text-emerald-700 dark:text-emerald-400 text-xs shrink-0">OK</span>
-                  )}
                 </div>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {p.measure ?? "-"} · Stock: {p.currentStock} {p.unit} · Mínimo: {p.minStock}
-                </p>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+              ))}
+            </div>
+          </>
+        )}
+      </AsyncState>
     </div>
   );
 }

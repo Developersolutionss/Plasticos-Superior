@@ -4,6 +4,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { ChevronRight, ChevronDown, GitBranch } from "lucide-react";
 import { api } from "../api/client";
 import { STATION_LABELS, OpStation } from "../opTemplates";
+import AsyncState from "../components/AsyncState";
+import { SkeletonRows } from "../components/Skeleton";
 
 const STATUS_LABELS: Record<string, string> = {
   borrador: "Borrador",
@@ -196,7 +198,7 @@ export default function OrdenesProduccion() {
 
   const { data: products } = useQuery({ queryKey: ["products"], queryFn: api.getProducts });
   const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: api.getClients });
-  const { data: orders, isLoading } = useQuery({
+  const ordersQuery = useQuery({
     queryKey: ["productionOrders", station],
     queryFn: () => api.getProductionOrders(station ? { station } : undefined),
   });
@@ -312,92 +314,91 @@ export default function OrdenesProduccion() {
         </select>
       </div>
 
-      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
+      <AsyncState
+        query={ordersQuery}
+        skeleton={<SkeletonRows rows={6} cols={7} />}
+        emptyMessage="Todavía no hay órdenes de producción."
+        errorMessage="No se pudieron cargar las órdenes de producción."
+      >
+        {(orders) => (
+          <>
+            <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-100 dark:bg-slate-800 text-left">
+                  <tr>
+                    <th className="p-3">OP</th>
+                    <th className="p-3">Proceso</th>
+                    <th className="p-3">Cliente</th>
+                    <th className="p-3">Referencia</th>
+                    <th className="p-3">Kg (prod. / plan.)</th>
+                    <th className="p-3">Derivación</th>
+                    <th className="p-3">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {buildChains(orders).map(({ orderNumber, head, children }) => {
+                    const isExpanded = expanded.has(orderNumber);
+                    return (
+                      <FragmentChain
+                        key={orderNumber}
+                        orderNumber={orderNumber}
+                        head={head}
+                        children_={children}
+                        isExpanded={isExpanded}
+                        onToggle={() => toggleExpanded(orderNumber)}
+                      />
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-      {!isLoading && orders?.length === 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
-          Todavía no hay órdenes de producción.
-        </div>
-      )}
-
-      {!isLoading && orders && orders.length > 0 && (
-        <>
-          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
-                <tr>
-                  <th className="p-3">OP</th>
-                  <th className="p-3">Proceso</th>
-                  <th className="p-3">Cliente</th>
-                  <th className="p-3">Referencia</th>
-                  <th className="p-3">Kg (prod. / plan.)</th>
-                  <th className="p-3">Derivación</th>
-                  <th className="p-3">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {buildChains(orders).map(({ orderNumber, head, children }) => {
-                  const isExpanded = expanded.has(orderNumber);
-                  return (
-                    <FragmentChain
-                      key={orderNumber}
-                      orderNumber={orderNumber}
-                      head={head}
-                      children_={children}
-                      isExpanded={isExpanded}
-                      onToggle={() => toggleExpanded(orderNumber)}
-                    />
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
-            {buildChains(orders).map(({ orderNumber, head, children }) => {
-              const isExpanded = expanded.has(orderNumber);
-              const rows = [head, ...(isExpanded ? children : [])];
-              return (
-                <div key={orderNumber}>
-                  {rows.map((o: any, i: number) => (
-                    <div key={o.id} className={`flex items-stretch ${i > 0 ? "bg-slate-50/60 dark:bg-slate-800/40" : ""}`}>
-                      {i === 0 && children.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => toggleExpanded(orderNumber)}
-                          className="px-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                          aria-label={isExpanded ? "Contraer etapas derivadas" : "Expandir etapas derivadas"}
+            <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
+              {buildChains(orders).map(({ orderNumber, head, children }) => {
+                const isExpanded = expanded.has(orderNumber);
+                const rows = [head, ...(isExpanded ? children : [])];
+                return (
+                  <div key={orderNumber}>
+                    {rows.map((o: any, i: number) => (
+                      <div key={o.id} className={`flex items-stretch ${i > 0 ? "bg-slate-50/60 dark:bg-slate-800/40" : ""}`}>
+                        {i === 0 && children.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(orderNumber)}
+                            className="px-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                            aria-label={isExpanded ? "Contraer etapas derivadas" : "Expandir etapas derivadas"}
+                          >
+                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          </button>
+                        )}
+                        <Link
+                          to={`/produccion/ordenes/${o.id}`}
+                          className={`flex-1 block p-4 space-y-2 hover:bg-slate-50 dark:hover:bg-slate-800 ${i === 0 && children.length === 0 ? "pl-4" : ""} ${i > 0 ? "pl-8" : ""}`}
                         >
-                          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        </button>
-                      )}
-                      <Link
-                        to={`/produccion/ordenes/${o.id}`}
-                        className={`flex-1 block p-4 space-y-2 hover:bg-slate-50 dark:hover:bg-slate-800 ${i === 0 && children.length === 0 ? "pl-4" : ""} ${i > 0 ? "pl-8" : ""}`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="font-medium text-slate-800 dark:text-slate-100">{orderNumber}</p>
-                          <StationBadge station={o.station} />
-                        </div>
-                        <p className="text-sm text-slate-600 dark:text-slate-300">
-                          {o.product.name}
-                          {o.client?.name ? ` · ${o.client.name}` : ""}
-                        </p>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500 dark:text-slate-400">
-                            {kilosProducidos(o)} / {Number(o.quantityPlanned)} {o.product.unit}
-                          </span>
-                          <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[o.status]}`}>{STATUS_LABELS[o.status]}</span>
-                        </div>
-                      </Link>
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium text-slate-800 dark:text-slate-100">{orderNumber}</p>
+                            <StationBadge station={o.station} />
+                          </div>
+                          <p className="text-sm text-slate-600 dark:text-slate-300">
+                            {o.product.name}
+                            {o.client?.name ? ` · ${o.client.name}` : ""}
+                          </p>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-500 dark:text-slate-400">
+                              {kilosProducidos(o)} / {Number(o.quantityPlanned)} {o.product.unit}
+                            </span>
+                            <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[o.status]}`}>{STATUS_LABELS[o.status]}</span>
+                          </div>
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </AsyncState>
     </div>
   );
 }

@@ -3,6 +3,8 @@ import { FormEvent, useState } from "react";
 import { Plus } from "lucide-react";
 import { api } from "../api/client";
 import Modal from "../components/Modal";
+import AsyncState from "../components/AsyncState";
+import { SkeletonRows } from "../components/Skeleton";
 
 const inputClass =
   "w-full border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-sm text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-500";
@@ -132,7 +134,7 @@ export default function MateriaPrima() {
   const [adjusting, setAdjusting] = useState<any>(null);
   const queryClient = useQueryClient();
 
-  const { data: catalog, isLoading } = useQuery({ queryKey: ["rawMaterials"], queryFn: api.getRawMaterials });
+  const catalogQuery = useQuery({ queryKey: ["rawMaterials"], queryFn: api.getRawMaterials });
   const { data: stock } = useQuery({ queryKey: ["rawMaterialStock"], queryFn: api.getRawMaterialStock });
 
   const stockById = new Map((stock ?? []).map((s: any) => [s.id, s]));
@@ -189,10 +191,13 @@ export default function MateriaPrima() {
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        {isLoading && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</p>}
-        {!isLoading && catalog?.length === 0 && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">No hay materia prima cargada.</p>}
-
-        {!isLoading && catalog && catalog.length > 0 && (
+        <AsyncState
+          query={catalogQuery}
+          skeleton={<SkeletonRows rows={5} cols={6} />}
+          emptyMessage="No hay materia prima cargada."
+          errorMessage="No se pudo cargar el catálogo de materia prima."
+        >
+          {(catalog) => (
           <>
             <table className="hidden md:table w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800 text-left text-slate-500 dark:text-slate-400">
@@ -293,7 +298,8 @@ export default function MateriaPrima() {
               })}
             </div>
           </>
-        )}
+          )}
+        </AsyncState>
       </div>
 
       {creating && (

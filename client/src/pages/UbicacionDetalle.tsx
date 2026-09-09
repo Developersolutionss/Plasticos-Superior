@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, RotateCcw } from "lucide-react";
 import { api } from "../api/client";
+import { SkeletonCard } from "../components/Skeleton";
 
 /** Página a la que apunta el QR impreso de cada ubicación (Almacen.tsx).
  * Ruta pública (App.tsx: `/qr/:token`, fuera de <Layout>/RequireAuth) — el
@@ -11,7 +12,7 @@ import { api } from "../api/client";
 export default function UbicacionDetalle() {
   const { token } = useParams<{ token: string }>();
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["publicLocation", token],
     queryFn: () => api.getPublicLocation(token!),
     enabled: !!token,
@@ -21,9 +22,18 @@ export default function UbicacionDetalle() {
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-800 p-4">
       <div className="max-w-md mx-auto space-y-4 pt-6">
-        {isLoading && <p className="text-slate-500 dark:text-slate-400 text-center py-10">Cargando...</p>}
+        {isLoading && <SkeletonCard />}
         {!isLoading && (isError || !data) && (
-          <p className="text-red-600 dark:text-red-400 text-center py-10">No se encontró esta ubicación.</p>
+          <div className="flex flex-col items-center gap-3 py-10">
+            <p className="text-red-600 dark:text-red-400 text-center">No se encontró esta ubicación.</p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="inline-flex items-center gap-1.5 bg-slate-800 text-white text-sm px-4 py-2 rounded hover:bg-slate-700"
+            >
+              <RotateCcw size={14} aria-hidden="true" /> Reintentar
+            </button>
+          </div>
         )}
 
         {!isLoading && data && (

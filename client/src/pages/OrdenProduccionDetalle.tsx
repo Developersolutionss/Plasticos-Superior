@@ -1,13 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FileDown, GitBranch, Lock, Paperclip, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
+import { AlertTriangle, FileDown, GitBranch, Lock, Paperclip, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { useConfirm } from "../components/ConfirmDialog";
 import ErrorToast from "../components/ErrorToast";
+import { SkeletonRows } from "../components/Skeleton";
 import {
   DERIVATIONS,
   FINAL_STATIONS,
@@ -187,7 +188,12 @@ export default function OrdenProduccionDetalle() {
   const [releasing, setReleasing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const { data: order, isLoading } = useQuery({
+  const {
+    data: order,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["productionOrder", orderId],
     queryFn: () => api.getProductionOrder(orderId),
     enabled: Number.isInteger(orderId),
@@ -280,7 +286,25 @@ export default function OrdenProduccionDetalle() {
   }, [order]);
 
   if (!Number.isInteger(orderId)) return <p className="text-red-600 dark:text-red-400">OP inválida.</p>;
-  if (isLoading || !order) return <p className="text-slate-500 dark:text-slate-400 text-sm">Cargando...</p>;
+  if (isLoading) return <SkeletonRows rows={6} cols={2} />;
+  // Antes esto quedaba en "Cargando..." para siempre si la petición
+  // realmente fallaba (isLoading pasa a false pero order sigue undefined) —
+  // el operario nunca se enteraba de que había un error real.
+  if (isError || !order) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 text-center p-6 bg-white dark:bg-slate-900 rounded-lg shadow">
+        <AlertTriangle size={22} className="text-red-500" aria-hidden="true" />
+        <p className="text-red-600 dark:text-red-400 text-sm">No se pudo cargar la orden de producción.</p>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="inline-flex items-center gap-1.5 bg-slate-800 text-white text-sm px-4 py-2 rounded hover:bg-slate-700"
+        >
+          <RotateCcw size={14} aria-hidden="true" /> Reintentar
+        </button>
+      </div>
+    );
+  }
 
   const canGestion = !!user && (PRODUCCION_GESTION as UserRole[]).includes(user.role);
 

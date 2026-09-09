@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import Sidebar from "./Sidebar";
 import NotificationBell from "./NotificationBell";
 import ThemeToggle from "./ThemeToggle";
+import ErrorBoundary from "./ErrorBoundary";
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -52,7 +53,13 @@ export default function Layout() {
           </div>
         </header>
         <main className="app-content flex-1">
-          <Outlet />
+          {/* `key` fuerza un remount del boundary al navegar -- si una
+              pantalla falló, ir a otro módulo no deja "pegado" el
+              mensaje de error de la anterior. El resto del layout (menú,
+              header) sigue funcionando aunque esta pantalla se rompa. */}
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

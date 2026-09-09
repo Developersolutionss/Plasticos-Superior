@@ -1,11 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ChangeEvent, useState } from "react";
+import { RotateCcw } from "lucide-react";
 import { api } from "../api/client";
+import { SkeletonLine } from "../components/Skeleton";
 
 export default function ProductionUpload() {
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof api.previewImport>> | null>(null);
   const [result, setResult] = useState<{ processed: number; failed: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   async function handleFile(e: ChangeEvent<HTMLInputElement>) {
@@ -13,23 +16,30 @@ export default function ProductionUpload() {
     if (!file) return;
     setLoading(true);
     setResult(null);
+    setError(null);
     try {
       const data = await api.previewImport(file);
       setPreview(data);
+    } catch {
+      setError("No se pudo leer el archivo. Verificá el formato e intentá de nuevo.");
     } finally {
       setLoading(false);
+      e.target.value = "";
     }
   }
 
   async function confirmImport() {
     if (!preview) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await api.confirmImport(preview.filename, preview.rows);
       setResult(res);
       setPreview(null);
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
+    } catch {
+      setError("No se pudo confirmar la importación. Intentá de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -45,7 +55,27 @@ export default function ProductionUpload() {
         <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} />
       </div>
 
-      {loading && <p className="text-slate-500 dark:text-slate-400">Procesando...</p>}
+      {loading && (
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">
+          <SkeletonLine className="h-4 w-2/3" />
+          <SkeletonLine className="h-24 w-full" />
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
+          {preview && (
+            <button
+              type="button"
+              onClick={confirmImport}
+              className="inline-flex items-center gap-1.5 bg-slate-800 text-white text-sm px-4 py-2 rounded hover:bg-slate-700"
+            >
+              <RotateCcw size={14} aria-hidden="true" /> Reintentar
+            </button>
+          )}
+        </div>
+      )}
 
       {preview && (
         <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">

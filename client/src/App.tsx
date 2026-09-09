@@ -36,6 +36,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import SecuritySettings from "./pages/SecuritySettings";
 import Apariencia from "./pages/Apariencia";
+import ErrorBoundary from "./components/ErrorBoundary";
 import {
   ADMIN,
   ALMACEN,
@@ -115,6 +116,12 @@ function RequireStationRole({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
+    // Red de seguridad última para lo que queda fuera de Layout (Login,
+    // recuperar contraseña, la página pública de QR) o un error en el
+    // propio Layout -- sin `key`, así que "Reintentar" no sirve para
+    // recuperar una ruta específica (para eso está el boundary de
+    // Layout.tsx); acá reintentar recarga la página entera.
+    <ErrorBoundary message="Algo falló. Por favor recargá la página." onRetry={() => window.location.reload()}>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -369,5 +376,6 @@ export default function App() {
         <Route path="configuracion/apariencia" element={<Apariencia />} />
       </Route>
     </Routes>
+    </ErrorBoundary>
   );
 }

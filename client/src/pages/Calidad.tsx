@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import AsyncState from "../components/AsyncState";
+import { SkeletonRows } from "../components/Skeleton";
 
 /** Componente de nivel de módulo (no anidado en Calidad): si se define
  * adentro, React crea una función nueva en cada render y remonta este
@@ -88,7 +90,7 @@ export default function Calidad() {
   const [observations, setObservations] = useState("");
   const queryClient = useQueryClient();
 
-  const { data: pending, isLoading } = useQuery({
+  const pendingQuery = useQuery({
     queryKey: ["productionOrders", "pendiente_calidad"],
     queryFn: () => api.getProductionOrders({ status: "pendiente_calidad" }),
   });
@@ -125,84 +127,84 @@ export default function Calidad() {
 
       {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
 
-      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
-      {!isLoading && pending?.length === 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
-          No hay órdenes pendientes de control de calidad.
-        </div>
-      )}
-
-      {!isLoading && pending && pending.length > 0 && (
-        <>
-          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
-                <tr>
-                  <th className="p-3">OP</th>
-                  <th className="p-3">Producto</th>
-                  <th className="p-3">Cant. planificada</th>
-                  <th className="p-3">Kg en rollos</th>
-                  <th className="p-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {pending.map((order: any) => (
-                  <tr key={order.id} className="border-t align-top">
-                    <td className="p-3 font-medium">
-                      <Link className="text-sky-700 dark:text-sky-400 hover:underline" to={`/produccion/ordenes/${order.id}`}>
-                        {order.orderNumber}
-                      </Link>
-                    </td>
-                    <td className="p-3">{order.product.name}</td>
-                    <td className="p-3">
-                      {order.quantityPlanned} {order.product.unit}
-                    </td>
-                    <td className="p-3">{rollosKg(order) ?? "—"}</td>
-                    <td className="p-3">
-                      <Actions
-                        order={order}
-                        align="end"
-                        rejectingId={rejectingId}
-                        submittingId={submittingId}
-                        observations={observations}
-                        setObservations={setObservations}
-                        setRejectingId={setRejectingId}
-                        handleSubmit={handleSubmit}
-                      />
-                    </td>
+      <AsyncState
+        query={pendingQuery}
+        skeleton={<SkeletonRows rows={3} cols={5} />}
+        emptyMessage="No hay órdenes pendientes de control de calidad."
+        errorMessage="No se pudieron cargar las órdenes pendientes de calidad."
+      >
+        {(pending) => (
+          <>
+            <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-100 dark:bg-slate-800 text-left">
+                  <tr>
+                    <th className="p-3">OP</th>
+                    <th className="p-3">Producto</th>
+                    <th className="p-3">Cant. planificada</th>
+                    <th className="p-3">Kg en rollos</th>
+                    <th className="p-3"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {pending.map((order: any) => (
+                    <tr key={order.id} className="border-t align-top">
+                      <td className="p-3 font-medium">
+                        <Link className="text-sky-700 dark:text-sky-400 hover:underline" to={`/produccion/ordenes/${order.id}`}>
+                          {order.orderNumber}
+                        </Link>
+                      </td>
+                      <td className="p-3">{order.product.name}</td>
+                      <td className="p-3">
+                        {order.quantityPlanned} {order.product.unit}
+                      </td>
+                      <td className="p-3">{rollosKg(order) ?? "—"}</td>
+                      <td className="p-3">
+                        <Actions
+                          order={order}
+                          align="end"
+                          rejectingId={rejectingId}
+                          submittingId={submittingId}
+                          observations={observations}
+                          setObservations={setObservations}
+                          setRejectingId={setRejectingId}
+                          handleSubmit={handleSubmit}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
-            {pending.map((order: any) => (
-              <div key={order.id} className="p-4 space-y-3">
-                <div>
-                  <Link className="font-medium text-sky-700 dark:text-sky-400 hover:underline" to={`/produccion/ordenes/${order.id}`}>
-                    {order.orderNumber}
-                  </Link>
-                  <p className="text-sm text-slate-600 dark:text-slate-300">{order.product.name}</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Planificado: {order.quantityPlanned} {order.product.unit} · Rollos: {rollosKg(order) ?? "—"}
-                  </p>
+            <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
+              {pending.map((order: any) => (
+                <div key={order.id} className="p-4 space-y-3">
+                  <div>
+                    <Link className="font-medium text-sky-700 dark:text-sky-400 hover:underline" to={`/produccion/ordenes/${order.id}`}>
+                      {order.orderNumber}
+                    </Link>
+                    <p className="text-sm text-slate-600 dark:text-slate-300">{order.product.name}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      Planificado: {order.quantityPlanned} {order.product.unit} · Rollos: {rollosKg(order) ?? "—"}
+                    </p>
+                  </div>
+                  <Actions
+                    order={order}
+                    align="stretch"
+                    rejectingId={rejectingId}
+                    submittingId={submittingId}
+                    observations={observations}
+                    setObservations={setObservations}
+                    setRejectingId={setRejectingId}
+                    handleSubmit={handleSubmit}
+                  />
                 </div>
-                <Actions
-                  order={order}
-                  align="stretch"
-                  rejectingId={rejectingId}
-                  submittingId={submittingId}
-                  observations={observations}
-                  setObservations={setObservations}
-                  setRejectingId={setRejectingId}
-                  handleSubmit={handleSubmit}
-                />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+              ))}
+            </div>
+          </>
+        )}
+      </AsyncState>
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
+import AsyncState from "../components/AsyncState";
+import { SkeletonRows } from "../components/Skeleton";
 
 const MOVEMENT_TYPES = ["entrada_produccion", "salida_despacho", "ajuste", "devolucion"];
 
@@ -44,10 +46,11 @@ export default function Movimientos() {
   const [movementType, setMovementType] = useState("");
   const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery({
+  const movementsQuery = useQuery({
     queryKey: ["inventoryMovements", movementType, page],
     queryFn: () => api.getInventoryMovements({ movementType: movementType || undefined, page, pageSize: PAGE_SIZE }),
   });
+  const { data } = movementsQuery;
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
@@ -76,63 +79,66 @@ export default function Movimientos() {
         </select>
       </div>
 
-      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
-      {!isLoading && data?.items.length === 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Sin movimientos todavía.</div>
-      )}
-
-      {!isLoading && data && data.items.length > 0 && (
-        <>
-          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
-                <tr>
-                  <th className="p-3">Producto</th>
-                  <th className="p-3">Tipo</th>
-                  <th className="p-3">Cantidad</th>
-                  <th className="p-3">Usuario</th>
-                  <th className="p-3">Fecha</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.items.map((m: any) => (
-                  <tr key={m.id} className="border-t">
-                    <td className="p-3">
-                      {m.product?.name} <span className="text-slate-400 dark:text-slate-400">({m.product?.sku})</span>
-                    </td>
-                    <td className="p-3">
-                      <MovementBadge type={m.movementType} />
-                    </td>
-                    <td className="p-3">
-                      <MovementQuantity movement={m} />
-                    </td>
-                    <td className="p-3 text-slate-500 dark:text-slate-400">{m.createdBy?.name ?? "—"}</td>
-                    <td className="p-3 text-slate-500 dark:text-slate-400">{new Date(m.createdAt).toLocaleString()}</td>
+      <AsyncState
+        query={movementsQuery}
+        skeleton={<SkeletonRows rows={6} cols={5} />}
+        isEmpty={(d) => d.items.length === 0}
+        emptyMessage="Sin movimientos todavía."
+        errorMessage="No se pudo cargar el historial de movimientos."
+      >
+        {(data) => (
+          <>
+            <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-100 dark:bg-slate-800 text-left">
+                  <tr>
+                    <th className="p-3">Producto</th>
+                    <th className="p-3">Tipo</th>
+                    <th className="p-3">Cantidad</th>
+                    <th className="p-3">Usuario</th>
+                    <th className="p-3">Fecha</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {data.items.map((m: any) => (
+                    <tr key={m.id} className="border-t">
+                      <td className="p-3">
+                        {m.product?.name} <span className="text-slate-400 dark:text-slate-400">({m.product?.sku})</span>
+                      </td>
+                      <td className="p-3">
+                        <MovementBadge type={m.movementType} />
+                      </td>
+                      <td className="p-3">
+                        <MovementQuantity movement={m} />
+                      </td>
+                      <td className="p-3 text-slate-500 dark:text-slate-400">{m.createdBy?.name ?? "—"}</td>
+                      <td className="p-3 text-slate-500 dark:text-slate-400">{new Date(m.createdAt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
-            {data.items.map((m: any) => (
-              <div key={m.id} className="p-4 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium text-slate-800 dark:text-slate-100">
-                    {m.product?.name} <span className="text-slate-400 dark:text-slate-400 font-normal">({m.product?.sku})</span>
-                  </p>
-                  <MovementBadge type={m.movementType} />
+            <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
+              {data.items.map((m: any) => (
+                <div key={m.id} className="p-4 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-slate-800 dark:text-slate-100">
+                      {m.product?.name} <span className="text-slate-400 dark:text-slate-400 font-normal">({m.product?.sku})</span>
+                    </p>
+                    <MovementBadge type={m.movementType} />
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <MovementQuantity movement={m} />
+                    <span className="text-slate-500 dark:text-slate-400">{m.createdBy?.name ?? "—"}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 dark:text-slate-400">{new Date(m.createdAt).toLocaleString()}</p>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <MovementQuantity movement={m} />
-                  <span className="text-slate-500 dark:text-slate-400">{m.createdBy?.name ?? "—"}</span>
-                </div>
-                <p className="text-xs text-slate-400 dark:text-slate-400">{new Date(m.createdAt).toLocaleString()}</p>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+              ))}
+            </div>
+          </>
+        )}
+      </AsyncState>
 
       {data && data.total > PAGE_SIZE && (
         <div className="flex items-center justify-between text-sm">

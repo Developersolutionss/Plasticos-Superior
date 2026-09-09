@@ -4,6 +4,8 @@ import { Pencil, Plus, Tag } from "lucide-react";
 import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ProductoForm from "../components/ProductoForm";
+import AsyncState from "../components/AsyncState";
+import { SkeletonRows } from "../components/Skeleton";
 
 /** El nombre/SKU del producto se interpolan en un HTML servido por
  * `document.write` en una ventana con el mismo origen — sin escapar, un
@@ -110,7 +112,8 @@ export default function Productos() {
   const [printing, setPrinting] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: products, isLoading } = useQuery({ queryKey: ["allProducts"], queryFn: api.getAllProducts });
+  const productsQuery = useQuery({ queryKey: ["allProducts"], queryFn: api.getAllProducts });
+  const { data: products } = productsQuery;
 
   async function handleDeactivate(id: number) {
     await api.deactivateProduct(id);
@@ -175,10 +178,13 @@ export default function Productos() {
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        {isLoading && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</p>}
-        {!isLoading && products?.length === 0 && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">No hay productos.</p>}
-
-        {!isLoading && products && products.length > 0 && (
+        <AsyncState
+          query={productsQuery}
+          skeleton={<SkeletonRows rows={6} cols={7} />}
+          emptyMessage="No hay productos."
+          errorMessage="No se pudo cargar el catálogo de productos."
+        >
+          {(products) => (
           <>
             <table className="hidden md:table w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800 text-left text-slate-500 dark:text-slate-400">
@@ -312,7 +318,8 @@ export default function Productos() {
               ))}
             </div>
           </>
-        )}
+          )}
+        </AsyncState>
       </div>
 
       {creating && (

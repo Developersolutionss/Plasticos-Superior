@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import { STATION_LABELS, OpStation } from "../opTemplates";
+import AsyncState from "../components/AsyncState";
+import { SkeletonRows } from "../components/Skeleton";
 
 type Row = {
   operatorName: string;
@@ -39,7 +41,7 @@ export default function ProduccionPorOperario() {
   const [to, setTo] = useState(todayISO());
   const [station, setStation] = useState("");
 
-  const { data: rows, isLoading } = useQuery({
+  const rowsQuery = useQuery({
     queryKey: ["produccionPorOperario", from, to, station],
     queryFn: () => api.getProduccionPorOperario({ from, to, station: station || undefined }),
   });
@@ -94,63 +96,63 @@ export default function ProduccionPorOperario() {
         </div>
       </div>
 
-      {isLoading && <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</div>}
-
-      {!isLoading && rows?.length === 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
-          No hay rollos cargados en ese rango.
-        </div>
-      )}
-
-      {!isLoading && rows && rows.length > 0 && (
-        <>
-          <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-100 dark:bg-slate-800 text-left">
-                <tr>
-                  <th className="p-3">Operario</th>
-                  <th className="p-3">Fecha</th>
-                  <th className="p-3">Proceso</th>
-                  <th className="p-3">Rollos</th>
-                  <th className="p-3">Kg producidos</th>
-                  <th className="p-3">Kg desperdicio</th>
-                  <th className="p-3">Total kg</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(rows as Row[]).map((r) => (
-                  <tr key={`${r.operatorName}|${r.day}|${r.station}`} className="border-t hover:bg-slate-50 dark:hover:bg-slate-800">
-                    <td className="p-3 font-medium">{r.operatorName}</td>
-                    <td className="p-3">{formatDay(r.day)}</td>
-                    <td className="p-3">{(r.station && STATION_LABELS[r.station as OpStation]) ?? r.station ?? "—"}</td>
-                    <td className="p-3">{r.rollCount}</td>
-                    <td className="p-3">{r.weightKg.toFixed(2)}</td>
-                    <td className="p-3">{r.wasteKg.toFixed(2)}</td>
-                    <td className="p-3 font-medium">{totalKg(r).toFixed(2)}</td>
+      <AsyncState
+        query={rowsQuery}
+        skeleton={<SkeletonRows rows={5} cols={7} />}
+        emptyMessage="No hay rollos cargados en ese rango."
+        errorMessage="No se pudo cargar el reporte por operario."
+      >
+        {(rows) => (
+          <>
+            <div className="hidden md:block bg-white dark:bg-slate-900 rounded-lg shadow overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-100 dark:bg-slate-800 text-left">
+                  <tr>
+                    <th className="p-3">Operario</th>
+                    <th className="p-3">Fecha</th>
+                    <th className="p-3">Proceso</th>
+                    <th className="p-3">Rollos</th>
+                    <th className="p-3">Kg producidos</th>
+                    <th className="p-3">Kg desperdicio</th>
+                    <th className="p-3">Total kg</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {(rows as Row[]).map((r) => (
+                    <tr key={`${r.operatorName}|${r.day}|${r.station}`} className="border-t hover:bg-slate-50 dark:hover:bg-slate-800">
+                      <td className="p-3 font-medium">{r.operatorName}</td>
+                      <td className="p-3">{formatDay(r.day)}</td>
+                      <td className="p-3">{(r.station && STATION_LABELS[r.station as OpStation]) ?? r.station ?? "—"}</td>
+                      <td className="p-3">{r.rollCount}</td>
+                      <td className="p-3">{r.weightKg.toFixed(2)}</td>
+                      <td className="p-3">{r.wasteKg.toFixed(2)}</td>
+                      <td className="p-3 font-medium">{totalKg(r).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-          <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
-            {(rows as Row[]).map((r) => (
-              <div key={`${r.operatorName}|${r.day}|${r.station}`} className="p-4 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium text-slate-800 dark:text-slate-100">{r.operatorName}</p>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{formatDay(r.day)}</span>
+            <div className="md:hidden bg-white dark:bg-slate-900 rounded-lg shadow divide-y divide-slate-100 dark:divide-slate-700">
+              {(rows as Row[]).map((r) => (
+                <div key={`${r.operatorName}|${r.day}|${r.station}`} className="p-4 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-slate-800 dark:text-slate-100">{r.operatorName}</p>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">{formatDay(r.day)}</span>
+                  </div>
+                  <p className="text-sm text-slate-600 dark:text-slate-300">
+                    {(r.station && STATION_LABELS[r.station as OpStation]) ?? r.station ?? "—"} · {r.rollCount} rollo{r.rollCount === 1 ? "" : "s"}
+                  </p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {r.weightKg.toFixed(2)} kg producidos · {r.wasteKg.toFixed(2)} kg desperdicio ·{" "}
+                    <span className="font-medium">{totalKg(r).toFixed(2)} kg total</span>
+                  </p>
                 </div>
-                <p className="text-sm text-slate-600 dark:text-slate-300">
-                  {(r.station && STATION_LABELS[r.station as OpStation]) ?? r.station ?? "—"} · {r.rollCount} rollo{r.rollCount === 1 ? "" : "s"}
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {r.weightKg.toFixed(2)} kg producidos · {r.wasteKg.toFixed(2)} kg desperdicio · <span className="font-medium">{totalKg(r).toFixed(2)} kg total</span>
-                </p>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+              ))}
+            </div>
+          </>
+        )}
+      </AsyncState>
     </div>
   );
 }

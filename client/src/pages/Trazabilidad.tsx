@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CircleCheck, CircleX, CircleDashed, Factory, Package, Warehouse, Truck } from "lucide-react";
 import { api } from "../api/client";
+import AsyncState from "../components/AsyncState";
+import { SkeletonCard } from "../components/Skeleton";
 
 const STATION_LABELS: Record<string, string> = {
   extrusion: "Extrusión",
@@ -50,13 +52,11 @@ export default function Trazabilidad() {
   const [selectedId, setSelectedId] = useState("");
 
   const { data: orders } = useQuery({ queryKey: ["productionOrders"], queryFn: () => api.getProductionOrders() });
-  const { data: order, isLoading } = useQuery({
+  const orderQuery = useQuery({
     queryKey: ["productionOrder", selectedId],
     queryFn: () => api.getProductionOrder(Number(selectedId)),
     enabled: !!selectedId,
   });
-
-  const origin = order?.pedidoVersionItem?.pedidoVersion?.pedido;
 
   return (
     <div className="space-y-5 max-w-3xl">
@@ -80,9 +80,15 @@ export default function Trazabilidad() {
         </select>
       </div>
 
-      {isLoading && <p className="text-sm text-slate-500 dark:text-slate-400">Cargando...</p>}
-
-      {order && (
+      {selectedId && (
+        <AsyncState
+          query={orderQuery}
+          skeleton={<SkeletonCard />}
+          errorMessage="No se pudo cargar la trazabilidad de esta orden."
+        >
+          {(order) => {
+            const origin = order.pedidoVersionItem?.pedidoVersion?.pedido;
+            return (
         <>
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 dark:border-slate-700">
@@ -263,6 +269,9 @@ export default function Trazabilidad() {
             </div>
           </div>
         </>
+            );
+          }}
+        </AsyncState>
       )}
     </div>
   );

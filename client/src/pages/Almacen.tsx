@@ -3,6 +3,8 @@ import { FormEvent, ReactNode, useState } from "react";
 import { ChevronDown, ChevronRight, CircleAlert, MapPin, QrCode, ScanLine, X } from "lucide-react";
 import { api } from "../api/client";
 import BarcodeScanner from "../components/BarcodeScanner";
+import AsyncState from "../components/AsyncState";
+import { SkeletonRows } from "../components/Skeleton";
 
 /** El QR de ubicación codifica una URL pública (.../qr/:token) — acá se
  * extrae el token, tanto si se escaneó esa URL completa como si (por las
@@ -35,7 +37,8 @@ export default function Almacen() {
   const queryClient = useQueryClient();
 
   const { data: locations } = useQuery({ queryKey: ["warehouseLocations"], queryFn: api.getWarehouseLocations });
-  const { data: stock, isLoading } = useQuery({ queryKey: ["warehouseStock"], queryFn: api.getWarehouseStock });
+  const stockQuery = useQuery({ queryKey: ["warehouseStock"], queryFn: api.getWarehouseStock });
+  const { data: stock } = stockQuery;
 
   function handleScannedProduct(sku: string) {
     setScanningProduct(false);
@@ -140,10 +143,14 @@ export default function Almacen() {
           </button>
         </div>
         {scanError && <p className="px-5 pt-3 text-red-600 dark:text-red-400 text-xs">{scanError}</p>}
-        {isLoading && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">Cargando...</p>}
-        {!isLoading && stock?.length === 0 && <p className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">No hay productos.</p>}
 
-        {!isLoading && stock && stock.length > 0 && (
+        <AsyncState
+          query={stockQuery}
+          skeleton={<SkeletonRows rows={5} cols={4} />}
+          emptyMessage="No hay productos."
+          errorMessage="No se pudo cargar el stock del almacén."
+        >
+          {(stock) => (
           <>
             <table className="hidden md:table w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800 text-left text-slate-500 dark:text-slate-400">
@@ -179,7 +186,8 @@ export default function Almacen() {
               ))}
             </div>
           </>
-        )}
+          )}
+        </AsyncState>
       </div>
 
       {qrLocationId !== null && <QrModal locationId={qrLocationId} onClose={() => setQrLocationId(null)} />}
@@ -191,7 +199,7 @@ export default function Almacen() {
 }
 
 function QrModal({ locationId, onClose }: { locationId: number; onClose: () => void }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["warehouseLocationQr", locationId],
     queryFn: () => api.getWarehouseLocationQr(locationId),
   });
@@ -209,6 +217,18 @@ function QrModal({ locationId, onClose }: { locationId: number; onClose: () => v
           </button>
         </div>
         {isLoading && <p className="text-slate-500 dark:text-slate-400 text-sm py-8">Generando...</p>}
+        {isError && (
+          <div className="py-8 space-y-3">
+            <p className="text-red-600 dark:text-red-400 text-sm">No se pudo generar el QR.</p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="bg-slate-800 text-white text-sm px-4 py-2 rounded hover:bg-slate-700"
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
         {data && (
           <>
             <img src={data.dataUrl} alt="Código QR de la ubicación" className="mx-auto w-56 h-56" />
