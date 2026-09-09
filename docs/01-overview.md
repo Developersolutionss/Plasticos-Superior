@@ -63,16 +63,17 @@ El sistema digitaliza este flujo:
 
 ## Actores (roles)
 
-La matriz completa tiene **11 roles** (`server/src/middleware/auth.ts` los agrupa en `ROLES`):
+La matriz completa tiene **12 roles** (`server/src/middleware/auth.ts` los agrupa en `ROLES`):
 
 | Rol | Qué puede hacer |
 |---|---|
 | `super_admin` / `admin` | Todo |
-| `gerente_produccion` | Crear OPs, cambiar su estado, cargar producción, registrar etapas de cualquier estación |
-| `planeacion` | Gestiona la cola de Planeación: ve los ítems de pedidos sin OP y genera sus OPs. También puede crear/cambiar OPs y registrar etapas |
+| `gerente_produccion` | Crear OPs, cambiar su estado, cargar producción, registrar etapas de cualquier estación — no gestiona Productos/Materia prima (a pedido del cliente), aunque sigue eligiendo un producto ya cargado al armar una OP |
+| `planeacion` | Gestiona la cola de Planeación: ve los ítems de pedidos sin OP y genera sus OPs. También puede crear/cambiar OPs, registrar etapas y gestionar Productos/Materia prima |
 | `operario_extrusion` | Registrar etapas de **Extrusión** |
 | `operario_impresion` | Registrar etapas de **Impresión** |
-| `operario_sellado_precorte` | Registrar etapas de **Sellado y Precorte** |
+| `operario_sellado` | Registrar etapas de **Sellado** |
+| `operario_precorte` | Registrar etapas de **Precorte** |
 | `ventas_pedidos` | CRM, cotizaciones, pedidos, facturas y pagos |
 | `almacen_despachos` | Carga de producción (Excel/manual) y despachos |
 | `calidad` | Revisa la cola de OPs en `pendiente_calidad`: aprueba el lote o lo rechaza |

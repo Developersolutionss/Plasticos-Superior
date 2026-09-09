@@ -173,10 +173,11 @@ export function requireAuth(req, res, next) {
 | `ROLES.VENTAS` | `ventas_pedidos` |
 | `ROLES.ALMACEN` | `almacen_despachos` |
 | `ROLES.PRODUCCION_GESTION` | `gerente_produccion`, `planeacion` |
-| `ROLES.OPERARIOS` | `gerente_produccion`, `planeacion`, `operario_extrusion`, `operario_impresion`, `operario_sellado_precorte` |
+| `ROLES.OPERARIOS` | `gerente_produccion`, `planeacion`, `operario_extrusion`, `operario_impresion`, `operario_sellado`, `operario_precorte` |
 | `ROLES.CALIDAD` | `calidad` |
 | `ROLES.AUDITORIA` | `auditor` |
 | `ROLES.ADMIN` | — (solo `super_admin`/`admin`) |
+| `ROLES.CATALOGO_GESTION` | `planeacion` (gestión de Productos/Materia prima — Gerente de Producción queda afuera a pedido del cliente, aunque sigue pudiendo elegir un producto ya cargado al armar una OP vía `ROLES.INVENTARIO`) |
 
 Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `dispatches` y `warehouse` usan `use(requireAlmacen)`; `production-orders` usa `use(requireRole(...OPERARIOS, ...CALIDAD, ...AUDITORIA))` y aplica `requireProduccionGestion` en crear/cambiar estado/Planeación; `users`, `dashboard` y `export` usan `use(requireRole(...ROLES.ADMIN))` (`export` suma rol de ventas en `/pedidos` y `/facturas`). El control de calidad (`POST /:id/quality-check`) exige `CALIDAD`; la bitácora (`/api/audit-log`) exige `AUDITORIA`. `publicLocation.ts` es la única ruta de negocio sin `requireAuth` además del webhook de WhatsApp: usa el `publicToken` de la ubicación como credencial.
 

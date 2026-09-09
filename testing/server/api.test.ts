@@ -102,6 +102,7 @@ before(async () => {
   tokens.operario_extrusion = await loginAs("operario.extrusion@empresa.com");
   tokens.operario_impresion = await loginAs("operario.impresion@empresa.com");
   tokens.operario_sellado = await loginAs("operario.sellado@empresa.com");
+  tokens.operario_precorte = await loginAs("operario.precorte@empresa.com");
 });
 
 after(async () => {
@@ -276,6 +277,14 @@ describe("materia prima", () => {
     }
   });
 
+  it("Gerente de Producción tampoco puede ver ni gestionar materia prima (a pedido del cliente)", async () => {
+    const routes = ["/api/raw-materials", "/api/raw-materials/stock", "/api/raw-materials/alerts"];
+    for (const route of routes) {
+      const res = await fetch(`${baseUrl}${route}`, { headers: headersFor("produccion") });
+      assert.equal(res.status, 403, `${route} debería rechazar a gerente_produccion`);
+    }
+  });
+
   it("crea una materia prima, rechaza código duplicado y ventas no puede crear", async () => {
     const denied = await fetch(`${baseUrl}/api/raw-materials`, {
       method: "POST",
@@ -286,7 +295,7 @@ describe("materia prima", () => {
 
     const res = await fetch(`${baseUrl}/api/raw-materials`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ code, name: "Test", minStock: 10 }),
     });
     assert.equal(res.status, 201);
@@ -295,7 +304,7 @@ describe("materia prima", () => {
 
     const dup = await fetch(`${baseUrl}/api/raw-materials`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ code }),
     });
     assert.equal(dup.status, 409);
@@ -305,7 +314,7 @@ describe("materia prima", () => {
     const lower = `${code}-lower`;
     const res = await fetch(`${baseUrl}/api/raw-materials`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ code: lower.toLowerCase() }),
     });
     assert.equal(res.status, 201);
@@ -317,12 +326,12 @@ describe("materia prima", () => {
   it("ajusta stock (compra) con nota, lo lista en /stock y la nota queda en el historial de movimientos", async () => {
     const res = await fetch(`${baseUrl}/api/raw-materials/${materialId}/adjust`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ quantity: 50, notes: "Compra a proveedor de prueba" }),
     });
     assert.equal(res.status, 201);
 
-    const stock = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+    const stock = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("planeacion") })).json()) as {
       id: number;
       currentStock: number;
       belowMinimum: boolean;
@@ -332,7 +341,7 @@ describe("materia prima", () => {
     assert.equal(mine?.belowMinimum, false);
 
     const movements = (await (
-      await fetch(`${baseUrl}/api/raw-materials/movements?rawMaterialId=${materialId}`, { headers: headersFor("produccion") })
+      await fetch(`${baseUrl}/api/raw-materials/movements?rawMaterialId=${materialId}`, { headers: headersFor("planeacion") })
     ).json()) as { items: { movementType: string; quantity: string; notes: string | null }[] };
     assert.equal(movements.items.length, 1);
     assert.equal(movements.items[0].notes, "Compra a proveedor de prueba");
@@ -367,7 +376,7 @@ describe("materia prima", () => {
     assert.equal(body.status, "finalizada");
     assert.deepEqual(body.skippedRawMaterialRefs, ["NO-EXISTE-REF"]);
 
-    const stock = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+    const stock = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("planeacion") })).json()) as {
       id: number;
       currentStock: number;
     }[];
@@ -385,7 +394,7 @@ describe("materia prima", () => {
     assert.equal(reopenBody.status, "en_proceso");
     assert.deepEqual(reopenBody.reversedRawMaterials, [{ code, kg: 8 }]);
 
-    const stockReabierta = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+    const stockReabierta = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("planeacion") })).json()) as {
       id: number;
       currentStock: number;
     }[];
@@ -404,7 +413,7 @@ describe("materia prima", () => {
     });
     assert.equal(close2.status, 200);
 
-    const stockTrasCierre2 = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+    const stockTrasCierre2 = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("planeacion") })).json()) as {
       id: number;
       currentStock: number;
     }[];
@@ -418,7 +427,7 @@ describe("materia prima", () => {
     const reopen2Body = (await reopen2.json()) as { reversedRawMaterials: { code: string; kg: number }[] };
     assert.deepEqual(reopen2Body.reversedRawMaterials, [{ code, kg: 6 }], "solo revierte el neto pendiente (6), no el 8 de la vuelta anterior");
 
-    const stockFinal = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("produccion") })).json()) as {
+    const stockFinal = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("planeacion") })).json()) as {
       id: number;
       currentStock: number;
     }[];
@@ -429,12 +438,12 @@ describe("materia prima", () => {
   });
 
   it("desactiva y reactiva; desactivada no aparece afectada en /stock (sigue existiendo, solo cambia active)", async () => {
-    const off = await fetch(`${baseUrl}/api/raw-materials/${materialId}`, { method: "DELETE", headers: headersFor("produccion") });
+    const off = await fetch(`${baseUrl}/api/raw-materials/${materialId}`, { method: "DELETE", headers: headersFor("planeacion") });
     assert.equal(off.status, 200);
     const offBody = (await off.json()) as { active: boolean };
     assert.equal(offBody.active, false);
 
-    const on = await fetch(`${baseUrl}/api/raw-materials/${materialId}/reactivate`, { method: "POST", headers: headersFor("produccion") });
+    const on = await fetch(`${baseUrl}/api/raw-materials/${materialId}/reactivate`, { method: "POST", headers: headersFor("planeacion") });
     assert.equal(on.status, 200);
     const onBody = (await on.json()) as { active: boolean };
     assert.equal(onBody.active, true);
@@ -1268,6 +1277,46 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.notification.delete({ where: { id: notif!.id } });
     await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
     await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("Sellado y Precorte son roles distintos: cada uno solo puede cargar rollos/cerrar OPs de su propia estación", async () => {
+    const selladoOrder = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}s`, station: "sellado", productId, quantityPlanned: 10 },
+    });
+    const precorteOrder = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}p`, station: "precorte", productId, quantityPlanned: 10 },
+    });
+
+    const precorteEnSellado = await fetch(`${baseUrl}/api/production-orders/${selladoOrder.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_precorte"),
+      body: JSON.stringify({ weightKg: 10 }),
+    });
+    assert.equal(precorteEnSellado.status, 403, "operario de precorte no puede cargar rollos en una OP de sellado");
+
+    const selladoEnPrecorte = await fetch(`${baseUrl}/api/production-orders/${precorteOrder.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+      body: JSON.stringify({ weightKg: 10 }),
+    });
+    assert.equal(selladoEnPrecorte.status, 403, "operario de sellado no puede cargar rollos en una OP de precorte");
+
+    await prisma.productionRoll.create({ data: { productionOrderId: precorteOrder.id, operatorName: "Op", weightKg: 10 } });
+    const cierreCruzado = await fetch(`${baseUrl}/api/production-orders/${precorteOrder.id}/close`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+    });
+    assert.equal(cierreCruzado.status, 403, "operario de sellado no puede cerrar una OP de precorte");
+
+    const cierreCorrecto = await fetch(`${baseUrl}/api/production-orders/${precorteOrder.id}/close`, {
+      method: "POST",
+      headers: headersFor("operario_precorte"),
+    });
+    assert.equal(cierreCorrecto.status, 200, "el propio operario de precorte sí puede cerrarla");
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: precorteOrder.id } });
+    await prisma.productionOrder.delete({ where: { id: precorteOrder.id } });
+    await prisma.productionOrder.delete({ where: { id: selladoOrder.id } });
   });
 
   it("Impresión también es proceso final: cerrarla deja pendiente_calidad, y Calidad aprobándola suma al inventario — funciona aunque además tenga una OP derivada a Sellado", async () => {
@@ -2183,26 +2232,33 @@ describe("productos", () => {
     if (productId) await prisma.product.delete({ where: { id: productId } }).catch(() => {});
   });
 
-  it("GET / es de solo lectura para cualquier rol autenticado", async () => {
-    const res = await fetch(`${baseUrl}/api/products`, { headers: headersFor("ventas") });
-    assert.equal(res.status, 200);
-    const products = (await res.json()) as { sku: string }[];
+  it("GET / exige gestión de catálogo (Admin/Planeación) — ventas y Gerente de Producción quedan afuera", async () => {
+    const ok = await fetch(`${baseUrl}/api/products`, { headers: headersFor("planeacion") });
+    assert.equal(ok.status, 200);
+    const products = (await ok.json()) as { sku: string }[];
     assert.ok(products.some((p) => p.sku === "BUL-001"));
+
+    for (const role of ["ventas", "produccion"]) {
+      const res = await fetch(`${baseUrl}/api/products`, { headers: headersFor(role) });
+      assert.equal(res.status, 403, `${role} no debería poder ver el catálogo completo`);
+    }
   });
 
-  it("crear/editar/desactivar exige gestión de producción (403 para ventas)", async () => {
-    const res = await fetch(`${baseUrl}/api/products`, {
-      method: "POST",
-      headers: headersFor("ventas"),
-      body: JSON.stringify({ name: "Test", category: "bultos", unit: "kg", minStock: 0, unitPrice: 100 }),
-    });
-    assert.equal(res.status, 403);
+  it("crear/editar/desactivar exige gestión de catálogo (403 para ventas y para Gerente de Producción)", async () => {
+    for (const role of ["ventas", "produccion"]) {
+      const res = await fetch(`${baseUrl}/api/products`, {
+        method: "POST",
+        headers: headersFor(role),
+        body: JSON.stringify({ name: "Test", category: "bultos", unit: "kg", minStock: 0, unitPrice: 100 }),
+      });
+      assert.equal(res.status, 403, `${role} no debería poder crear productos`);
+    }
   });
 
   it("genera el SKU solo (el cliente no lo entendía, ver comentario en products.ts) con el prefijo de la categoría, sin pedirlo en el body", async () => {
     const res = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({
         sku: "ESTO-SE-IGNORA",
         name: "Test Producto",
@@ -2231,7 +2287,7 @@ describe("productos", () => {
     // Un segundo producto de la misma categoría saca el siguiente consecutivo.
     const second = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ name: "Test Producto 2", category: "bultos", unit: "kg", minStock: 0, unitPrice: 1 }),
     });
     assert.equal(second.status, 201);
@@ -2243,14 +2299,14 @@ describe("productos", () => {
   it("rechaza un color/densidad fuera de la lista fija", async () => {
     const res = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ name: "Test", category: "bultos", unit: "kg", minStock: 0, unitPrice: 1, color: "Fucsia" }),
     });
     assert.equal(res.status, 400);
 
     const res2 = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ name: "Test", category: "bultos", unit: "kg", minStock: 0, unitPrice: 1, densidad: "MEDIA" }),
     });
     assert.equal(res2.status, 400);
@@ -2267,14 +2323,14 @@ describe("productos", () => {
   it("PATCH edita el producto y rechaza body vacío", async () => {
     const empty = await fetch(`${baseUrl}/api/products/${productId}`, {
       method: "PATCH",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({}),
     });
     assert.equal(empty.status, 400);
 
     const res = await fetch(`${baseUrl}/api/products/${productId}`, {
       method: "PATCH",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ name: "Renombrado" }),
     });
     assert.equal(res.status, 200);
@@ -2283,7 +2339,7 @@ describe("productos", () => {
   });
 
   it("DELETE desactiva el producto (deja de aparecer en el catálogo de venta) y POST /reactivate lo devuelve", async () => {
-    const del = await fetch(`${baseUrl}/api/products/${productId}`, { method: "DELETE", headers: headersFor("produccion") });
+    const del = await fetch(`${baseUrl}/api/products/${productId}`, { method: "DELETE", headers: headersFor("planeacion") });
     assert.equal(del.status, 200);
     const deleted = (await del.json()) as { active: boolean };
     assert.equal(deleted.active, false);
@@ -2292,7 +2348,7 @@ describe("productos", () => {
     const catalogBody = (await catalog.json()) as { sku: string }[];
     assert.ok(!catalogBody.some((p) => p.sku === productSku), "un producto inactivo no debe verse en el selector de venta");
 
-    const reactivate = await fetch(`${baseUrl}/api/products/${productId}/reactivate`, { method: "POST", headers: headersFor("produccion") });
+    const reactivate = await fetch(`${baseUrl}/api/products/${productId}/reactivate`, { method: "POST", headers: headersFor("planeacion") });
     assert.equal(reactivate.status, 200);
     const reactivated = (await reactivate.json()) as { active: boolean };
     assert.equal(reactivated.active, true);
@@ -2998,7 +3054,7 @@ describe("productos", () => {
 
     const res = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ name: "Producto de test", category: "tubular", unit: "unidad", minStock: 1, unitPrice: 100 }),
     });
     assert.equal(res.status, 201);
@@ -3012,19 +3068,19 @@ describe("productos", () => {
     const created = (await (
       await fetch(`${baseUrl}/api/products`, {
         method: "POST",
-        headers: headersFor("produccion"),
+        headers: headersFor("planeacion"),
         body: JSON.stringify({ name: "Producto B", category: "bultos", unit: "unidad", minStock: 1, unitPrice: 100 }),
       })
     ).json()) as { id: number };
 
     const patched = await fetch(`${baseUrl}/api/products/${created.id}`, {
       method: "PATCH",
-      headers: headersFor("produccion"),
+      headers: headersFor("planeacion"),
       body: JSON.stringify({ name: "Producto B editado" }),
     });
     assert.equal(patched.status, 200);
 
-    const deactivated = await fetch(`${baseUrl}/api/products/${created.id}`, { method: "DELETE", headers: headersFor("produccion") });
+    const deactivated = await fetch(`${baseUrl}/api/products/${created.id}`, { method: "DELETE", headers: headersFor("planeacion") });
     assert.equal(deactivated.status, 200);
     assert.equal(((await deactivated.json()) as { active: boolean }).active, false);
 
@@ -3033,7 +3089,7 @@ describe("productos", () => {
     const full = (await (await fetch(`${baseUrl}/api/products`, { headers: authHeaders() })).json()) as { id: number }[];
     assert.ok(full.some((p) => p.id === created.id));
 
-    const reactivated = await fetch(`${baseUrl}/api/products/${created.id}/reactivate`, { method: "POST", headers: headersFor("produccion") });
+    const reactivated = await fetch(`${baseUrl}/api/products/${created.id}/reactivate`, { method: "POST", headers: headersFor("planeacion") });
     assert.equal(reactivated.status, 200);
     assert.equal(((await reactivated.json()) as { active: boolean }).active, true);
 

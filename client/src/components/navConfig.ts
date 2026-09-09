@@ -23,10 +23,19 @@ export const ADMIN: UserRole[] = ["super_admin", "admin"];
 export const VENTAS: UserRole[] = [...ADMIN, "ventas_pedidos"];
 export const ALMACEN: UserRole[] = [...ADMIN, "almacen_despachos"];
 export const PRODUCCION_GESTION: UserRole[] = [...ADMIN, "gerente_produccion", "planeacion"];
-export const OPERARIOS: UserRole[] = [...PRODUCCION_GESTION, "operario_extrusion", "operario_impresion", "operario_sellado_precorte"];
+export const OPERARIOS: UserRole[] = [
+  ...PRODUCCION_GESTION,
+  "operario_extrusion",
+  "operario_impresion",
+  "operario_sellado",
+  "operario_precorte",
+];
 export const OP_EXTRUSION: UserRole[] = [...PRODUCCION_GESTION, "operario_extrusion"];
 export const OP_IMPRESION: UserRole[] = [...PRODUCCION_GESTION, "operario_impresion"];
-export const OP_SELLADO: UserRole[] = [...PRODUCCION_GESTION, "operario_sellado_precorte"];
+export const OP_SELLADO: UserRole[] = [...PRODUCCION_GESTION, "operario_sellado"];
+// Antes Sellado y Precorte compartían un solo rol combinado -- el cliente
+// pidió separarlos: cada operario ve y opera solo su propia estación.
+export const OP_PRECORTE: UserRole[] = [...PRODUCCION_GESTION, "operario_precorte"];
 export const CALIDAD: UserRole[] = [...ADMIN, "calidad"];
 export const AUDITORIA: UserRole[] = [...ADMIN, "auditor"];
 export const INVENTARIO: UserRole[] = [...ADMIN, "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"];
@@ -34,6 +43,11 @@ export const INVENTARIO: UserRole[] = [...ADMIN, "almacen_despachos", "gerente_p
 // reusado en Cotizaciones/Pedidos/OPs), Gerente de Producción no ve stock
 // real de Existencias — a pedido del cliente.
 export const EXISTENCIAS: UserRole[] = [...ADMIN, "almacen_despachos", "planeacion", "ventas_pedidos"];
+// Gestión del catálogo (Productos/Materia prima): a diferencia de
+// INVENTARIO de arriba, Gerente de Producción queda afuera a pedido del
+// cliente -- sigue pudiendo ELEGIR un producto al armar una OP (INVENTARIO),
+// pero no gestionar el catálogo ni ver Materia prima.
+export const CATALOGO_GESTION: UserRole[] = [...ADMIN, "planeacion"];
 const TODOS: UserRole[] = [
   "super_admin",
   "admin",
@@ -42,7 +56,8 @@ const TODOS: UserRole[] = [
   "ventas_pedidos",
   "operario_extrusion",
   "operario_impresion",
-  "operario_sellado_precorte",
+  "operario_sellado",
+  "operario_precorte",
   "calidad",
   "almacen_despachos",
   "auditor",
@@ -130,7 +145,7 @@ export const navSections: NavEntry[] = [
       { id: "produccion-extrusion", label: "Extrusión", to: "/produccion/estacion/extrusion", roles: OP_EXTRUSION },
       { id: "produccion-impresion", label: "Impresión", to: "/produccion/estacion/impresion", roles: OP_IMPRESION },
       { id: "produccion-sellado", label: "Sellado", to: "/produccion/estacion/sellado", roles: OP_SELLADO },
-      { id: "produccion-precorte", label: "Precorte", to: "/produccion/estacion/precorte", roles: OP_SELLADO },
+      { id: "produccion-precorte", label: "Precorte", to: "/produccion/estacion/precorte", roles: OP_PRECORTE },
       { id: "produccion-carga", label: "Carga de producción (Excel)", to: "/produccion", roles: [...ALMACEN, ...PRODUCCION_GESTION] },
     ],
   },
@@ -151,8 +166,8 @@ export const navSections: NavEntry[] = [
     group: "Inventario",
     children: [
       { id: "inventario-existencias", label: "Existencias", to: "/inventario/existencias", roles: EXISTENCIAS },
-      { id: "inventario-productos", label: "Productos", to: "/inventario/productos", roles: PRODUCCION_GESTION },
-      { id: "inventario-materia-prima", label: "Materia prima", to: "/inventario/materia-prima", roles: PRODUCCION_GESTION },
+      { id: "inventario-productos", label: "Productos", to: "/inventario/productos", roles: CATALOGO_GESTION },
+      { id: "inventario-materia-prima", label: "Materia prima", to: "/inventario/materia-prima", roles: CATALOGO_GESTION },
       { id: "inventario-movimientos", label: "Movimientos", to: "/inventario/movimientos", roles: ALMACEN },
     ],
   },

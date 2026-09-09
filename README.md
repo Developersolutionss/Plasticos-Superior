@@ -46,7 +46,8 @@ Usuarios de prueba (creados por el seed), contrase√±a `password123` para todos ‚
 | `despacho@empresa.com` | `almacen_despachos` |
 | `operario.extrusion@empresa.com` | `operario_extrusion` |
 | `operario.impresion@empresa.com` | `operario_impresion` |
-| `operario.sellado@empresa.com` | `operario_sellado_precorte` |
+| `operario.sellado@empresa.com` | `operario_sellado` |
+| `operario.precorte@empresa.com` | `operario_precorte` |
 | `calidad@empresa.com` | `calidad` |
 | `auditor@empresa.com` | `auditor` |
 

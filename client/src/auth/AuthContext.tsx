@@ -8,7 +8,8 @@ export type UserRole =
   | "ventas_pedidos"
   | "operario_extrusion"
   | "operario_impresion"
-  | "operario_sellado_precorte"
+  | "operario_sellado"
+  | "operario_precorte"
   | "calidad"
   | "almacen_despachos"
   | "auditor";

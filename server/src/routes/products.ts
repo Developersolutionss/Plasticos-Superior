@@ -9,9 +9,11 @@ import { withSequentialNumberRetry } from "../services/sequentialNumber";
 export const productsRouter = Router();
 productsRouter.use(requireAuth);
 
-/** El maestro de productos lo gestiona Producción/Gestión (mismo rol que ya
- * crea Órdenes de Producción) — Ventas/Almacén solo consumen el catálogo. */
-const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
+/** El maestro de productos lo gestiona Admin/Planeación -- Gerente de
+ * Producción quedó afuera a pedido del cliente (sigue pudiendo ELEGIR un
+ * producto ya cargado al armar una OP vía GET /inventory/products, que usa
+ * ROLES.INVENTARIO por separado, pero no gestionar el catálogo). */
+const requireCatalogoGestion = requireRole(...ROLES.CATALOGO_GESTION);
 
 const CATEGORIES = [
   "bultos",
@@ -54,8 +56,10 @@ async function nextSku(category: (typeof CATEGORIES)[number]) {
 }
 
 /** Lista todos los productos (incluye inactivos) para la pantalla de gestión.
- * El selector filtrado para otros módulos sigue siendo GET /inventory/products. */
-productsRouter.get("/", async (_req, res) => {
+ * El selector filtrado para otros módulos sigue siendo GET /inventory/products.
+ * Antes sin guard de rol (cualquier autenticado podía pegarle directo, aunque
+ * el nav ya lo ocultaba) -- se cierra ese hueco junto con el resto del CRUD. */
+productsRouter.get("/", requireCatalogoGestion, async (_req, res) => {
   const products = await prisma.product.findMany({ orderBy: { name: "asc" } });
   res.json(products);
 });
@@ -101,7 +105,7 @@ const productSchema = z.object({
   unitPrice: z.number().min(0),
 });
 
-productsRouter.post("/", requireProduccionGestion, async (req, res) => {
+productsRouter.post("/", requireCatalogoGestion, async (req, res) => {
   const parsed = productSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -126,7 +130,7 @@ productsRouter.post("/", requireProduccionGestion, async (req, res) => {
 
 const updateProductSchema = productSchema.partial();
 
-productsRouter.patch("/:id", requireProduccionGestion, async (req, res) => {
+productsRouter.patch("/:id", requireCatalogoGestion, async (req, res) => {
   const productId = Number(req.params.id);
   if (!Number.isInteger(productId) || productId <= 0) {
     return res.status(400).json({ error: "ID de producto inválido" });
@@ -148,7 +152,7 @@ productsRouter.patch("/:id", requireProduccionGestion, async (req, res) => {
 /** Elimina (desactiva) un producto. Soft delete: el registro se conserva
  * porque tiene movimientos/facturas/OPs relacionadas; el selector de otros
  * módulos (GET /inventory/products) solo devuelve productos `active: true`. */
-productsRouter.delete("/:id", requireProduccionGestion, async (req, res) => {
+productsRouter.delete("/:id", requireCatalogoGestion, async (req, res) => {
   const productId = Number(req.params.id);
   if (!Number.isInteger(productId) || productId <= 0) {
     return res.status(400).json({ error: "ID de producto inválido" });
@@ -162,7 +166,7 @@ productsRouter.delete("/:id", requireProduccionGestion, async (req, res) => {
 });
 
 /** Reactiva un producto desactivado por error. */
-productsRouter.post("/:id/reactivate", requireProduccionGestion, async (req, res) => {
+productsRouter.post("/:id/reactivate", requireCatalogoGestion, async (req, res) => {
   const productId = Number(req.params.id);
   if (!Number.isInteger(productId) || productId <= 0) {
     return res.status(400).json({ error: "ID de producto inválido" });

@@ -60,7 +60,7 @@ const requireCalidad = requireRole(...ROLES.CALIDAD);
  * "borrador": Gestión todavía la está armando (materia prima, medidas,
  * cliente, referencia) y no debe aparecer en la cola de planta hasta que la
  * libere explícitamente con POST /:id/release. */
-const OPERARIO_ONLY_ROLES = ["operario_extrusion", "operario_impresion", "operario_sellado_precorte"];
+const OPERARIO_ONLY_ROLES = ["operario_extrusion", "operario_impresion", "operario_sellado", "operario_precorte"];
 // Calidad necesita GET / (para ver la cola ?status=pendiente_calidad) y
 // GET /:id (para revisar los rollos al decidir); Auditoría necesita GET /:id
 // (Trazabilidad) — por eso ambos se admiten acá a nivel de router, además de

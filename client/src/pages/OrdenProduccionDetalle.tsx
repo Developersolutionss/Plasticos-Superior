@@ -45,8 +45,8 @@ const STATION_OPERATE: Record<OpStation, UserRole[]> = {
 const STATION_CLOSE: Record<OpStation, UserRole[]> = {
   extrusion: [...ADMIN, "operario_extrusion"],
   impresion: [...ADMIN, "operario_impresion"],
-  sellado: [...ADMIN, "operario_sellado_precorte"],
-  precorte: [...ADMIN, "operario_sellado_precorte"],
+  sellado: [...ADMIN, "operario_sellado"],
+  precorte: [...ADMIN, "operario_precorte"],
 };
 
 // Clases compartidas de la "hoja" estilo Excel

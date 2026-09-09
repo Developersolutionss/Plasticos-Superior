@@ -46,9 +46,11 @@ import {
   OP_EXTRUSION,
   OP_IMPRESION,
   OP_SELLADO,
+  OP_PRECORTE,
   CALIDAD,
   AUDITORIA,
   EXISTENCIAS,
+  CATALOGO_GESTION,
 } from "./components/navConfig";
 
 /** La hoja de una OP la ven todos los que participan del ciclo: operarios y
@@ -67,7 +69,8 @@ function RequireAuth({ children }: { children: ReactNode }) {
 const DEFAULT_ROUTE_FOR_ROLE: Partial<Record<UserRole, string>> = {
   operario_extrusion: "/produccion/estacion/extrusion",
   operario_impresion: "/produccion/estacion/impresion",
-  operario_sellado_precorte: "/produccion/estacion/sellado",
+  operario_sellado: "/produccion/estacion/sellado",
+  operario_precorte: "/produccion/estacion/precorte",
   calidad: "/calidad",
   auditor: "/auditoria",
   // No ve Existencias (a pedido del cliente) aunque sigue en INVENTARIO
@@ -103,7 +106,7 @@ const STATION_ROLES: Record<string, UserRole[]> = {
   extrusion: OP_EXTRUSION,
   impresion: OP_IMPRESION,
   sellado: OP_SELLADO,
-  precorte: OP_SELLADO,
+  precorte: OP_PRECORTE,
 };
 
 function RequireStationRole({ children }: { children: ReactNode }) {
@@ -251,7 +254,7 @@ export default function App() {
         <Route
           path="inventario/productos"
           element={
-            <RequireRole roles={PRODUCCION_GESTION}>
+            <RequireRole roles={CATALOGO_GESTION}>
               <Productos />
             </RequireRole>
           }
@@ -259,7 +262,7 @@ export default function App() {
         <Route
           path="inventario/materia-prima"
           element={
-            <RequireRole roles={PRODUCCION_GESTION}>
+            <RequireRole roles={CATALOGO_GESTION}>
               <MateriaPrima />
             </RequireRole>
           }

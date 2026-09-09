@@ -392,7 +392,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 
 | Enum | Valores |
 |---|---|
-| `UserRole` | `super_admin`, `admin`, `gerente_produccion`, `planeacion`, `ventas_pedidos`, `operario_extrusion`, `operario_impresion`, `operario_sellado_precorte`, `calidad`, `almacen_despachos`, `auditor` |
+| `UserRole` | `super_admin`, `admin`, `gerente_produccion`, `planeacion`, `ventas_pedidos`, `operario_extrusion`, `operario_impresion`, `operario_sellado`, `operario_precorte`, `calidad`, `almacen_despachos`, `auditor` |
 | `ProductCategory` | `bultos`, `rollos_prec_lam`, `rollos_fuelle`, `mangueta`, `tiras`, `control_impresion` |
 | `ProductUnit` | `kg`, `unidad` |
 | `ProductionStatus` | `pendiente`, `en_transito`, `recibido`, `rechazado` |

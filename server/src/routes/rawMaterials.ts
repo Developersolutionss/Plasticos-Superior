@@ -9,26 +9,28 @@ import { getRawMaterialStock, getRawMaterialLowStockAlerts } from "../services/r
 export const rawMaterialsRouter = Router();
 rawMaterialsRouter.use(requireAuth);
 
-/** Mismo criterio que el maestro de Productos: lo gestiona Producción/Gestión;
- * el resto de INVENTARIO solo consulta stock/alertas. */
-const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
-const requireInventario = requireRole(...ROLES.INVENTARIO);
+/** A diferencia del maestro de Productos, Materia prima no tiene ningún
+ * selector separado que dependa de ROLES.INVENTARIO (confirmado: nada fuera
+ * de esta pantalla de gestión consume estos endpoints) -- así que Gerente de
+ * Producción queda afuera del todo (lectura y escritura), a pedido del
+ * cliente, sin ningún permiso "de picker" que preservar. */
+const requireCatalogoGestion = requireRole(...ROLES.CATALOGO_GESTION);
 
 /** Catálogo completo (incluye inactivos) para la pantalla de gestión. */
-rawMaterialsRouter.get("/", requireInventario, async (_req, res) => {
+rawMaterialsRouter.get("/", requireCatalogoGestion, async (_req, res) => {
   const materials = await prisma.rawMaterial.findMany({ orderBy: { code: "asc" } });
   res.json(materials);
 });
 
-rawMaterialsRouter.get("/stock", requireInventario, async (_req, res) => {
+rawMaterialsRouter.get("/stock", requireCatalogoGestion, async (_req, res) => {
   res.json(await getRawMaterialStock());
 });
 
-rawMaterialsRouter.get("/alerts", requireInventario, async (_req, res) => {
+rawMaterialsRouter.get("/alerts", requireCatalogoGestion, async (_req, res) => {
   res.json(await getRawMaterialLowStockAlerts());
 });
 
-rawMaterialsRouter.get("/movements", requireInventario, async (req, res) => {
+rawMaterialsRouter.get("/movements", requireCatalogoGestion, async (req, res) => {
   let rawMaterialId: number | undefined;
   if (req.query.rawMaterialId !== undefined) {
     rawMaterialId = Number(req.query.rawMaterialId);
@@ -74,7 +76,7 @@ const rawMaterialSchema = z.object({
   minStock: z.number().min(0).optional().default(0),
 });
 
-rawMaterialsRouter.post("/", requireProduccionGestion, async (req, res) => {
+rawMaterialsRouter.post("/", requireCatalogoGestion, async (req, res) => {
   const parsed = rawMaterialSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -91,7 +93,7 @@ rawMaterialsRouter.post("/", requireProduccionGestion, async (req, res) => {
 
 const updateRawMaterialSchema = rawMaterialSchema.partial();
 
-rawMaterialsRouter.patch("/:id", requireProduccionGestion, async (req, res) => {
+rawMaterialsRouter.patch("/:id", requireCatalogoGestion, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Id inválido" });
 
@@ -114,7 +116,7 @@ rawMaterialsRouter.patch("/:id", requireProduccionGestion, async (req, res) => {
 });
 
 /** Desactiva (soft delete, igual que Productos: tiene movimientos relacionados). */
-rawMaterialsRouter.delete("/:id", requireProduccionGestion, async (req, res) => {
+rawMaterialsRouter.delete("/:id", requireCatalogoGestion, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Id inválido" });
 
@@ -125,7 +127,7 @@ rawMaterialsRouter.delete("/:id", requireProduccionGestion, async (req, res) => 
   res.json(updated);
 });
 
-rawMaterialsRouter.post("/:id/reactivate", requireProduccionGestion, async (req, res) => {
+rawMaterialsRouter.post("/:id/reactivate", requireCatalogoGestion, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Id inválido" });
 
@@ -142,7 +144,7 @@ const adjustSchema = z.object({
 });
 
 /** Entrada manual (compra) o ajuste de stock de materia prima. */
-rawMaterialsRouter.post("/:id/adjust", requireProduccionGestion, async (req, res) => {
+rawMaterialsRouter.post("/:id/adjust", requireCatalogoGestion, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Id inválido" });
 
