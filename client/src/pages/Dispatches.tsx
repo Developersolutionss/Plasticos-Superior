@@ -3,6 +3,7 @@ import { FormEvent, useState } from "react";
 import { ScanLine } from "lucide-react";
 import { api } from "../api/client";
 import BarcodeScanner from "../components/BarcodeScanner";
+import Modal from "../components/Modal";
 
 interface ItemDraft {
   productId: string;
@@ -16,6 +17,7 @@ export default function Dispatches() {
   const [status, setStatus] = useState<string>("pendiente");
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [selectedDispatch, setSelectedDispatch] = useState<any>(null);
 
   const [newClientId, setNewClientId] = useState("");
   const [items, setItems] = useState<ItemDraft[]>([{ ...emptyItem }]);
@@ -183,7 +185,11 @@ export default function Dispatches() {
 
       <div className="space-y-3">
         {dispatches?.map((d: any) => (
-          <div key={d.id} className="bg-white dark:bg-slate-900 rounded-lg shadow p-4">
+          <div
+            key={d.id}
+            className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800"
+            onClick={() => setSelectedDispatch(d)}
+          >
             <div className="flex flex-wrap justify-between items-center gap-1 mb-2">
               <span className="font-medium">
                 Pedido #{d.id} - {d.client.name}
@@ -203,7 +209,10 @@ export default function Dispatches() {
                   {item.quantityDispatched == null && (
                     <button
                       className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded"
-                      onClick={() => markDispatched(d.id, item.id, Number(item.quantityRequested))}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        markDispatched(d.id, item.id, Number(item.quantityRequested));
+                      }}
                     >
                       Marcar despachado
                     </button>
@@ -218,6 +227,52 @@ export default function Dispatches() {
 
       {scanning && (
         <BarcodeScanner title="Escanear producto" onDetected={handleScanned} onClose={() => setScanning(false)} />
+      )}
+
+      {selectedDispatch && (
+        <Modal title={`Pedido #${selectedDispatch.id} - ${selectedDispatch.client.name}`} onClose={() => setSelectedDispatch(null)}>
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Estado</p>
+                <p className="text-slate-800 dark:text-slate-100">{selectedDispatch.status}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Solicitado</p>
+                <p className="text-slate-800 dark:text-slate-100">{new Date(selectedDispatch.requestedDate).toLocaleString()}</p>
+              </div>
+              {selectedDispatch.dispatchedDate && (
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Despachado</p>
+                  <p className="text-slate-800 dark:text-slate-100">{new Date(selectedDispatch.dispatchedDate).toLocaleString()}</p>
+                </div>
+              )}
+              {selectedDispatch.createdBy?.name && (
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Registrado por</p>
+                  <p className="text-slate-800 dark:text-slate-100">{selectedDispatch.createdBy.name}</p>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1.5">Productos</p>
+              <ul className="divide-y">
+                {selectedDispatch.items.map((item: any) => (
+                  <li key={item.id} className="py-2 space-y-0.5">
+                    <p className="font-medium text-slate-800 dark:text-slate-100">{item.product.name}</p>
+                    <p className="text-slate-600 dark:text-slate-300">
+                      Solicitado: {item.quantityRequested} {item.product.unit}
+                      {item.quantityDispatched != null && ` · Despachado: ${item.quantityDispatched} ${item.product.unit}`}
+                    </p>
+                    {item.labelCode && <p className="text-slate-500 dark:text-slate-400 text-xs">Etiqueta escaneada: {item.labelCode}</p>}
+                    {item.notes && <p className="text-slate-500 dark:text-slate-400 text-xs">Notas: {item.notes}</p>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

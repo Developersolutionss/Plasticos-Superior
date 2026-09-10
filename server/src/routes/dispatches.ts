@@ -19,7 +19,7 @@ dispatchesRouter.get("/", async (req, res) => {
       clientId: clientId ? Number(clientId) : undefined,
       status: status as any,
     },
-    include: { client: true, items: { include: { product: true } } },
+    include: { client: true, items: { include: { product: true } }, createdBy: { select: { name: true } } },
     orderBy: { requestedDate: "desc" },
   });
   res.json(dispatches);
