@@ -46,7 +46,6 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
   const [talla, setTalla] = useState(product?.talla ?? "");
   const [color, setColor] = useState(product?.color ?? "");
   const [densidad, setDensidad] = useState(product?.densidad ?? "");
-  const [medidaRef, setMedidaRef] = useState(product?.medidaRef ?? "");
   const [calibre, setCalibre] = useState(product?.calibre ?? "");
   const [unit, setUnit] = useState(product?.unit ?? UNITS[0].value);
   const [minStock, setMinStock] = useState(product?.minStock != null ? String(product.minStock) : "0");
@@ -71,7 +70,6 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
         talla: talla.trim() || undefined,
         color: color || undefined,
         densidad: densidad || undefined,
-        medidaRef: medidaRef.trim() || undefined,
         calibre: calibre.trim() || undefined,
         unit,
         minStock: Number(minStock),
@@ -155,7 +153,7 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className={labelClass}>Medida</label>
           <input className={inputClass} value={measure} onChange={(e) => setMeasure(e.target.value)} placeholder="Ej. 20x30" />
@@ -170,10 +168,6 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
               </option>
             ))}
           </select>
-        </div>
-        <div>
-          <label className={labelClass}>Medida de referencia</label>
-          <input className={inputClass} value={medidaRef} onChange={(e) => setMedidaRef(e.target.value)} placeholder="Ej. Ref-14" />
         </div>
       </div>
 
