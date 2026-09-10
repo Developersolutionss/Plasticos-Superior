@@ -14,16 +14,19 @@ bultoLabelsRouter.use(requireRole(...ROLES.OPERARIOS));
 const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
 
 /**
- * Número consecutivo tipo "BULTO-00001", igual criterio que
- * productionOrders.ts nextOrderNumber(): se calcula del máximo sufijo
- * numérico realmente usado, no de count(), para no chocar si algún código
- * de prueba no numérico entra a la tabla.
+ * Número consecutivo tipo "EXT-00001" -- "EXT" (mismo prefijo que ya usa
+ * Impresión para "etiqueta/peso EXTerno", ver E. EXT/P. EXT en
+ * opTemplates.ts) deja claro que es mercancía que entró de afuera, no un
+ * bulto propio (esos se identifican solos, no llevan esta etiqueta). Igual
+ * criterio que productionOrders.ts nextOrderNumber(): se calcula del máximo
+ * sufijo numérico realmente usado, no de count(), para no chocar si algún
+ * código de prueba no numérico entra a la tabla.
  */
 async function nextBultoLabelCode(tx: TxClient): Promise<number> {
-  const labels = await tx.bultoLabel.findMany({ where: { code: { startsWith: "BULTO-" } }, select: { code: true } });
+  const labels = await tx.bultoLabel.findMany({ where: { code: { startsWith: "EXT-" } }, select: { code: true } });
   let max = 0;
   for (const { code } of labels) {
-    const match = /^BULTO-(\d{5})$/.exec(code);
+    const match = /^EXT-(\d{5})$/.exec(code);
     if (match) max = Math.max(max, Number(match[1]));
   }
   return max;
@@ -66,7 +69,7 @@ bultoLabelsRouter.post("/generate", requireProduccionGestion, async (req, res) =
       max += 1;
       created.push(
         await tx.bultoLabel.create({
-          data: { code: `BULTO-${String(max).padStart(5, "0")}`, createdById: req.user!.userId },
+          data: { code: `EXT-${String(max).padStart(5, "0")}`, createdById: req.user!.userId },
         })
       );
     }

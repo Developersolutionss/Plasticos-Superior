@@ -1776,7 +1776,7 @@ describe("etiquetas de bulto (E. BULTO escaneable en Sellado/Precorte)", () => {
     const created = (await res.json()) as { id: number; code: string; status: string }[];
     assert.equal(created.length, 3);
     assert.ok(created.every((l) => l.status === "disponible"));
-    assert.ok(created.every((l) => /^BULTO-\d{5}$/.test(l.code)));
+    assert.ok(created.every((l) => /^EXT-\d{5}$/.test(l.code)));
 
     await prisma.bultoLabel.deleteMany({ where: { id: { in: created.map((l) => l.id) } } });
   });
@@ -1833,13 +1833,13 @@ describe("etiquetas de bulto (E. BULTO escaneable en Sellado/Precorte)", () => {
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 50 },
     });
 
-    const notFound = await fetch(`${baseUrl}/api/bulto-labels/by-code/BULTO-NOEXISTE`, { headers: headersFor("operario_sellado") });
+    const notFound = await fetch(`${baseUrl}/api/bulto-labels/by-code/EXT-NOEXISTE`, { headers: headersFor("operario_sellado") });
     assert.equal(notFound.status, 404);
 
     const roll = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
       method: "POST",
       headers: headersFor("operario_sellado"),
-      body: JSON.stringify({ weightKg: 15, bultoLabelCode: "BULTO-NOEXISTE" }),
+      body: JSON.stringify({ weightKg: 15, bultoLabelCode: "EXT-NOEXISTE" }),
     });
     assert.equal(roll.status, 400);
 
