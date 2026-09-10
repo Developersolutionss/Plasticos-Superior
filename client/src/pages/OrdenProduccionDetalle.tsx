@@ -229,6 +229,10 @@ export default function OrdenProduccionDetalle() {
       if (product.calibre && fieldKeys.has("calibre") && !specs.calibre) specs.calibre = product.calibre;
       if (product.color && fieldKeys.has("color") && !specs.color) specs.color = product.color;
       if (product.measureUnit && fieldKeys.has("anchoUnidad") && !specs.anchoUnidad) specs.anchoUnidad = product.measureUnit;
+      // "Unidad" de Medidas finales (Sellado/Precorte) parte de la misma
+      // unidad que "Unidad de ancho" de más arriba -- el cliente pidió que no
+      // quede vacía si ya se sabe en qué unidad viene el ancho.
+      if (fieldKeys.has("medidasUnidad") && !specs.medidasUnidad && specs.anchoUnidad) specs.medidasUnidad = specs.anchoUnidad;
       if (product.densidad) {
         if (fieldKeys.has("densidad") && !specs.densidad) specs.densidad = product.densidad;
         if (fieldKeys.has("materialDensidad") && !specs.materialDensidad) specs.materialDensidad = product.densidad;
