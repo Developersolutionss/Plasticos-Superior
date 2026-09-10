@@ -123,8 +123,9 @@ export default function EtiquetasBulto() {
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Etiquetas de bulto</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Generá un lote, imprimilas y repartilas a los operarios de Sellado/Precorte — al escanear una, se completa sola la columna E.
-          BULTO y queda marcada como usada, sin que nadie tenga que tipear el número.
+          Solo para bultos de mercancía comprada afuera — los bultos propios ya se identifican solos en E. BULTO, sin escanear nada. Generá
+          un lote, imprimilas y repartilas a los operarios de Sellado/Precorte para cuando reciban mercancía de otro lado: al escanear una,
+          se completa sola la columna E. BULTO y queda marcada como usada, sin que nadie tenga que tipear el número.
         </p>
       </div>
 
