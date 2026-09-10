@@ -897,14 +897,14 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
 
-  it("derivar hereda specs en común del padre (formaMaterial→tipoMaterial, ancho, fuelles, calibre, color); campos vacíos no se copian; specs explícito pisa lo heredado", async () => {
+  it("derivar hereda specs en común del padre (formaMaterial→tipoMaterial, tratadoCaras→caras, ancho, fuelles, calibre, color); campos vacíos no se copian; specs explícito pisa lo heredado", async () => {
     const parent = await prisma.productionOrder.create({
       data: {
         orderNumber: `OP-TEST-${Date.now()}`,
         station: "extrusion",
         productId,
         quantityPlanned: 40,
-        specs: { formaMaterial: "Tubular", ancho: "30", anchoUnidad: "Cms.", fuelles: "SI", calibre: "0.6", color: "Natural", materialPara: "SELLADO", densidad: "0.92" },
+        specs: { formaMaterial: "Tubular", ancho: "30", anchoUnidad: "Cms.", fuelles: "SI", calibre: "0.6", color: "Natural", tratadoCaras: "2", materialPara: "SELLADO", densidad: "0.92" },
       },
     });
 
@@ -921,8 +921,20 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     assert.equal(derived.specs.fuelles, "SI");
     assert.equal(derived.specs.calibre, "0.6");
     assert.equal(derived.specs.color, "Natural");
+    assert.equal(derived.specs.caras, "2", "tratadoCaras (Caras tratadas) del padre se mapea a caras (Caras) del hijo");
     assert.equal(derived.specs.materialPara, undefined, "materialPara es de ruteo de Extrusión, no un concepto de Sellado");
     assert.equal(derived.specs.materialDensidad, undefined, "densidad (numérica) no se mapea a materialDensidad (BAJA/ALTA), son conceptos distintos");
+
+    // Mismo mapeo también al derivar directo a Precorte (no solo a Sellado).
+    const derivedPrecorte = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "precorte" }),
+    });
+    assert.equal(derivedPrecorte.status, 201);
+    const precorteBody = (await derivedPrecorte.json()) as { id: number; specs: any };
+    assert.equal(precorteBody.specs.caras, "2", "tratadoCaras también se hereda al derivar directo a Precorte");
+    await prisma.productionOrder.delete({ where: { id: precorteBody.id } });
 
     await prisma.productionOrder.delete({ where: { id: derived.id } });
 

@@ -280,15 +280,17 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
  * (color, ancho, fuelles, calibre, tipo/forma de material, etc.), en vez de
  * que Gestión tenga que volver a tipearlo. Solo se mapean conceptos que
  * realmente son "el mismo dato" entre plantillas (mismo nombre de campo, o
- * el caso especial `formaMaterial` de Extrusión ↔ `tipoMaterial` del resto,
- * que comparten las mismas opciones FORMA_MATERIAL) — `densidad` (numérica,
- * Extrusión) y `materialDensidad` (BAJA/ALTA, el resto) NO se mapean entre
- * sí porque son dos conceptos distintos con el mismo aire de familia.
+ * un caso especial de nombre distinto: `formaMaterial` de Extrusión ↔
+ * `tipoMaterial` del resto, que comparten las mismas opciones
+ * FORMA_MATERIAL; `tratadoCaras` de Extrusión ↔ `caras` del resto) —
+ * `densidad` (numérica, Extrusión) y `materialDensidad` (BAJA/ALTA, el
+ * resto) NO se mapean entre sí porque son dos conceptos distintos con el
+ * mismo aire de familia.
  */
 const SPEC_INHERITANCE: Partial<Record<string, Record<string, string>>> = {
-  "extrusion>impresion": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratado: "tratado" },
-  "extrusion>sellado": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color" },
-  "extrusion>precorte": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color" },
+  "extrusion>impresion": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratado: "tratado", tratadoCaras: "caras" },
+  "extrusion>sellado": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratadoCaras: "caras" },
+  "extrusion>precorte": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratadoCaras: "caras" },
   "impresion>sellado": {
     tipoMaterial: "tipoMaterial",
     materialDensidad: "materialDensidad",
