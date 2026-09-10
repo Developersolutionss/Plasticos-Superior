@@ -930,7 +930,19 @@ export default function OrdenProduccionDetalle() {
                 // Ancho/Largo de "Medidas finales" (mismo "12x18" = ancho x
                 // largo del producto). No hace falta tipearlo varias veces;
                 // sigue siendo editable a mano después, esto solo precarga.
-                setSpecsDraft((prev) => ({ ...prev, ...deriveSpecsFromMeasure(value) }));
+                // Se limpian los 4 campos derivados ANTES de volver a
+                // derivar -- si no, borrar/editar Medidas hasta un punto
+                // donde ya no matchea el patrón (ej. "12x0.0000045" → "12x")
+                // dejaba pegado para siempre el último valor derivado con
+                // éxito, aunque el cuadro de Medidas ya no dijera eso.
+                setSpecsDraft((prev) => ({
+                  ...prev,
+                  ancho: "",
+                  calibre: "",
+                  medAncho: "",
+                  medLargo: "",
+                  ...deriveSpecsFromMeasure(value),
+                }));
                 markDirty();
               }}
             />
