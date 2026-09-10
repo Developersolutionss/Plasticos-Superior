@@ -897,6 +897,40 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
 
+  it("GET /:id trae derivedOrders en el orden real en que se derivaron, no en otro orden", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
+    });
+
+    // A propósito primero Precorte y después Sellado -- si el orden viniera
+    // alfabético o por algún criterio que no sea el real, esto lo detecta.
+    const derivePrecorte = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "precorte" }),
+    });
+    const precorte = (await derivePrecorte.json()) as { id: number };
+
+    const deriveSellado = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    const sellado = (await deriveSellado.json()) as { id: number };
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}`, { headers: headersFor("produccion") });
+    const body = (await res.json()) as { derivedOrders: { id: number; station: string }[] };
+    assert.deepEqual(
+      body.derivedOrders.map((d) => d.station),
+      ["precorte", "sellado"],
+      "precorte se derivó primero, debe listarse primero"
+    );
+
+    await prisma.productionOrder.delete({ where: { id: precorte.id } });
+    await prisma.productionOrder.delete({ where: { id: sellado.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
   it("derivar hereda specs en común del padre (formaMaterial→tipoMaterial, tratadoCaras→caras, ancho, fuelles, calibre, color); campos vacíos no se copian; specs explícito pisa lo heredado", async () => {
     const parent = await prisma.productionOrder.create({
       data: {

@@ -88,7 +88,11 @@ productionOrdersRouter.get("/", async (req, res) => {
       client: { select: { id: true, name: true } },
       rolls: { select: { weightKg: true, wasteKg: true } },
       parent: { select: { id: true, orderNumber: true, station: true } },
-      derivedOrders: { select: { id: true, orderNumber: true, station: true, status: true } },
+      // orderBy explícito: sin esto Prisma no garantiza que vengan en el
+      // orden real en que Gestión las fue derivando (ej. "Deriva en" podía
+      // mostrar Sellado antes que Precorte aunque Precorte se haya
+      // derivado primero) — el id sube en el mismo orden en que se crean.
+      derivedOrders: { select: { id: true, orderNumber: true, station: true, status: true }, orderBy: { id: "asc" } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -250,7 +254,11 @@ productionOrdersRouter.get("/:id", async (req, res) => {
       parent: {
         select: { id: true, orderNumber: true, station: true, status: true, rolls: { select: { weightKg: true } } },
       },
-      derivedOrders: { select: { id: true, orderNumber: true, station: true, status: true } },
+      // orderBy explícito: sin esto Prisma no garantiza que vengan en el
+      // orden real en que Gestión las fue derivando (ej. "Deriva en" podía
+      // mostrar Sellado antes que Precorte aunque Precorte se haya
+      // derivado primero) — el id sube en el mismo orden en que se crean.
+      derivedOrders: { select: { id: true, orderNumber: true, station: true, status: true }, orderBy: { id: "asc" } },
       qualityCheck: { include: { createdBy: { select: { name: true } } } },
       pedidoVersionItem: {
         include: { pedidoVersion: { include: { pedido: { include: { client: true } } } } },
@@ -1131,7 +1139,7 @@ productionOrdersRouter.get("/:id/report.pdf", async (req, res) => {
       parent: {
         select: { orderNumber: true, station: true, rolls: { select: { weightKg: true } } },
       },
-      derivedOrders: { select: { orderNumber: true } },
+      derivedOrders: { select: { orderNumber: true }, orderBy: { id: "asc" } },
     },
   });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
