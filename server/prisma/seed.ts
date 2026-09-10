@@ -422,7 +422,7 @@ async function main() {
   // Etiquetas de bulto demo: unas disponibles para probar el escaneo en
   // Sellado sin tener que generarlas a mano primero. Idempotente por
   // `code` (único).
-  const bultoLabelCodes = ["BULTO-00001", "BULTO-00002", "BULTO-00003"];
+  const bultoLabelCodes = ["EXT-00001", "EXT-00002", "EXT-00003"];
   for (const code of bultoLabelCodes) {
     await prisma.bultoLabel.upsert({
       where: { code },
