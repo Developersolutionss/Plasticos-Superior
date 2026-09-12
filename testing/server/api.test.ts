@@ -1490,6 +1490,58 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.inventoryStock.update({ where: { productId }, data: { currentQuantity: stockAntes?.currentQuantity ?? 0 } });
   });
 
+  it("Calidad aprueba una OP con cliente asignado: entra a inventario IGUAL que sin cliente, y además genera un Despacho pendiente para ese cliente, notificando a Almacén", async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-QC-CLIENTE-${Date.now()}` } });
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, clientId: client.id, quantityPlanned: 10, status: "pendiente_calidad" },
+    });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 6 } });
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId } });
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
+      method: "POST",
+      headers: headersFor("calidad"),
+      body: JSON.stringify({ result: "aprobado" }),
+    });
+    assert.equal(res.status, 201);
+
+    const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId } });
+    assert.equal(
+      Number(stockDespues!.currentQuantity),
+      Number(stockAntes?.currentQuantity ?? 0) + 6,
+      "sigue entrando a inventario igual que una OP sin cliente"
+    );
+
+    const dispatch = await prisma.dispatch.findFirst({
+      where: { clientId: client.id },
+      include: { items: true },
+      orderBy: { id: "desc" },
+    });
+    assert.ok(dispatch, "debió crearse un Despacho para el cliente de la OP");
+    assert.equal(dispatch!.status, "pendiente");
+    assert.equal(dispatch!.items.length, 1);
+    assert.equal(dispatch!.items[0].productId, productId);
+    assert.equal(Number(dispatch!.items[0].quantityRequested), 6);
+    assert.equal(dispatch!.items[0].quantityDispatched, null, "todavía no se despachó de verdad, solo se preparó");
+
+    const notif = await prisma.notification.findFirst({
+      where: { type: "despacho_generado_desde_op", message: { contains: order.orderNumber } },
+      orderBy: { createdAt: "desc" },
+    });
+    assert.ok(notif, "Almacén debió recibir una notificación del despacho generado");
+    assert.equal(notif!.link, "/despachos");
+
+    await prisma.notification.delete({ where: { id: notif!.id } });
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch!.id } });
+    await prisma.dispatch.delete({ where: { id: dispatch!.id } });
+    await prisma.qualityCheck.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "manual_adjustment", productId, createdAt: { gte: order.createdAt } } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await prisma.inventoryStock.update({ where: { productId }, data: { currentQuantity: stockAntes?.currentQuantity ?? 0 } });
+  });
+
   it("Calidad rechaza: deja la OP detenida sin mover stock y notifica a Producción/Gestión", async () => {
     const order = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 10, status: "pendiente_calidad" },

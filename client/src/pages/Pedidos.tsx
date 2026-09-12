@@ -203,6 +203,32 @@ export default function Pedidos() {
     }
   }
 
+  /** Atajo para no tener que abrir Editar solo para pasar de Borrador a
+   * Aprobado (y así aparecer en la cola de Planeación) — usa los items/notas
+   * de la versión actual tal cual están, sin tocar nada, solo cambia el
+   * estado. Si hace falta modificar los items, se sigue usando Editar. */
+  async function handleAprobar(pedidoId: number, version: any) {
+    setError(null);
+    setMessage(null);
+    try {
+      await api.updatePedido(pedidoId, {
+        status: "aprobado",
+        notes: version.notes ?? undefined,
+        items: version.items.map((it: any) => ({
+          productId: it.productId,
+          quantity: Number(it.quantity),
+          unitPrice: Number(it.unitPrice),
+          measure: it.measure ?? undefined,
+        })),
+      });
+      queryClient.invalidateQueries({ queryKey: ["pedidos"] });
+      queryClient.invalidateQueries({ queryKey: ["pedidoVersions", pedidoId] });
+      setMessage("Pedido aprobado — ya aparece en la cola de Planeación.");
+    } catch {
+      setError("No se pudo aprobar el pedido");
+    }
+  }
+
   async function handleFacturar(pedidoId: number) {
     setMessage(null);
     setError(null);
@@ -394,9 +420,20 @@ export default function Pedidos() {
                 </div>
                 <p className="text-right font-medium">Total: ${total(latestVersion.items).toLocaleString("es-CO")}</p>
                 {latestVersion.notes && <p className="text-sm text-slate-600 dark:text-slate-300">Notas: {latestVersion.notes}</p>}
-                <button onClick={startEditing} className="bg-slate-800 text-white text-sm px-4 py-2 rounded">
-                  Editar (crea nueva versión)
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  {(latestVersion.status === "borrador" || latestVersion.status === "pendiente") && (
+                    <button
+                      onClick={() => handleAprobar(selectedPedidoId!, latestVersion)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded"
+                      title="Aprueba el pedido tal cual está y lo manda directo a la cola de Planeación"
+                    >
+                      Aprobar y enviar a Planeación
+                    </button>
+                  )}
+                  <button onClick={startEditing} className="bg-slate-800 text-white text-sm px-4 py-2 rounded">
+                    Editar (crea nueva versión)
+                  </button>
+                </div>
               </div>
             )}
 

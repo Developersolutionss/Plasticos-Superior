@@ -1100,6 +1100,28 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
           referenceId: created.id,
           createdById: req.user!.userId,
         });
+        // Si la OP ya tiene un cliente asignado, el producto no es para
+        // stock general -- además de entrar a inventario (arriba, sigue
+        // igual), se prepara de una el Despacho para ese cliente, en
+        // "pendiente" y con el producto/cantidad ya cargados, así Almacén
+        // solo confirma la salida física en vez de armarlo desde cero.
+        if (order.clientId) {
+          await tx.dispatch.create({
+            data: {
+              clientId: order.clientId,
+              createdById: req.user!.userId,
+              items: {
+                create: [
+                  {
+                    productId: order.productId,
+                    quantityRequested: totalKg,
+                    notes: `Generado automáticamente al aprobar la OP #${order.orderNumber} en Calidad`,
+                  },
+                ],
+              },
+            },
+          });
+        }
       }
       await tx.productionOrder.update({ where: { id: productionOrderId }, data: { status: "finalizada" } });
     } else {
@@ -1114,6 +1136,12 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
       type: "op_rechazada",
       message: `OP #${order.orderNumber} fue rechazada en calidad`,
       link: "/produccion/ordenes",
+    });
+  } else if (order.clientId && totalKg > 0) {
+    await notifyRoles(ROLES.ALMACEN, {
+      type: "despacho_generado_desde_op",
+      message: `Se generó un despacho pendiente para ${order.orderNumber} (Calidad la aprobó con cliente asignado)`,
+      link: "/despachos",
     });
   }
 
