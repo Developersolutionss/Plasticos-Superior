@@ -469,7 +469,10 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
   const parsed = deriveSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const parent = await prisma.productionOrder.findUnique({ where: { id } });
+  const parent = await prisma.productionOrder.findUnique({
+    where: { id },
+    include: { rolls: { select: { weightKg: true } } },
+  });
   if (!parent) return res.status(404).json({ error: "OP no encontrada" });
   if (parent.status === "cancelada") return res.status(400).json({ error: "No se puede derivar de una OP cancelada" });
 
@@ -524,13 +527,24 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
   const inherited = inheritSpecs(parent.station as OpStation, parsed.data.station, parent.specs as Record<string, unknown> | null);
   const specs = { ...inherited, ...(parsed.data.specs ?? {}) };
 
+  // La meta (quantityPlanned) de la hija tiene que ser lo que el padre
+  // REALMENTE produjo (suma de sus rollos), no lo que el padre tenía como
+  // meta propia -- si Extrusión planificaba 40kg pero solo salieron 37kg
+  // reales (2 rollos), la hija no puede seguir esperando 40kg: no hay más
+  // material físico que cargar y la hoja quedaba mostrando "Restan 1 kg"
+  // para siempre, sin ningún rollo que escanear para completarlo. Cae al
+  // quantityPlanned del padre solo si todavía no produjo nada (ej. derivar
+  // antes de cargar el primer rollo).
+  const parentProducedKg = parent.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
+  const defaultQuantityPlanned = parentProducedKg > 0 ? Math.round(parentProducedKg * 100) / 100 : Number(parent.quantityPlanned);
+
   const order = await prisma.productionOrder.create({
     data: {
       orderNumber: parent.orderNumber,
       station: parsed.data.station,
       productId: parent.productId,
       clientId: parent.clientId,
-      quantityPlanned: parsed.data.quantityPlanned ?? parent.quantityPlanned,
+      quantityPlanned: parsed.data.quantityPlanned ?? defaultQuantityPlanned,
       measure: parsed.data.measure ?? parent.measure,
       specs: Object.keys(specs).length ? (specs as Prisma.InputJsonValue) : undefined,
       notes: parsed.data.notes,

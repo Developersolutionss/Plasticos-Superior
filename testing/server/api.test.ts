@@ -897,6 +897,41 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
 
+  it("derivar hereda como meta lo que el padre REALMENTE produjo (suma de rollos), no lo que el padre planificaba", async () => {
+    // El padre planificaba 40kg pero solo salieron 37kg reales (2 rollos de
+    // 10 y 27) -- la hija no puede seguir esperando los 40kg planificados,
+    // porque no hay más material físico que cargar (bug real reportado:
+    // "Restan 1 kg" para siempre, sin ningún rollo que escanear).
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
+    });
+    await prisma.productionRoll.create({ data: { productionOrderId: parent.id, operatorName: "Op", weightKg: 10 } });
+    await prisma.productionRoll.create({ data: { productionOrderId: parent.id, operatorName: "Op", weightKg: 27 } });
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(res.status, 201);
+    const derived = (await res.json()) as { id: number; quantityPlanned: unknown };
+    assert.equal(Number(derived.quantityPlanned), 37, "la meta de la hija es lo real producido (10+27), no los 40kg planificados del padre");
+
+    // Un `quantityPlanned` explícito en el body sigue pisando el default.
+    const derivedOverride = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "precorte", quantityPlanned: 20 }),
+    });
+    const overrideBody = (await derivedOverride.json()) as { id: number; quantityPlanned: unknown };
+    assert.equal(Number(overrideBody.quantityPlanned), 20, "quantityPlanned explícito en el body gana sobre el default calculado");
+
+    await prisma.productionOrder.delete({ where: { id: overrideBody.id } });
+    await prisma.productionOrder.delete({ where: { id: derived.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: parent.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
   it("GET /:id trae derivedOrders en el orden real en que se derivaron, no en otro orden", async () => {
     const parent = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
