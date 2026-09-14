@@ -282,15 +282,14 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
  * realmente son "el mismo dato" entre plantillas (mismo nombre de campo, o
  * un caso especial de nombre distinto: `formaMaterial` de Extrusión ↔
  * `tipoMaterial` del resto, que comparten las mismas opciones
- * FORMA_MATERIAL; `tratadoCaras` de Extrusión ↔ `caras` del resto) —
- * `densidad` (numérica, Extrusión) y `materialDensidad` (BAJA/ALTA, el
- * resto) NO se mapean entre sí porque son dos conceptos distintos con el
- * mismo aire de familia.
+ * FORMA_MATERIAL; `tratadoCaras` de Extrusión ↔ `caras` del resto;
+ * `densidad` de Extrusión ↔ `materialDensidad` del resto, que comparten las
+ * mismas opciones BAJA/ALTA — ver DENSIDAD).
  */
 const SPEC_INHERITANCE: Partial<Record<string, Record<string, string>>> = {
-  "extrusion>impresion": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratado: "tratado", tratadoCaras: "caras" },
-  "extrusion>sellado": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratadoCaras: "caras" },
-  "extrusion>precorte": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratadoCaras: "caras" },
+  "extrusion>impresion": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratado: "tratado", tratadoCaras: "caras", densidad: "materialDensidad" },
+  "extrusion>sellado": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratadoCaras: "caras", densidad: "materialDensidad" },
+  "extrusion>precorte": { formaMaterial: "tipoMaterial", ancho: "ancho", anchoUnidad: "anchoUnidad", fuelles: "fuelles", calibre: "calibre", color: "color", tratadoCaras: "caras", densidad: "materialDensidad" },
   "impresion>sellado": {
     tipoMaterial: "tipoMaterial",
     materialDensidad: "materialDensidad",
@@ -300,8 +299,6 @@ const SPEC_INHERITANCE: Partial<Record<string, Record<string, string>>> = {
     calibre: "calibre",
     ancho: "ancho",
     anchoUnidad: "anchoUnidad",
-    cantidadKilos: "cantidadKilos",
-    cantidadRollos: "cantidadRollos",
   },
   "impresion>precorte": {
     tipoMaterial: "tipoMaterial",
@@ -312,8 +309,6 @@ const SPEC_INHERITANCE: Partial<Record<string, Record<string, string>>> = {
     calibre: "calibre",
     ancho: "ancho",
     anchoUnidad: "anchoUnidad",
-    cantidadKilos: "cantidadKilos",
-    cantidadRollos: "cantidadRollos",
   },
 };
 

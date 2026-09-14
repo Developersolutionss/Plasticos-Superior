@@ -50,6 +50,18 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Kg reales que aportó un rollo, incluyendo el segundo peso de Precorte
+ * (details.pesoR2 — cada fila de esa estación carga 2 rollos de insumo, ver
+ * opTemplates.ts). El resto de las estaciones solo tienen un peso.
+ */
+function rollKg(station: OpStation, roll: RollLike): number {
+  const base = num(roll.weightKg);
+  if (station !== "precorte") return base;
+  const details = (roll.details ?? {}) as Record<string, unknown>;
+  return base + num(details.pesoR2);
+}
+
 function str(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
   return String(v);
@@ -323,7 +335,7 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
       cols.map((c) => c.label),
       widths,
       data.rolls.map((roll) => {
-        cumulative += num(roll.weightKg);
+        cumulative += rollKg(data.station, roll);
         return cols.map((c) => rollCellValue(roll, c, cumulative));
       })
     );
@@ -331,7 +343,7 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
   y += 8;
 
   // ---- Consolidado de cierre ----
-  const totalKg = data.rolls.reduce((acc, r) => acc + num(r.weightKg), 0);
+  const totalKg = data.rolls.reduce((acc, r) => acc + rollKg(data.station, r), 0);
   const totalWaste = data.rolls.reduce((acc, r) => acc + num(r.wasteKg), 0);
   sectionBand("CONSOLIDADO");
   fieldGrid([
@@ -347,7 +359,7 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
     const key = `${roll.shift?.trim() || "Sin turno"} · ${roll.operatorName}`;
     const agg = turnos.get(key) ?? { rolls: 0, kg: 0 };
     agg.rolls += 1;
-    agg.kg += num(roll.weightKg);
+    agg.kg += rollKg(data.station, roll);
     turnos.set(key, agg);
   }
   if (turnos.size) {

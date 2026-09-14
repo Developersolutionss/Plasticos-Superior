@@ -293,8 +293,6 @@ export const api = {
   },
   createProductionOrderFromPedidoItem: (pedidoVersionItemId: number) =>
     request<any>(`/production-orders/from-pedido-item/${pedidoVersionItemId}`, { method: "POST" }),
-  updateProductionOrderStatus: (id: number, status: string) =>
-    request<any>(`/production-orders/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
   closeProductionOrder: (id: number) => request<any>(`/production-orders/${id}/close`, { method: "POST" }),
   reopenProductionOrder: (id: number) => request<any>(`/production-orders/${id}/reopen`, { method: "POST" }),
   releaseProductionOrder: (id: number) => request<any>(`/production-orders/${id}/release`, { method: "POST" }),

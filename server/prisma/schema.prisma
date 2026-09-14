@@ -518,6 +518,13 @@ model Dispatch {
   createdById    Int?           @map("created_by")
   createdBy      User?          @relation(fields: [createdById], references: [id])
   createdAt      DateTime       @default(now()) @map("created_at")
+  /// Solo se completa cuando el despacho lo generó SOLO el sistema al
+  /// aprobar en Calidad una OP con cliente asignado (ver POST
+  /// /:id/quality-check) — permite que POST /:id/reopen detecte y bloquee
+  /// la reapertura si ya existe un despacho generado desde esa OP, en vez
+  /// de dejar el stock/despacho inconsistentes.
+  productionOrderId Int?             @map("production_order_id")
+  productionOrder   ProductionOrder? @relation(fields: [productionOrderId], references: [id])
 
   items DispatchItem[]
 
@@ -626,6 +633,7 @@ model ProductionOrder {
   rolls        ProductionRoll[]
   attachments  ProductionOrderAttachment[]
   qualityCheck QualityCheck?
+  dispatches   Dispatch[]
 
   @@map("production_orders")
 }
@@ -669,7 +677,7 @@ model ProductionRoll {
   wasteKg           Decimal         @default(0) @map("waste_kg") @db.Decimal(12, 2)
   details           Json?
   notes             String?
-  sourceRollId      Int?             @map("source_roll_id")
+  sourceRollId      Int?             @unique @map("source_roll_id")
   sourceRoll        ProductionRoll?  @relation("RollSource", fields: [sourceRollId], references: [id])
   consumedBy        ProductionRoll[] @relation("RollSource")
   createdById       Int?            @map("created_by")

@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, FileDown, GitBranch, Lock, Paperclip, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
-import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, PRODUCCION_GESTION } from "../components/navConfig";
+import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, OP_PRECORTE, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { useConfirm } from "../components/ConfirmDialog";
 import ErrorToast from "../components/ErrorToast";
@@ -36,7 +36,7 @@ const STATION_OPERATE: Record<OpStation, UserRole[]> = {
   extrusion: OP_EXTRUSION,
   impresion: OP_IMPRESION,
   sellado: OP_SELLADO,
-  precorte: OP_SELLADO,
+  precorte: OP_PRECORTE,
 };
 
 /** Cerrar la OP es del operario de esa estación, no de Gestión (espejo de
@@ -350,7 +350,17 @@ export default function OrdenProduccionDetalle() {
   // materia prima/medidas/cliente/referencia antes de liberarla a planta.
   const canEditSpecs = canGestion && (isDraft || isOpen);
 
-  const totalKg = order.rolls.reduce((acc: number, r: any) => acc + Number(r.weightKg), 0);
+  // Precorte carga 2 rollos de insumo por fila (ver opTemplates.ts) — el
+  // segundo peso queda en details.pesoR2, pero sigue siendo material real
+  // que entra a la OP, así que cuenta en todo total de kg junto al peso
+  // base (meta, avance, inventario al aprobar en Calidad, etc.).
+  function rollTotalWeightKg(r: any): number {
+    const base = Number(r.weightKg);
+    const r2 = station === "precorte" ? Number(r.details?.pesoR2 ?? 0) : 0;
+    return base + (Number.isFinite(r2) ? r2 : 0);
+  }
+
+  const totalKg = order.rolls.reduce((acc: number, r: any) => acc + rollTotalWeightKg(r), 0);
   const totalWaste = order.rolls.reduce((acc: number, r: any) => acc + Number(r.wasteKg), 0);
   // La meta se completa con PESO + DESPERDICIO, no solo peso producido (así
   // lo pidió el cliente) — una vez alcanzada, se oculta la fila de carga
@@ -364,7 +374,7 @@ export default function OrdenProduccionDetalle() {
   // viene ordenado por fecha/id asc desde el backend.
   const rollCumulative: number[] = [];
   order.rolls.reduce((acc: number, r: any, i: number) => {
-    const next = acc + Number(r.weightKg);
+    const next = acc + rollTotalWeightKg(r);
     rollCumulative[i] = next;
     return next;
   }, 0);

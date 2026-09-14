@@ -5,7 +5,8 @@ import fs from "fs";
 import crypto from "crypto";
 import QRCode from "qrcode";
 import { z } from "zod";
-import type { Prisma, ProductionOrderStatus } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
+import type { ProductionOrderStatus } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
 import { applyMovement, TxClient } from "../services/stockService";
@@ -70,7 +71,25 @@ productionOrdersRouter.use(requireRole(...ROLES.OPERARIOS, ...ROLES.CALIDAD, ...
 const STATIONS = ["extrusion", "impresion", "sellado", "precorte"] as const;
 
 /** Estados desde los que la OP sigue "abierta" (acepta rollos y cierre). */
-const OPEN_STATUSES = ["pendiente", "en_proceso"];
+const OPEN_STATUSES: ProductionOrderStatus[] = ["pendiente", "en_proceso"];
+
+/**
+ * Kg reales que aportó un rollo a la meta/producción de la OP. En Precorte
+ * cada fila carga 2 rollos de insumo (ver opTemplates.ts, rollColumns) — el
+ * peso base va en `weightKg` y el segundo en `details.pesoR2`; ese segundo
+ * peso es material real que entró a la OP y tiene que contar igual que el
+ * primero en la meta (quantityPlanned), en el total que se manda a
+ * inventario al aprobar en Calidad, y en cualquier total de kg producidos.
+ * La etiqueta del segundo rollo (`details.etiquetaR2`) sigue siendo solo de
+ * referencia — no hay una segunda relación `sourceRollId` para trazabilidad.
+ */
+function rollProducedKg(station: OpStation | null, roll: { weightKg: unknown; details?: unknown }): number {
+  const base = Number(roll.weightKg);
+  if (station !== "precorte") return base;
+  const details = roll.details && typeof roll.details === "object" ? (roll.details as Record<string, unknown>) : {};
+  const r2 = Number(details.pesoR2);
+  return base + (Number.isFinite(r2) ? r2 : 0);
+}
 
 productionOrdersRouter.get("/", async (req, res) => {
   const status = req.query.status as string | undefined;
@@ -86,7 +105,7 @@ productionOrdersRouter.get("/", async (req, res) => {
     include: {
       product: true,
       client: { select: { id: true, name: true } },
-      rolls: { select: { weightKg: true, wasteKg: true } },
+      rolls: { select: { weightKg: true, wasteKg: true, details: true } },
       parent: { select: { id: true, orderNumber: true, station: true } },
       // orderBy explícito: sin esto Prisma no garantiza que vengan en el
       // orden real en que Gestión las fue derivando (ej. "Deriva en" podía
@@ -282,7 +301,7 @@ productionOrdersRouter.get("/:id", async (req, res) => {
       status: true,
       parentOrderId: true,
       quantityPlanned: true,
-      rolls: { select: { weightKg: true } },
+      rolls: { select: { weightKg: true, details: true } },
     },
     orderBy: { id: "asc" },
   });
@@ -599,6 +618,39 @@ async function propagateSpecsToChildren(
   }
 }
 
+/**
+ * Sincroniza la meta (quantityPlanned) de los hijos DIRECTOS de `orderId` con
+ * lo que esta OP realmente produjo hasta ahora — mismo cálculo que se usa al
+ * derivar (ver comentario en POST /:id/derive): si un hijo todavía no cargó
+ * ningún rollo propio, su meta no puede seguir apuntando a una foto vieja de
+ * la producción del padre (ej. Extrusión planificaba 40kg, derivó a Sellado
+ * esperando eso, pero luego un rollo cargado tarde en Extrusión sube el
+ * total real a 45kg — Sellado tiene que poder cargar esos 45kg, no quedarse
+ * trabado en 40). Solo toca hijos que aún no produjeron nada propio: uno que
+ * ya tiene rollos cargados ya está trabajando sobre su propia meta real, no
+ * sobre la foto heredada del padre.
+ */
+async function syncQuantityPlannedToChildren(tx: TxClient, orderId: number) {
+  const order = await tx.productionOrder.findUnique({
+    where: { id: orderId },
+    include: { rolls: { select: { weightKg: true } } },
+  });
+  if (!order) return;
+  const producedKg = order.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
+  if (producedKg <= 0) return;
+  const newPlanned = Math.round(producedKg * 100) / 100;
+
+  const children = await tx.productionOrder.findMany({
+    where: { parentOrderId: orderId },
+    include: { rolls: { select: { id: true } } },
+  });
+  for (const child of children) {
+    if (child.rolls.length > 0) continue;
+    if (Number(child.quantityPlanned) === newPlanned) continue;
+    await tx.productionOrder.update({ where: { id: child.id }, data: { quantityPlanned: newPlanned } });
+  }
+}
+
 /** Edita el encabezado/specs de una OP mientras siga abierta. */
 productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
@@ -670,22 +722,6 @@ productionOrdersRouter.patch("/:id/material-para", requireOperarios, async (req,
   res.json(updated);
 });
 
-const updateStatusSchema = z.object({
-  status: z.enum(["borrador", "pendiente", "en_proceso", "pendiente_calidad", "detenida", "finalizada", "cancelada"]),
-});
-
-productionOrdersRouter.patch("/:id/status", requireProduccionGestion, async (req, res) => {
-  const id = Number(req.params.id);
-  const parsed = updateStatusSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-
-  const order = await prisma.productionOrder.findUnique({ where: { id } });
-  if (!order) return res.status(404).json({ error: "OP no encontrada" });
-
-  const updated = await prisma.productionOrder.update({ where: { id }, data: { status: parsed.data.status } });
-  res.json(updated);
-});
-
 /**
  * Cierra una OP. Extrusión (siempre intermedia) queda "finalizada" directo,
  * su material pasa a la OP derivada sin mover stock. Impresión/Sellado/
@@ -727,29 +763,49 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
   // tipeo), se avisa en la respuesta pero NO bloquea el cierre — la OP ya
   // tiene rollos reales cargados, no tiene sentido trabarla por esto.
   const skippedRefs: string[] = [];
-  const updated = await prisma.$transaction(async (tx) => {
-    if (order.station === "extrusion") {
-      const rows = ((order.specs as any)?.materiaPrima as { ref?: string; kg?: unknown }[] | undefined) ?? [];
-      for (const row of rows) {
-        const kg = Number(row.kg);
-        if (!row.ref || !Number.isFinite(kg) || kg <= 0) continue;
-        const material = await tx.rawMaterial.findUnique({ where: { code: row.ref } });
-        if (!material) {
-          skippedRefs.push(row.ref);
-          continue;
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      // Mismo patrón que /reopen: reintenta el gate de estado DENTRO de la
+      // transacción con un update condicional — si dos cierres casi
+      // simultáneos del mismo botón pasan el chequeo de arriba, acá solo
+      // uno logra el update (el otro ve count=0 y aborta sin descontar
+      // materia prima dos veces ni pisar el status del otro).
+      const claimed = await tx.productionOrder.updateMany({
+        where: { id, status: { in: OPEN_STATUSES } },
+        data: { status: newStatus },
+      });
+      if (claimed.count === 0) throw new StatusRaceError();
+
+      if (order.station === "extrusion") {
+        const rows = ((order.specs as any)?.materiaPrima as { ref?: string; kg?: unknown }[] | undefined) ?? [];
+        for (const row of rows) {
+          const kg = Number(row.kg);
+          if (!row.ref || !Number.isFinite(kg) || kg <= 0) continue;
+          const material = await tx.rawMaterial.findUnique({ where: { code: row.ref } });
+          if (!material) {
+            skippedRefs.push(row.ref);
+            continue;
+          }
+          await applyRawMaterialMovement(tx, {
+            rawMaterialId: material.id,
+            quantity: -kg,
+            movementType: "consumo_produccion",
+            referenceType: "production_order",
+            referenceId: order.id,
+            createdById: req.user!.userId,
+          });
         }
-        await applyRawMaterialMovement(tx, {
-          rawMaterialId: material.id,
-          quantity: -kg,
-          movementType: "consumo_produccion",
-          referenceType: "production_order",
-          referenceId: order.id,
-          createdById: req.user!.userId,
-        });
       }
+
+      return tx.productionOrder.findUniqueOrThrow({ where: { id } });
+    });
+  } catch (err) {
+    if (err instanceof StatusRaceError) {
+      return res.status(400).json({ error: "Esta OP ya no está abierta" });
     }
-    return tx.productionOrder.update({ where: { id }, data: { status: newStatus } });
-  });
+    throw err;
+  }
 
   if (isFinal) {
     await notifyRoles(ROLES.CALIDAD, {
@@ -781,8 +837,9 @@ const REOPENABLE_STATUSES: ProductionOrderStatus[] = ["finalizada", "pendiente_c
  *    `referenceType: "production_order"` (no se recalcula desde specs, que
  *    pudo haber cambiado desde entonces).
  */
-class NotReopenableError extends Error {}
+class StatusRaceError extends Error {}
 class BultoLabelUnavailableError extends Error {}
+class SourceRollAlreadyUsedError extends Error {}
 
 productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
@@ -790,11 +847,24 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
 
   const order = await prisma.productionOrder.findUnique({
     where: { id },
-    include: { qualityCheck: true, rolls: { select: { weightKg: true } } },
+    include: { qualityCheck: true, rolls: { select: { weightKg: true, details: true } } },
   });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
   if (!REOPENABLE_STATUSES.includes(order.status)) {
     return res.status(400).json({ error: "Esta OP no se puede reabrir desde su estado actual" });
+  }
+
+  // Si Calidad ya la aprobó con cliente asignado, se generó un Despacho para
+  // ese cliente (ver POST /:id/quality-check) — reabrir revertiría el
+  // inventario mientras ese despacho sigue vivo, y si Almacén ya lo
+  // completa (o si se vuelve a aprobar y se genera un segundo despacho) el
+  // stock queda descontado dos veces. Más simple y seguro: no se puede
+  // reabrir mientras exista ESE despacho, resuélvanlo (cancélenlo) primero.
+  const existingDispatch = await prisma.dispatch.findFirst({ where: { productionOrderId: id } });
+  if (existingDispatch) {
+    return res.status(400).json({
+      error: `Esta OP ya generó el Despacho #${existingDispatch.id} para su cliente — resolvé o cancelá ese despacho antes de reabrir la OP`,
+    });
   }
 
   let reversedProductKg = 0;
@@ -816,11 +886,11 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
             : `[Reabierta el ${new Date().toLocaleString("es-CO")} por ${req.user!.name}]`,
         },
       });
-      if (claimed.count === 0) throw new NotReopenableError();
+      if (claimed.count === 0) throw new StatusRaceError();
 
       if (order.qualityCheck) {
         if (order.qualityCheck.result === "aprobado") {
-          reversedProductKg = order.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
+          reversedProductKg = order.rolls.reduce((acc, r) => acc + rollProducedKg(order.station, r), 0);
           if (reversedProductKg > 0) {
             await applyMovement(tx, {
               productId: order.productId,
@@ -869,7 +939,7 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
       }
     });
   } catch (err) {
-    if (err instanceof NotReopenableError) {
+    if (err instanceof StatusRaceError) {
       return res.status(400).json({ error: "Esta OP no se puede reabrir desde su estado actual" });
     }
     throw err;
@@ -951,16 +1021,25 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
   // cargando (chequeo acá, no solo en el frontend, para que sea real).
   const existingRolls = await prisma.productionRoll.findMany({
     where: { productionOrderId },
-    select: { weightKg: true, wasteKg: true },
+    select: { weightKg: true, wasteKg: true, details: true },
   });
-  const existingTotal = existingRolls.reduce((acc, r) => acc + Number(r.weightKg) + Number(r.wasteKg), 0);
+  const existingTotal = existingRolls.reduce(
+    (acc, r) => acc + rollProducedKg(order.station as OpStation, r) + Number(r.wasteKg),
+    0
+  );
   const planned = Number(order.quantityPlanned);
+  // En Precorte, el segundo peso de la fila (details.pesoR2) es material
+  // real igual que weightKg — cuenta contra la meta igual que el primero.
+  const thisRollKg = rollProducedKg(order.station as OpStation, {
+    weightKg: parsed.data.weightKg,
+    details: parsed.data.details,
+  });
   // No alcanza con chequear "¿ya se completó antes de este rollo?" — un
   // rollo grande podía colarse entero y pasarse de largo de la meta en un
   // solo golpe (ej. OP de 40kg con 33kg cargados, entra un rollo de 44kg y
   // queda en 82kg). Se rechaza si ESTE rollo, sumado a lo que ya hay, se
   // pasaría de lo planificado — no solo si ya estaba completa de antes.
-  if (planned > 0 && existingTotal + parsed.data.weightKg + parsed.data.wasteKg > planned) {
+  if (planned > 0 && existingTotal + thisRollKg + parsed.data.wasteKg > planned) {
     const remaining = Math.round((planned - existingTotal) * 100) / 100;
     return res.status(400).json({
       error:
@@ -987,26 +1066,39 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
         details = { ...details, eBulto: parsed.data.bultoLabelCode };
       }
 
-      const created = await tx.productionRoll.create({
-        data: {
-          productionOrderId,
-          date: parsed.data.date ? new Date(parsed.data.date) : undefined,
-          shift: autoShift(),
-          // El operario SIEMPRE sale del JWT, nunca del body — si no, cualquiera
-          // con un token válido podría firmar rollos a nombre de otra persona
-          // llamando la API directo (el frontend ya manda esto, pero no hay
-          // que confiar en eso del lado del cliente).
-          operatorName: req.user!.name,
-          machine: parsed.data.machine,
-          label: parsed.data.label,
-          weightKg: parsed.data.weightKg,
-          wasteKg: parsed.data.wasteKg,
-          details: details as Prisma.InputJsonValue | undefined,
-          notes: parsed.data.notes,
-          sourceRollId: parsed.data.sourceRollId,
-          createdById: req.user!.userId,
-        },
-      });
+      let created;
+      try {
+        created = await tx.productionRoll.create({
+          data: {
+            productionOrderId,
+            date: parsed.data.date ? new Date(parsed.data.date) : undefined,
+            shift: autoShift(),
+            // El operario SIEMPRE sale del JWT, nunca del body — si no, cualquiera
+            // con un token válido podría firmar rollos a nombre de otra persona
+            // llamando la API directo (el frontend ya manda esto, pero no hay
+            // que confiar en eso del lado del cliente).
+            operatorName: req.user!.name,
+            machine: parsed.data.machine,
+            label: parsed.data.label,
+            weightKg: parsed.data.weightKg,
+            wasteKg: parsed.data.wasteKg,
+            details: details as Prisma.InputJsonValue | undefined,
+            notes: parsed.data.notes,
+            sourceRollId: parsed.data.sourceRollId,
+            createdById: req.user!.userId,
+          },
+        });
+      } catch (err) {
+        // Un rollo físico solo se puede consumir una vez como insumo — el
+        // unique constraint en source_roll_id es lo que lo garantiza de
+        // verdad (un pre-check simple no alcanza: dos escaneos casi
+        // simultáneos del mismo QR podrían pasar el check los dos antes de
+        // que cualquiera termine de crear su rollo).
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+          throw new SourceRollAlreadyUsedError();
+        }
+        throw err;
+      }
 
       if (parsed.data.bultoLabelCode) {
         await tx.bultoLabel.update({ where: { code: parsed.data.bultoLabelCode }, data: { usedByRollId: created.id } });
@@ -1016,11 +1108,16 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
         await tx.productionOrder.update({ where: { id: productionOrderId }, data: { status: "en_proceso" } });
       }
 
+      await syncQuantityPlannedToChildren(tx, productionOrderId);
+
       return created;
     });
   } catch (err) {
     if (err instanceof BultoLabelUnavailableError) {
       return res.status(400).json({ error: "Esa etiqueta de bulto no existe o ya fue usada" });
+    }
+    if (err instanceof SourceRollAlreadyUsedError) {
+      return res.status(400).json({ error: "Este rollo ya fue consumido como insumo en otra fila — no se puede volver a escanear" });
     }
     throw err;
   }
@@ -1030,7 +1127,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
   // umbral y el 100%. El umbral lo configura Gestión a mano
   // (alertThresholdKg, en kg absolutos) — si no lo configuró, cae al
   // default de siempre (90% de lo planificado).
-  const newTotal = existingTotal + Number(roll.weightKg) + Number(roll.wasteKg);
+  const newTotal = existingTotal + thisRollKg + Number(roll.wasteKg);
   const threshold = order.alertThresholdKg != null ? Number(order.alertThresholdKg) : planned * 0.9;
   if (planned > 0 && existingTotal < threshold && newTotal >= threshold && newTotal < planned) {
     await notifyRoles(ROLES.PRODUCCION_GESTION, {
@@ -1060,7 +1157,10 @@ productionOrdersRouter.delete("/:id/rolls/:rollId", requireProduccionGestion, as
     return res.status(400).json({ error: "La OP ya no está abierta" });
   }
 
-  await prisma.productionRoll.delete({ where: { id: rollId } });
+  await prisma.$transaction(async (tx) => {
+    await tx.productionRoll.delete({ where: { id: rollId } });
+    await syncQuantityPlannedToChildren(tx, productionOrderId);
+  });
   res.status(204).end();
 });
 
@@ -1082,7 +1182,7 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
 
   const order = await prisma.productionOrder.findUnique({
     where: { id: productionOrderId },
-    include: { qualityCheck: true, rolls: { select: { weightKg: true } } },
+    include: { qualityCheck: true, rolls: { select: { weightKg: true, details: true } } },
   });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
   if (order.status !== "pendiente_calidad") {
@@ -1092,17 +1192,34 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
     return res.status(400).json({ error: "Esta OP ya tiene un control de calidad registrado" });
   }
 
-  const totalKg = order.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
+  const totalKg = order.rolls.reduce((acc, r) => acc + rollProducedKg(order.station as OpStation, r), 0);
 
-  const check = await prisma.$transaction(async (tx) => {
-    const created = await tx.qualityCheck.create({
-      data: {
-        productionOrderId,
-        result: parsed.data.result,
-        observations: parsed.data.observations,
-        createdById: req.user!.userId,
-      },
-    });
+  let check;
+  try {
+  check = await prisma.$transaction(async (tx) => {
+    // El chequeo de "¿ya tiene control?" de arriba se hizo con una lectura
+    // previa a la transacción — dos aprobaciones casi simultáneas (doble
+    // click, o dos pestañas) podían pasarlo las dos y la segunda chocaba acá
+    // contra el unique de production_order_id con un 500 crudo en vez de un
+    // mensaje claro. El unique constraint sigue siendo la garantía real
+    // (nunca se generan dos entradas de inventario/despacho para la misma
+    // OP); esto solo traduce la colisión a una respuesta limpia.
+    let created;
+    try {
+      created = await tx.qualityCheck.create({
+        data: {
+          productionOrderId,
+          result: parsed.data.result,
+          observations: parsed.data.observations,
+          createdById: req.user!.userId,
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new StatusRaceError();
+      }
+      throw err;
+    }
 
     if (parsed.data.result === "aprobado") {
       if (totalKg > 0) {
@@ -1123,6 +1240,7 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
           await tx.dispatch.create({
             data: {
               clientId: order.clientId,
+              productionOrderId: order.id,
               createdById: req.user!.userId,
               items: {
                 create: [
@@ -1144,6 +1262,12 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
 
     return created;
   });
+  } catch (err) {
+    if (err instanceof StatusRaceError) {
+      return res.status(400).json({ error: "Esta OP ya tiene un control de calidad registrado" });
+    }
+    throw err;
+  }
 
   if (parsed.data.result === "rechazado") {
     await notifyRoles(ROLES.PRODUCCION_GESTION, {

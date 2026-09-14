@@ -45,7 +45,12 @@ function buildChainRows(chain: any[]) {
 }
 
 function kgOf(node: any) {
-  return (node.rolls ?? []).reduce((acc: number, r: any) => acc + Number(r.weightKg), 0);
+  // Precorte carga 2 rollos de insumo por fila (ver opTemplates.ts) — el
+  // segundo peso queda en details.pesoR2 y cuenta igual que el primero.
+  return (node.rolls ?? []).reduce((acc: number, r: any) => {
+    const r2 = node.station === "precorte" ? Number(r.details?.pesoR2 ?? 0) : 0;
+    return acc + Number(r.weightKg) + (Number.isFinite(r2) ? r2 : 0);
+  }, 0);
 }
 
 export default function Trazabilidad() {
