@@ -199,6 +199,7 @@ productionOrdersRouter.get("/reports/por-operario", requireProduccionGestion, as
       operatorName: true,
       weightKg: true,
       wasteKg: true,
+      details: true,
       productionOrder: { select: { station: true, orderNumber: true } },
     },
   });
@@ -213,7 +214,7 @@ productionOrdersRouter.get("/reports/por-operario", requireProduccionGestion, as
     const key = `${roll.operatorName}|${day}|${station}`;
     const g = groups.get(key) ?? { operatorName: roll.operatorName, day, station, rollCount: 0, weightKg: 0, wasteKg: 0 };
     g.rollCount += 1;
-    g.weightKg += Number(roll.weightKg);
+    g.weightKg += rollProducedKg(station as OpStation, roll);
     g.wasteKg += Number(roll.wasteKg);
     groups.set(key, g);
   }
@@ -633,10 +634,14 @@ async function propagateSpecsToChildren(
 async function syncQuantityPlannedToChildren(tx: TxClient, orderId: number) {
   const order = await tx.productionOrder.findUnique({
     where: { id: orderId },
-    include: { rolls: { select: { weightKg: true } } },
+    include: { rolls: { select: { weightKg: true, details: true } } },
   });
   if (!order) return;
-  const producedKg = order.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
+  // Precorte/Sellado son estaciones finales (DERIVATIONS.precorte/sellado =
+  // []) así que en la práctica `order` acá nunca es una de esas dos — pero
+  // se usa rollProducedKg de todos modos para que esto siga siendo correcto
+  // si ese mapa de derivaciones cambia algún día.
+  const producedKg = order.rolls.reduce((acc, r) => acc + rollProducedKg(order.station as OpStation, r), 0);
   if (producedKg <= 0) return;
   const newPlanned = Math.round(producedKg * 100) / 100;
 

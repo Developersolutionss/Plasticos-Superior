@@ -111,11 +111,16 @@ export default function Calidad() {
   }
 
   // Los kg que entrarían al inventario si se aprueba: la suma de los rollos
-  // registrados en la OP (mismo cálculo que hace el backend al aprobar).
+  // registrados en la OP (mismo cálculo que hace el backend al aprobar). En
+  // Precorte cada fila carga 2 rollos de insumo (ver opTemplates.ts) — el
+  // segundo peso queda en details.pesoR2 y cuenta igual que el primero.
   function rollosKg(order: any) {
     const rolls = order.rolls ?? [];
     if (rolls.length === 0) return null;
-    return rolls.reduce((acc: number, r: any) => acc + Number(r.weightKg), 0);
+    return rolls.reduce((acc: number, r: any) => {
+      const r2 = order.station === "precorte" ? Number(r.details?.pesoR2 ?? 0) : 0;
+      return acc + Number(r.weightKg) + (Number.isFinite(r2) ? r2 : 0);
+    }, 0);
   }
 
   return (

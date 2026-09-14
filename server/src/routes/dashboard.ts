@@ -17,6 +17,20 @@ function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/**
+ * Kg reales que aportó un rollo, incluyendo el segundo peso de Precorte
+ * (details.pesoR2 — cada fila de esa estación carga 2 rollos de insumo, ver
+ * server/src/services/opTemplates.ts). Sin esto, todo KPI de "kg
+ * producidos" que agregue rollos de Precorte queda por debajo de lo real.
+ */
+function rollKg(roll: { weightKg: unknown; details?: unknown; productionOrder?: { station: string | null } | null }): number {
+  const base = Number(roll.weightKg);
+  if (roll.productionOrder?.station !== "precorte") return base;
+  const details = roll.details && typeof roll.details === "object" ? (roll.details as Record<string, unknown>) : {};
+  const r2 = Number(details.pesoR2);
+  return base + (Number.isFinite(r2) ? r2 : 0);
+}
+
 type Period = "mes" | "trimestre" | "anio";
 
 /** Límites [inicio, fin) del período actual y del inmediatamente anterior
@@ -81,7 +95,7 @@ dashboardRouter.get("/resumen", async (req, res) => {
     }),
     prisma.productionRoll.findMany({
       where: { date: { gte: chartStart } },
-      select: { date: true, weightKg: true },
+      select: { date: true, weightKg: true, details: true, productionOrder: { select: { station: true } } },
     }),
     prisma.productionOrder.count({ where: { status: { in: ["pendiente", "en_proceso", "pendiente_calidad"] } } }),
     prisma.pedido.count({ where: { status: "en_produccion" } }),
@@ -100,7 +114,7 @@ dashboardRouter.get("/resumen", async (req, res) => {
       include: {
         product: { select: { name: true } },
         client: { select: { name: true } },
-        rolls: { select: { weightKg: true, wasteKg: true } },
+        rolls: { select: { weightKg: true, wasteKg: true, details: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 8,
@@ -116,7 +130,7 @@ dashboardRouter.get("/resumen", async (req, res) => {
   const kgPorMes = new Map<string, number>();
   for (const r of rollsUltimos6Meses) {
     const key = monthKey(r.date);
-    kgPorMes.set(key, (kgPorMes.get(key) ?? 0) + Number(r.weightKg));
+    kgPorMes.set(key, (kgPorMes.get(key) ?? 0) + rollKg(r));
   }
 
   const ventasUltimos6Meses: { mes: string; total: number; kg: number }[] = [];
@@ -133,16 +147,22 @@ dashboardRouter.get("/resumen", async (req, res) => {
   const [facturasPeriodo, facturasPeriodoAnterior, rollsPeriodo, rollsPeriodoAnterior] = await Promise.all([
     prisma.factura.findMany({ where: { status: { not: "anulada" }, createdAt: { gte: start, lte: ahora } }, include: { items: true } }),
     prisma.factura.findMany({ where: { status: { not: "anulada" }, createdAt: { gte: prevStart, lt: prevEnd } }, include: { items: true } }),
-    prisma.productionRoll.aggregate({ where: { date: { gte: start, lte: ahora } }, _sum: { weightKg: true } }),
-    prisma.productionRoll.aggregate({ where: { date: { gte: prevStart, lt: prevEnd } }, _sum: { weightKg: true } }),
+    prisma.productionRoll.findMany({
+      where: { date: { gte: start, lte: ahora } },
+      select: { weightKg: true, details: true, productionOrder: { select: { station: true } } },
+    }),
+    prisma.productionRoll.findMany({
+      where: { date: { gte: prevStart, lt: prevEnd } },
+      select: { weightKg: true, details: true, productionOrder: { select: { station: true } } },
+    }),
   ]);
   const sumFacturas = (fs: typeof facturasPeriodo) =>
     fs.reduce((sum, f) => sum + f.items.reduce((s, it) => s + Number(it.quantity) * Number(it.unitPrice), 0), 0);
   const ventasDelPeriodo = sumFacturas(facturasPeriodo);
   const ventasPeriodoAnterior = sumFacturas(facturasPeriodoAnterior);
   const cambioVentasPct = ventasPeriodoAnterior > 0 ? ((ventasDelPeriodo - ventasPeriodoAnterior) / ventasPeriodoAnterior) * 100 : null;
-  const kgProducidosDelPeriodo = Number(rollsPeriodo._sum.weightKg ?? 0);
-  const kgProducidosPeriodoAnterior = Number(rollsPeriodoAnterior._sum.weightKg ?? 0);
+  const kgProducidosDelPeriodo = rollsPeriodo.reduce((acc, r) => acc + rollKg(r), 0);
+  const kgProducidosPeriodoAnterior = rollsPeriodoAnterior.reduce((acc, r) => acc + rollKg(r), 0);
 
   const saldoPorCliente = new Map<number, { name: string; saldo: number }>();
   let carteraPendiente = 0;
@@ -226,7 +246,7 @@ dashboardRouter.get("/resumen", async (req, res) => {
 
   const ordenesEnCursoTotal = await prisma.productionOrder.count({ where: { status: { in: ["pendiente", "en_proceso", "pendiente_calidad"] } } });
   const ordenesEnCursoView = ordenesEnCurso.map((o) => {
-    const cargado = o.rolls.reduce((sum, r) => sum + Number(r.weightKg) + Number(r.wasteKg), 0);
+    const cargado = o.rolls.reduce((sum, r) => sum + rollKg({ ...r, productionOrder: { station: o.station } }) + Number(r.wasteKg), 0);
     const planificado = Number(o.quantityPlanned);
     const avancePct = planificado > 0 ? Math.min(100, Math.round((cargado / planificado) * 100)) : 0;
     return {

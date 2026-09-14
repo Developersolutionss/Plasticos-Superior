@@ -845,6 +845,34 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
+  it("GET /reports/por-operario suma también el segundo peso de Precorte (details.pesoR2), no solo el peso base", async () => {
+    type OperarioRow = { operatorName: string; day: string; station: string; weightKg: number };
+    const today = new Date().toLocaleDateString("en-CA");
+    const reportUrl = `${baseUrl}/api/production-orders/reports/por-operario?from=${today}&to=${today}&station=precorte`;
+    const findRow = (rows: OperarioRow[]) => rows.find((r) => r.operatorName === "Operario Precorte" && r.day === today && r.station === "precorte");
+
+    const before = await fetch(reportUrl, { headers: headersFor("produccion") });
+    const rowBefore = findRow((await before.json()) as OperarioRow[]);
+
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "precorte", productId, quantityPlanned: 30 },
+    });
+    const roll = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_precorte"),
+      body: JSON.stringify({ weightKg: 10, details: { pesoR2: 6 } }),
+    });
+    assert.equal(roll.status, 201);
+
+    const res = await fetch(reportUrl, { headers: headersFor("produccion") });
+    const row = findRow((await res.json()) as OperarioRow[]);
+    assert.ok(row);
+    assert.equal(row!.weightKg - (rowBefore?.weightKg ?? 0), 16, "suma peso base (10) + pesoR2 (6), no solo el peso base");
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
   it("derivación: extrusión → sellado hereda producto/cantidad; sellado no deriva (400)", async () => {
     const parent = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
