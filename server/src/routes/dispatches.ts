@@ -37,7 +37,11 @@ dispatchesRouter.get("/", async (req, res) => {
  */
 dispatchesRouter.get("/summary-by-client", async (_req, res) => {
   const items = await prisma.dispatchItem.findMany({
-    where: { quantityDispatched: { not: null } },
+    // Un despacho cancelado (ver POST /:id/cancel) NO borra quantityDispatched
+    // de sus ítems (queda como registro histórico de qué se llegó a
+    // despachar antes de cancelar) -- pero acá contaría como si el cliente
+    // todavía tuviera ese producto, cuando el stock ya se revirtió.
+    where: { quantityDispatched: { not: null }, dispatch: { status: { not: "cancelada" } } },
     select: {
       quantityDispatched: true,
       dispatch: { select: { clientId: true, client: { select: { name: true } }, dispatchedDate: true } },
@@ -141,8 +145,14 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
       // solo una encuentra `quantityDispatched: null` y logra el update —
       // la otra ve count=0 y aborta ANTES de tocar el stock, así nunca se
       // descuenta dos veces el mismo ítem.
+      // También exige que el despacho no esté cancelado, como parte del
+      // MISMO update atómico — si se chequeara aparte (como el
+      // `dispatchBefore` de arriba, que es solo para el aviso de WhatsApp),
+      // una cancelación podría colarse en la ventana entre ese chequeo y
+      // este claim, dejando un ítem descontado que la cancelación ya no
+      // llega a revertir.
       const claimed = await tx.dispatchItem.updateMany({
-        where: { id: itemId, dispatchId, quantityDispatched: null },
+        where: { id: itemId, dispatchId, quantityDispatched: null, dispatch: { status: { not: "cancelada" } } },
         data: { quantityDispatched: parsed.data.quantityDispatched, locationId: parsed.data.locationId },
       });
       if (claimed.count === 0) throw new ItemAlreadyDispatchedError();
@@ -172,7 +182,7 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
     });
   } catch (err) {
     if (err instanceof ItemAlreadyDispatchedError) {
-      return res.status(400).json({ error: "Este ítem ya fue despachado" });
+      return res.status(400).json({ error: "Este ítem ya fue despachado, o el despacho se canceló mientras se procesaba" });
     }
     if (err instanceof InsufficientStockError) {
       return res.status(400).json({ error: err.message });
@@ -211,8 +221,8 @@ dispatchesRouter.post("/:dispatchId/cancel", requireAlmacen, async (req, res) =>
   const dispatchId = Number(req.params.dispatchId);
   if (!Number.isInteger(dispatchId)) return res.status(400).json({ error: "Id inválido" });
 
-  const dispatch = await prisma.dispatch.findUnique({ where: { id: dispatchId }, include: { items: true } });
-  if (!dispatch) return res.status(404).json({ error: "Despacho no encontrado" });
+  const dispatchExists = await prisma.dispatch.findUnique({ where: { id: dispatchId }, select: { id: true } });
+  if (!dispatchExists) return res.status(404).json({ error: "Despacho no encontrado" });
 
   let reversedTotal = 0;
   try {
@@ -225,7 +235,13 @@ dispatchesRouter.post("/:dispatchId/cancel", requireAlmacen, async (req, res) =>
       });
       if (claimed.count === 0) throw new AlreadyCancelledError();
 
-      for (const item of dispatch.items) {
+      // Los ítems se leen DENTRO de la transacción, después de ganar el
+      // claim — si se leyeran antes (fuera de la tx), un ítem marcado
+      // despachado justo en la ventana entre esa lectura y el claim de
+      // arriba quedaría afuera de esta lista: su stock se descontaría y
+      // jamás se revertiría, sin que la cancelación falle ni avise nada.
+      const items = await tx.dispatchItem.findMany({ where: { dispatchId } });
+      for (const item of items) {
         if (item.quantityDispatched == null) continue;
         const qty = Number(item.quantityDispatched);
         reversedTotal += qty;

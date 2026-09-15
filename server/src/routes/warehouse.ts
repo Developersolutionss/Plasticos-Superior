@@ -156,7 +156,17 @@ warehouseRouter.post("/assign", async (req, res) => {
         ]);
         const unassigned = Number(stock?.currentQuantity ?? 0) - Number(located._sum.quantity ?? 0);
         if (quantity > unassigned) {
-          throw new InsufficientStockError(`Solo hay ${Math.round(unassigned * 100) / 100} sin ubicar de este producto`);
+          // Si ya está en negativo, el problema no es "esta ubicación pidió
+          // de más" — es que la suma de TODAS las ubicaciones de este
+          // producto ya supera el total real (típico si se despachó sin
+          // elegir ubicación mientras el producto ya estaba todo ubicado).
+          // Distinto mensaje para no confundir "no alcanza" con "hay que
+          // corregir un conteo primero".
+          throw new InsufficientStockError(
+            unassigned < 0
+              ? `Las ubicaciones de este producto ya suman más que el stock real (descuadre de ${Math.round(-unassigned * 100) / 100}) — corregí un conteo en alguna ubicación antes de seguir ubicando`
+              : `Solo hay ${Math.round(unassigned * 100) / 100} sin ubicar de este producto`
+          );
         }
       }
 

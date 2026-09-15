@@ -65,13 +65,14 @@ export default function Dispatches() {
   }
 
   async function handleCancelDispatch(dispatchId: number) {
-    if (!confirm("¿Cancelar este despacho? Si ya tenía ítems despachados, se revierte ese stock.")) return;
+    if (!confirm("¿Cancelar este despacho? Si ya tenía ítems despachados, se revierte ese stock (y la ubicación de origen, si se había elegido una).")) return;
     setCancellingId(dispatchId);
     try {
       await api.cancelDispatch(dispatchId);
       queryClient.invalidateQueries({ queryKey: ["dispatches"] });
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["warehouseStock"] });
       setSelectedDispatch(null);
     } catch (err: any) {
       setScanMessage(err?.message || "No se pudo cancelar el despacho");
@@ -89,6 +90,18 @@ export default function Dispatches() {
 
     if (!match) {
       setScanMessage(`No se encontró ningún ítem pendiente con SKU "${sku}".`);
+      return;
+    }
+    // Si el producto ya tiene stock ubicado en algún estante, el escaneo
+    // rápido no alcanza — hay que elegir de cuál sale (mismo motivo que
+    // `locationRequired` más abajo, para que la ubicación no quede
+    // desincronizada). Se pide usar el botón manual, que sí tiene el
+    // selector.
+    const locations = (warehouseStock?.find((p: any) => p.productId === match.item.product.id)?.locations ?? []).filter(
+      (l: any) => l.quantity > 0
+    );
+    if (locations.length > 0) {
+      setScanMessage(`${match.item.product.name} tiene stock ubicado en estantes — marcalo despachado a mano abajo para elegir de cuál sale.`);
       return;
     }
     setScanMessage(null);
@@ -234,7 +247,7 @@ export default function Dispatches() {
               </span>
               <span className="flex items-center gap-2">
                 <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{d.status}</span>
-                {d.status !== "despachado" && d.status !== "cancelada" && (
+                {d.status !== "cancelada" && (
                   <button
                     type="button"
                     className="text-red-600 dark:text-red-400 text-xs hover:underline disabled:opacity-50"
@@ -251,7 +264,19 @@ export default function Dispatches() {
             </div>
             <ul className="space-y-2">
               {d.items.map((item: any) => {
-                const locations = warehouseStock?.find((p: any) => p.productId === item.product.id)?.locations ?? [];
+                const locations = (warehouseStock?.find((p: any) => p.productId === item.product.id)?.locations ?? []).filter(
+                  (l: any) => l.quantity > 0
+                );
+                // Si el producto ya tiene stock ubicado en algún estante,
+                // elegir de cuál sale pasa a ser obligatorio (no queda
+                // "Sin ubicación puntual" como opción) — si no, despachar
+                // sin elegir sigue descontando solo el total agregado y la
+                // ubicación queda con un número que ya no coincide con la
+                // realidad (el QR pegado en el estante "miente"). Un
+                // producto sin ninguna ubicación asignada todavía no
+                // necesita este paso.
+                const locationRequired = locations.length > 0;
+                const chosenLocation = locationChoice[item.id] ?? (locationRequired ? String(locations[0].locationId) : "");
                 return (
                   <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-2">
                     <span>
@@ -260,14 +285,13 @@ export default function Dispatches() {
                     </span>
                     {item.quantityDispatched == null && d.status !== "cancelada" && (
                       <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                        {locations.length > 0 && (
+                        {locationRequired && (
                           <select
                             className="border rounded px-1.5 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                            value={locationChoice[item.id] ?? ""}
+                            value={chosenLocation}
                             onChange={(e) => setLocationChoice((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                            title="De qué ubicación física sale (opcional)"
+                            title="De qué ubicación física sale (obligatorio: este producto ya tiene stock ubicado)"
                           >
-                            <option value="">Sin ubicación puntual</option>
                             {locations.map((l: any) => (
                               <option key={l.locationId} value={l.locationId}>
                                 {l.code} ({l.quantity})
@@ -277,9 +301,9 @@ export default function Dispatches() {
                         )}
                         <button
                           className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded disabled:opacity-50"
-                          disabled={dispatchingItemId === item.id}
+                          disabled={dispatchingItemId === item.id || (locationRequired && !chosenLocation)}
                           onClick={() => {
-                            const locationId = locationChoice[item.id] ? Number(locationChoice[item.id]) : undefined;
+                            const locationId = chosenLocation ? Number(chosenLocation) : undefined;
                             markDispatched(d.id, item.id, Number(item.quantityRequested), locationId);
                           }}
                         >
@@ -343,7 +367,7 @@ export default function Dispatches() {
               </ul>
             </div>
 
-            {selectedDispatch.status !== "despachado" && selectedDispatch.status !== "cancelada" && (
+            {selectedDispatch.status !== "cancelada" && (
               <button
                 type="button"
                 className="text-red-600 dark:text-red-400 text-sm hover:underline disabled:opacity-50"

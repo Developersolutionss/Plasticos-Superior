@@ -805,6 +805,42 @@ describe("despachos", () => {
     await prisma.client.delete({ where: { id: client.id } });
     await prisma.inventoryStock.update({ where: { productId: product.id }, data: { currentQuantity: stockAntes?.currentQuantity ?? 0 } });
   });
+
+  it("GET /summary-by-client no cuenta un despacho cancelado (su stock ya se revirtió)", async () => {
+    const clientsRes = await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() });
+    const clients = (await clientsRes.json()) as { id: number; name: string }[];
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const client = clients[0];
+
+    const before = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: authHeaders() });
+    const rowsBefore = (await before.json()) as { clientId: number; productId: number; totalQuantity: number }[];
+    const beforeTotal = rowsBefore.find((r) => r.clientId === client.id && r.productId === product.id)?.totalQuantity ?? 0;
+
+    const created = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ clientId: client.id, items: [{ productId: product.id, quantityRequested: 7 }] }),
+    });
+    const dispatch = (await created.json()) as { id: number; items: { id: number }[] };
+
+    await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched: 7 }),
+    });
+
+    const cancel = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/cancel`, { method: "POST", headers: headersFor("almacen") });
+    assert.equal(cancel.status, 200);
+
+    const after = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: authHeaders() });
+    const rowsAfter = (await after.json()) as typeof rowsBefore;
+    const afterTotal = rowsAfter.find((r) => r.clientId === client.id && r.productId === product.id)?.totalQuantity ?? 0;
+    assert.equal(afterTotal, beforeTotal, "un despacho cancelado no debe sumar al histórico, aunque llegó a marcarse despachado");
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "dispatch_item", referenceId: dispatch.items[0].id } });
+    await prisma.dispatch.delete({ where: { id: dispatch.id } });
+  });
 });
 
 describe("producción · alta manual e importación", () => {
