@@ -75,7 +75,7 @@ export default function DashboardEjecutivo() {
   const axisStroke = resolved === "dark" ? "#64748b" : "#94a3b8";
 
   return (
-    <div className="space-y-5 max-w-6xl">
+    <div className="space-y-5 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Dashboard ejecutivo</h1>

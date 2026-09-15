@@ -46,7 +46,7 @@ export default function ProductionUpload() {
   }
 
   return (
-    <div className="space-y-4 max-w-3xl">
+    <div className="space-y-4 max-w-3xl mx-auto">
       <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-6 border-2 border-dashed border-slate-300 dark:border-slate-600 text-center">
         <p className="text-slate-600 dark:text-slate-300 mb-3">
           Sube el reporte de producción (Excel/CSV) con columnas: SKU, Etiqueta, Operario, Cliente, Medida, Kilos,

@@ -26,7 +26,7 @@ export default function Exportaciones() {
   }
 
   return (
-    <div className="space-y-5 max-w-2xl">
+    <div className="space-y-5 max-w-2xl mx-auto">
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Exportaciones</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">Descargá los datos del sistema en Excel</p>

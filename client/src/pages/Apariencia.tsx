@@ -11,7 +11,7 @@ export default function Apariencia() {
   const { preference, setPreference } = useTheme();
 
   return (
-    <div className="max-w-lg space-y-4">
+    <div className="max-w-lg mx-auto space-y-4">
       <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Apariencia</h1>
 
       <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">

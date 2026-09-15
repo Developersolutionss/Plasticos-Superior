@@ -24,7 +24,7 @@ export default function Notificaciones() {
   }
 
   return (
-    <div className="space-y-4 max-w-2xl">
+    <div className="space-y-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Notificaciones</h1>

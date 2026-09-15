@@ -867,7 +867,7 @@ export default function OrdenProduccionDetalle() {
   const derivations = DERIVATIONS[station].filter((s) => !derivedStations.has(s));
 
   return (
-    <div className="space-y-4 max-w-5xl">
+    <div className="space-y-4 max-w-5xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link to="/produccion/ordenes" className="text-sm text-sky-700 dark:text-sky-400 hover:underline">
           ← Órdenes de producción

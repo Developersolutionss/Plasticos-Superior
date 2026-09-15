@@ -87,7 +87,7 @@ export default function EstacionProduccion() {
   }
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5 max-w-3xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">{label}</h1>

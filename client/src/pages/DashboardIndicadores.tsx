@@ -36,7 +36,7 @@ export default function DashboardIndicadores() {
   const axisStroke = resolved === "dark" ? "#64748b" : "#94a3b8";
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-5 max-w-4xl mx-auto">
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Indicadores</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">Producción y calidad en el rango seleccionado</p>
