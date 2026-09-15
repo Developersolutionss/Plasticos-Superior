@@ -331,7 +331,8 @@ export default function OrdenProduccionDetalle() {
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{order.orderNumber}</p>
         <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
           {order.product.name}
-          {order.client?.name ? ` · ${order.client.name}` : ""}
+          {" · "}
+          {order.client?.name ? `Cliente: ${order.client.name}` : "Estantería (stock general)"}
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Esta OP todavía no tiene un proceso asignado. El primer paso siempre es Extrusión.

@@ -256,6 +256,39 @@ export default function OrdenesProduccion() {
       <form onSubmit={handleCreate} className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">
         <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nueva orden de producción</p>
         {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+        <div className="flex flex-wrap items-center gap-4 text-sm">
+          <span className="text-slate-500 dark:text-slate-400">Destino:</span>
+          <label className="inline-flex items-center gap-1.5">
+            <input
+              type="radio"
+              name="destino"
+              checked={destino === "estanteria"}
+              onChange={() => {
+                setDestino("estanteria");
+                setClientId("");
+              }}
+            />
+            Estantería (stock general)
+          </label>
+          <label className="inline-flex items-center gap-1.5">
+            <input type="radio" name="destino" checked={destino === "cliente"} onChange={() => setDestino("cliente")} />
+            Cliente específico
+          </label>
+          {destino === "cliente" && (
+            <select
+              className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+            >
+              <option value="">Elegí el cliente...</option>
+              {clients?.map((c: any) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <select
             className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
@@ -280,39 +313,6 @@ export default function OrdenesProduccion() {
               </option>
             ))}
           </select>
-          <div className="sm:col-span-3 flex flex-wrap items-center gap-4 text-sm">
-            <span className="text-slate-500 dark:text-slate-400">Destino:</span>
-            <label className="inline-flex items-center gap-1.5">
-              <input
-                type="radio"
-                name="destino"
-                checked={destino === "estanteria"}
-                onChange={() => {
-                  setDestino("estanteria");
-                  setClientId("");
-                }}
-              />
-              Estantería (stock general)
-            </label>
-            <label className="inline-flex items-center gap-1.5">
-              <input type="radio" name="destino" checked={destino === "cliente"} onChange={() => setDestino("cliente")} />
-              Cliente específico
-            </label>
-            {destino === "cliente" && (
-              <select
-                className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-              >
-                <option value="">Elegí el cliente...</option>
-                {clients?.map((c: any) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
           <input
             className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="Cantidad planificada (kg)"
