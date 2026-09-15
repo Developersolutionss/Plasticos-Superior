@@ -1,6 +1,6 @@
 import { prisma } from "../prisma";
 import type { TxClient } from "./stockService";
-import { InsufficientStockError, isUniqueConflict } from "./stockService";
+import { InsufficientStockError } from "./stockService";
 
 export { InsufficientStockError };
 
@@ -36,22 +36,15 @@ export async function applyRawMaterialMovement(
       );
     }
   } else {
-    // Mismo blindaje que applyMovement: la primera entrada de un insumo
-    // sin fila en raw_material_stock todavía podía chocar por P2002 si dos
-    // entradas casi simultáneas tomaban las dos la rama `create`.
-    try {
-      await tx.rawMaterialStock.upsert({
-        where: { rawMaterialId: params.rawMaterialId },
-        create: { rawMaterialId: params.rawMaterialId, currentQuantity: params.quantity },
-        update: { currentQuantity: { increment: params.quantity } },
-      });
-    } catch (err) {
-      if (!isUniqueConflict(err)) throw err;
-      await tx.rawMaterialStock.update({
-        where: { rawMaterialId: params.rawMaterialId },
-        data: { currentQuantity: { increment: params.quantity } },
-      });
-    }
+    // Mismo `upsert` atómico nativo (INSERT ... ON CONFLICT DO UPDATE) que
+    // la rama de entrada de applyMovement -- la primera entrada de un
+    // insumo sin fila en raw_material_stock no puede chocar entre dos
+    // entradas casi simultáneas.
+    await tx.rawMaterialStock.upsert({
+      where: { rawMaterialId: params.rawMaterialId },
+      create: { rawMaterialId: params.rawMaterialId, currentQuantity: params.quantity },
+      update: { currentQuantity: { increment: params.quantity } },
+    });
   }
 
   await tx.rawMaterialMovement.create({

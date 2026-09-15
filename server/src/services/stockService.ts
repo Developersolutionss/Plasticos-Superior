@@ -1,15 +1,9 @@
 import { prisma } from "../prisma";
-import { Prisma } from "../generated/prisma/client";
 
 // `prisma` está envuelto en `$extends` (auditExtension.ts), así que el tipo
 // del cliente de transacción ya no es el `Prisma.TransactionClient` genérico
 // — se deriva del propio `$transaction` extendido para que sea compatible.
 export type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
-
-/** true si el error es un choque de unique constraint (P2002). */
-export function isUniqueConflict(err: unknown): boolean {
-  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
-}
 
 /** Se pidió sacar más stock del que hay disponible (producto o ubicación) —
  * `applyMovement`/`decrementLocationStock` nunca dejan una cantidad en
@@ -57,24 +51,18 @@ export async function applyMovement(
     }
   } else {
     // La primera entrada de un producto que todavía no tiene fila en
-    // inventory_stock crea esa fila (`create`). Si dos entradas del mismo
-    // producto nuevo llegan casi juntas, las dos pueden tomar la rama
-    // `create` y la segunda choca contra la PK — se reintenta una vez como
-    // `update` (la fila ya existe a esta altura) en vez de dejar
-    // reventar un 500 crudo sin manejar.
-    try {
-      await tx.inventoryStock.upsert({
-        where: { productId: params.productId },
-        create: { productId: params.productId, currentQuantity: params.quantity },
-        update: { currentQuantity: { increment: params.quantity } },
-      });
-    } catch (err) {
-      if (!isUniqueConflict(err)) throw err;
-      await tx.inventoryStock.update({
-        where: { productId: params.productId },
-        data: { currentQuantity: { increment: params.quantity } },
-      });
-    }
+    // inventory_stock la crea. Prisma compila este `upsert` (where por
+    // unique simple, sin nested writes) a un `INSERT ... ON CONFLICT DO
+    // UPDATE` nativo de Postgres — un solo statement atómico — así que dos
+    // entradas casi simultáneas del mismo producto nuevo no pueden chocar
+    // entre sí (y un catch-and-retry acá no serviría de nada: adentro de
+    // esta misma transacción, si un statement fallara, Postgres la deja
+    // abortada y el siguiente statement fallaría también).
+    await tx.inventoryStock.upsert({
+      where: { productId: params.productId },
+      create: { productId: params.productId, currentQuantity: params.quantity },
+      update: { currentQuantity: { increment: params.quantity } },
+    });
     if (params.locationId != null) {
       await incrementLocationStock(tx, params.productId, params.locationId, params.quantity, params.createdById);
     }
@@ -105,21 +93,14 @@ export async function decrementLocationStock(tx: TxClient, productId: number, lo
   }
 }
 
-/** Suma stock a una ubicación física puntual (crea la fila si no existía). */
+/** Suma stock a una ubicación física puntual (crea la fila si no existía) —
+ * mismo `upsert` atómico nativo que la rama de entrada de `applyMovement`. */
 export async function incrementLocationStock(tx: TxClient, productId: number, locationId: number, quantity: number, updatedById?: number) {
-  try {
-    await tx.stockLocation.upsert({
-      where: { productId_locationId: { productId, locationId } },
-      create: { productId, locationId, quantity, updatedById },
-      update: { quantity: { increment: quantity }, updatedById },
-    });
-  } catch (err) {
-    if (!isUniqueConflict(err)) throw err;
-    await tx.stockLocation.update({
-      where: { productId_locationId: { productId, locationId } },
-      data: { quantity: { increment: quantity }, updatedById },
-    });
-  }
+  await tx.stockLocation.upsert({
+    where: { productId_locationId: { productId, locationId } },
+    create: { productId, locationId, quantity, updatedById },
+    update: { quantity: { increment: quantity }, updatedById },
+  });
 }
 
 export async function getStockByCategory() {

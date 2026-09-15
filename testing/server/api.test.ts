@@ -3396,6 +3396,11 @@ describe("auditoría", () => {
     await prisma.rawMaterial.delete({ where: { id: material.id } });
   });
 
+  it("GET /audit-log/reconciliation devuelve 403 para un rol sin acceso (ventas)", async () => {
+    const res = await fetch(`${baseUrl}/api/audit-log/reconciliation`, { headers: headersFor("ventas") });
+    assert.equal(res.status, 403);
+  });
+
   it("GET /audit-log/reconciliation compara el stock contra la suma real de movimientos y detecta un descuadre manual", async () => {
     // Producto dedicado y recién creado: sabemos con certeza que arranca
     // en 0/0 (sin depender de que BUL-001 -- compartido por cientos de

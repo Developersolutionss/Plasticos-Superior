@@ -461,10 +461,15 @@ async function main() {
   }
 
   // Movimiento de inventario demo (ajuste manual), para que el módulo de
-  // Movimientos no esté vacío al entrar. Idempotente: solo se crea si
-  // todavía no hay ningún movimiento registrado.
-  const existingMovements = await prisma.inventoryMovement.count();
-  if (existingMovements === 0 && bulto) {
+  // Movimientos tenga un ejemplo de cada tipo. Idempotente por su propio
+  // tipo+referencia (no por "¿hay algún movimiento?" en general -- las
+  // entradas de las ubicaciones demo, arriba, ya dejan movimientos propios
+  // antes de llegar acá, así que ese conteo global siempre daría > 0 y este
+  // ajuste nunca se llegaría a crear).
+  const existingAdjustment = await prisma.inventoryMovement.findFirst({
+    where: { movementType: "ajuste", referenceType: "manual_adjustment", referenceId: null },
+  });
+  if (!existingAdjustment && bulto) {
     await prisma.$transaction((tx) =>
       applyMovement(tx, {
         productId: bulto.id,
