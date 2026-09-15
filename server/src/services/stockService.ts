@@ -1,9 +1,15 @@
 import { prisma } from "../prisma";
+import { Prisma } from "../generated/prisma/client";
 
 // `prisma` está envuelto en `$extends` (auditExtension.ts), así que el tipo
 // del cliente de transacción ya no es el `Prisma.TransactionClient` genérico
 // — se deriva del propio `$transaction` extendido para que sea compatible.
 export type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/** true si el error es un choque de unique constraint (P2002). */
+export function isUniqueConflict(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+}
 
 /** Se pidió sacar más stock del que hay disponible (producto o ubicación) —
  * `applyMovement`/`decrementLocationStock` nunca dejan una cantidad en
@@ -50,11 +56,25 @@ export async function applyMovement(
       await decrementLocationStock(tx, params.productId, params.locationId, -params.quantity, params.createdById);
     }
   } else {
-    await tx.inventoryStock.upsert({
-      where: { productId: params.productId },
-      create: { productId: params.productId, currentQuantity: params.quantity },
-      update: { currentQuantity: { increment: params.quantity } },
-    });
+    // La primera entrada de un producto que todavía no tiene fila en
+    // inventory_stock crea esa fila (`create`). Si dos entradas del mismo
+    // producto nuevo llegan casi juntas, las dos pueden tomar la rama
+    // `create` y la segunda choca contra la PK — se reintenta una vez como
+    // `update` (la fila ya existe a esta altura) en vez de dejar
+    // reventar un 500 crudo sin manejar.
+    try {
+      await tx.inventoryStock.upsert({
+        where: { productId: params.productId },
+        create: { productId: params.productId, currentQuantity: params.quantity },
+        update: { currentQuantity: { increment: params.quantity } },
+      });
+    } catch (err) {
+      if (!isUniqueConflict(err)) throw err;
+      await tx.inventoryStock.update({
+        where: { productId: params.productId },
+        data: { currentQuantity: { increment: params.quantity } },
+      });
+    }
     if (params.locationId != null) {
       await incrementLocationStock(tx, params.productId, params.locationId, params.quantity, params.createdById);
     }
@@ -87,11 +107,19 @@ export async function decrementLocationStock(tx: TxClient, productId: number, lo
 
 /** Suma stock a una ubicación física puntual (crea la fila si no existía). */
 export async function incrementLocationStock(tx: TxClient, productId: number, locationId: number, quantity: number, updatedById?: number) {
-  await tx.stockLocation.upsert({
-    where: { productId_locationId: { productId, locationId } },
-    create: { productId, locationId, quantity, updatedById },
-    update: { quantity: { increment: quantity }, updatedById },
-  });
+  try {
+    await tx.stockLocation.upsert({
+      where: { productId_locationId: { productId, locationId } },
+      create: { productId, locationId, quantity, updatedById },
+      update: { quantity: { increment: quantity }, updatedById },
+    });
+  } catch (err) {
+    if (!isUniqueConflict(err)) throw err;
+    await tx.stockLocation.update({
+      where: { productId_locationId: { productId, locationId } },
+      data: { quantity: { increment: quantity }, updatedById },
+    });
+  }
 }
 
 export async function getStockByCategory() {
@@ -112,6 +140,7 @@ export async function getStockByCategory() {
       unit: p.unit,
       minStock,
       currentStock,
+      active: p.active,
       belowMinimum: currentStock < minStock,
     };
   });
@@ -119,5 +148,11 @@ export async function getStockByCategory() {
 
 export async function getLowStockAlerts() {
   const stock = await getStockByCategory();
-  return stock.filter((p) => p.belowMinimum);
+  // Un producto desactivado (descontinuado) se queda para siempre en las
+  // alertas si no se filtra acá -- mismo criterio que ya tenía
+  // getRawMaterialLowStockAlerts (rawMaterialStockService.ts), a este le
+  // faltaba. getStockByCategory en sí NO filtra por `active` (Existencias,
+  // el export y /warehouse/stock siguen mostrando el catálogo completo,
+  // incluidos los descontinuados) — el filtro es solo para la alerta.
+  return stock.filter((p) => p.active && p.belowMinimum);
 }

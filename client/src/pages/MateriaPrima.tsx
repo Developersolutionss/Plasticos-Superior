@@ -74,10 +74,15 @@ function AdjustStockForm({
   onCancel,
 }: {
   code: string;
-  onSubmit: (quantity: number, notes?: string) => Promise<void>;
+  onSubmit: (quantity: number, type: "compra" | "ajuste", notes?: string) => Promise<void>;
   onCancel: () => void;
 }) {
   const [quantity, setQuantity] = useState("");
+  // Antes el tipo de movimiento se deducía del signo (positivo = compra) —
+  // un ajuste correctivo positivo (ej. "el conteo físico dio 45kg más de lo
+  // que decía el sistema") quedaba registrado como una compra a proveedor
+  // que nunca existió. Ahora Gestión lo elige explícito.
+  const [type, setType] = useState<"compra" | "ajuste">("compra");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -90,11 +95,15 @@ function AdjustStockForm({
       setError("Ingresá una cantidad distinta de 0");
       return;
     }
+    if (type === "compra" && q < 0) {
+      setError("Una compra no puede ser negativa — elegí \"Ajuste\" para restar stock");
+      return;
+    }
     setSaving(true);
     try {
-      await onSubmit(q, notes.trim() || undefined);
-    } catch {
-      setError("No se pudo registrar el movimiento");
+      await onSubmit(q, type, notes.trim() || undefined);
+    } catch (err: any) {
+      setError(err?.message || "No se pudo registrar el movimiento");
     } finally {
       setSaving(false);
     }
@@ -103,14 +112,24 @@ function AdjustStockForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <p className="text-sm text-slate-600 dark:text-slate-300">
-        Ajustar stock de <strong>{code}</strong> — positivo suma (compra), negativo resta (ajuste).
+        Ajustar stock de <strong>{code}</strong>.
       </p>
       {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+      <div className="flex gap-4 text-sm">
+        <label className="inline-flex items-center gap-1.5">
+          <input type="radio" name="adjustType" checked={type === "compra"} onChange={() => setType("compra")} />
+          Compra a proveedor
+        </label>
+        <label className="inline-flex items-center gap-1.5">
+          <input type="radio" name="adjustType" checked={type === "ajuste"} onChange={() => setType("ajuste")} />
+          Ajuste de conteo
+        </label>
+      </div>
       <input
         className={inputClass}
         type="number"
         step="0.01"
-        placeholder="Ej. 500 o -20"
+        placeholder={type === "compra" ? "Ej. 500" : "Ej. 500 (suma) o -20 (resta)"}
         value={quantity}
         onChange={(e) => setQuantity(e.target.value)}
         autoFocus
@@ -167,8 +186,8 @@ export default function MateriaPrima() {
     invalidate();
   }
 
-  async function handleAdjust(quantity: number, notes?: string) {
-    await api.adjustRawMaterialStock(adjusting.id, quantity, notes);
+  async function handleAdjust(quantity: number, type: "compra" | "ajuste", notes?: string) {
+    await api.adjustRawMaterialStock(adjusting.id, quantity, type, notes);
     invalidate();
     setAdjusting(null);
   }

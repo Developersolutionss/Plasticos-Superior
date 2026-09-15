@@ -3,13 +3,14 @@ import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "../api/client";
 
-const TABLES = ["Client", "Dispatch", "ProductionEntry", "InventoryMovement"];
+const TABLES = ["Client", "Dispatch", "ProductionEntry", "InventoryMovement", "RawMaterialMovement"];
 
 const TABLE_LABELS: Record<string, string> = {
   Client: "Clientes",
   Dispatch: "Despachos",
   ProductionEntry: "Entradas de producción",
   InventoryMovement: "Movimientos de inventario",
+  RawMaterialMovement: "Movimientos de materia prima",
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -57,6 +58,13 @@ export default function Auditoria() {
     queryKey: ["auditLog", tableName, page],
     queryFn: () => api.getAuditLog({ tableName: tableName || undefined, page, pageSize: PAGE_SIZE }),
   });
+  // Compara el stock que lee toda la app contra la suma real de sus propios
+  // movimientos -- si alguna vez divergen (una escritura manual en la base,
+  // un script que corrió mal), antes no había ninguna forma de enterarse.
+  const { data: reconciliation, isLoading: reconciliationLoading } = useQuery({
+    queryKey: ["stockReconciliation"],
+    queryFn: api.getStockReconciliation,
+  });
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
@@ -65,6 +73,37 @@ export default function Auditoria() {
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Auditoría</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">Bitácora de cambios en tablas críticas: quién, qué, cuándo y desde dónde</p>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-2">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Reconciliación de stock</p>
+        {reconciliationLoading && <p className="text-sm text-slate-500 dark:text-slate-400">Verificando...</p>}
+        {!reconciliationLoading && reconciliation?.ok && (
+          <p className="text-sm text-emerald-700 dark:text-emerald-400">
+            El stock de productos y materia prima cuadra exacto contra la suma de sus movimientos.
+          </p>
+        )}
+        {!reconciliationLoading && reconciliation && !reconciliation.ok && (
+          <div className="space-y-2">
+            <p className="text-sm text-red-600 dark:text-red-400">
+              Hay {reconciliation.products.length + reconciliation.rawMaterials.length} descuadre(s) entre el stock y su bitácora de movimientos:
+            </p>
+            <ul className="text-sm divide-y divide-slate-100 dark:divide-slate-700">
+              {reconciliation.products.map((p) => (
+                <li key={`p-${p.productId}`} className="py-1.5">
+                  <strong>{p.sku}</strong> {p.name}: stock {p.stock}, movimientos suman {p.movementsSum}{" "}
+                  <span className="text-red-600 dark:text-red-400">(diferencia {p.difference > 0 ? "+" : ""}{p.difference})</span>
+                </li>
+              ))}
+              {reconciliation.rawMaterials.map((m) => (
+                <li key={`m-${m.rawMaterialId}`} className="py-1.5">
+                  <strong>{m.code}</strong>: stock {m.stock}, movimientos suman {m.movementsSum}{" "}
+                  <span className="text-red-600 dark:text-red-400">(diferencia {m.difference > 0 ? "+" : ""}{m.difference})</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4">

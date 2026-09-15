@@ -138,10 +138,20 @@ rawMaterialsRouter.post("/:id/reactivate", requireCatalogoGestion, async (req, r
   res.json(updated);
 });
 
-const adjustSchema = z.object({
-  quantity: z.number().refine((v) => v !== 0, "La cantidad no puede ser 0"),
-  notes: z.string().optional(),
-});
+const adjustSchema = z
+  .object({
+    quantity: z.number().refine((v) => v !== 0, "La cantidad no puede ser 0"),
+    /** Antes se deducía del signo de `quantity` (positivo = compra, negativo
+     * = ajuste) — un ajuste correctivo POSITIVO (ej. "el conteo físico dio
+     * 45kg más de lo que decía el sistema") quedaba mal registrado como una
+     * compra a proveedor que nunca existió. Ahora es explícito. */
+    type: z.enum(["compra", "ajuste"]),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.type !== "compra" || data.quantity > 0, {
+    message: "Una compra no puede ser negativa — usá 'Ajuste' para restar stock",
+    path: ["quantity"],
+  });
 
 /** Entrada manual (compra) o ajuste de stock de materia prima. */
 rawMaterialsRouter.post("/:id/adjust", requireCatalogoGestion, async (req, res) => {
@@ -159,7 +169,7 @@ rawMaterialsRouter.post("/:id/adjust", requireCatalogoGestion, async (req, res) 
       applyRawMaterialMovement(tx, {
         rawMaterialId: id,
         quantity: parsed.data.quantity,
-        movementType: parsed.data.quantity > 0 ? "compra" : "ajuste",
+        movementType: parsed.data.type,
         referenceType: "manual_adjustment",
         notes: parsed.data.notes,
         createdById: req.user!.userId,

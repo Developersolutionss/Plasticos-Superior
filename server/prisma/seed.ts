@@ -5,7 +5,8 @@ import { randomBytes } from "crypto";
 // propio, para que los Client que crea este seed generen entradas reales de
 // auditoría — así el módulo de Auditoría no queda vacío en la primera corrida.
 import { prisma } from "../src/prisma";
-import { applyMovement } from "../src/services/stockService";
+import { applyMovement, incrementLocationStock } from "../src/services/stockService";
+import { applyRawMaterialMovement } from "../src/services/rawMaterialStockService";
 
 async function main() {
   const passwordHash = await bcrypt.hash("password123", 10);
@@ -380,11 +381,24 @@ async function main() {
       update: {},
       create: { code: rm.code, minStock: rm.minStock },
     });
-    await prisma.rawMaterialStock.upsert({
-      where: { rawMaterialId: material.id },
-      update: {},
-      create: { rawMaterialId: material.id, currentQuantity: rm.stock },
-    });
+    // Antes esto escribía currentQuantity directo, sin ningún movimiento
+    // que lo respalde -- el historial de materia prima quedaba vacío pero
+    // el stock no, así que nunca cuadraba contra la suma de movimientos
+    // reales (ver auditoría de inventario). Se registra como una compra
+    // real, y solo la primera vez (si ya existe la fila, no se vuelve a
+    // sumar en cada corrida del seed).
+    const existingStock = await prisma.rawMaterialStock.findUnique({ where: { rawMaterialId: material.id } });
+    if (!existingStock) {
+      await prisma.$transaction((tx) =>
+        applyRawMaterialMovement(tx, {
+          rawMaterialId: material.id,
+          quantity: rm.stock,
+          movementType: "compra",
+          referenceType: "manual_adjustment",
+          notes: "Stock inicial demo (seed)",
+        })
+      );
+    }
   }
 
   // Ubicaciones demo de bodega + un poco de stock ya repartido entre ellas,
@@ -405,16 +419,31 @@ async function main() {
   const a1 = await prisma.warehouseLocation.findUnique({ where: { code: "A-1" } });
   const a2 = await prisma.warehouseLocation.findUnique({ where: { code: "A-2" } });
   if (a1 && a2 && bulto && rollo) {
-    await prisma.stockLocation.upsert({
-      where: { productId_locationId: { productId: bulto.id, locationId: a1.id } },
-      update: {},
-      create: { productId: bulto.id, locationId: a1.id, quantity: 30 },
-    });
-    await prisma.stockLocation.upsert({
-      where: { productId_locationId: { productId: rollo.id, locationId: a2.id } },
-      update: {},
-      create: { productId: rollo.id, locationId: a2.id, quantity: 20 },
-    });
+    // Antes esto solo escribía StockLocation directo, sin sumarle nada a
+    // InventoryStock -- el producto podía terminar con MENOS stock total
+    // que lo que sus propias ubicaciones decían tener ("sin ubicar"
+    // negativo desde la primera corrida). Ahora cada asignación demo entra
+    // primero como una entrada real al total agregado (misma transacción),
+    // y solo la primera vez.
+    const demoLocationAssignments = [
+      { product: bulto, location: a1, quantity: 30 },
+      { product: rollo, location: a2, quantity: 20 },
+    ];
+    for (const { product, location, quantity } of demoLocationAssignments) {
+      const existing = await prisma.stockLocation.findUnique({
+        where: { productId_locationId: { productId: product.id, locationId: location.id } },
+      });
+      if (existing) continue;
+      await prisma.$transaction(async (tx) => {
+        await applyMovement(tx, {
+          productId: product.id,
+          quantity,
+          movementType: "entrada_produccion",
+          referenceType: "manual_adjustment",
+        });
+        await incrementLocationStock(tx, product.id, location.id, quantity);
+      });
+    }
   }
 
   const adminUser = await prisma.user.findUnique({ where: { email: "admin@empresa.com" } });
@@ -478,8 +507,23 @@ async function main() {
           },
         },
       });
-      await prisma.qualityCheck.create({
-        data: { productionOrderId: op.id, result: seedOp.result, observations: "Control de calidad demo" },
+      // Una OP "aprobada" real suma sus kg a inventario al aprobarse (ver
+      // POST /:id/quality-check) -- acá se creaba el qualityCheck directo,
+      // sin ese movimiento, dejando la OP diciendo "aprobado" con 15kg
+      // producidos pero sin que esos kg existieran en ningún lado.
+      await prisma.$transaction(async (tx) => {
+        const check = await tx.qualityCheck.create({
+          data: { productionOrderId: op.id, result: seedOp.result, observations: "Control de calidad demo" },
+        });
+        if (seedOp.result === "aprobado") {
+          await applyMovement(tx, {
+            productId: bulto.id,
+            quantity: 15,
+            movementType: "entrada_produccion",
+            referenceType: "manual_adjustment",
+            referenceId: check.id,
+          });
+        }
       });
     }
   }
@@ -491,15 +535,29 @@ async function main() {
   if (acme && bulto) {
     const existingSeedDispatchItem = await prisma.dispatchItem.findFirst({ where: { notes: DISPATCH_SEED_MARKER } });
     if (!existingSeedDispatchItem) {
-      await prisma.dispatch.create({
-        data: {
-          clientId: acme.id,
-          status: "despachado",
-          dispatchedDate: new Date(),
-          items: {
-            create: [{ productId: bulto.id, quantityRequested: 12, quantityDispatched: 12, notes: DISPATCH_SEED_MARKER }],
+      // Un despacho completado de verdad descuenta stock al marcarse (ver
+      // PATCH /:dispatchId/items/:itemId) -- acá se creaba con
+      // quantityDispatched ya cargado directo, sin ese movimiento, así que
+      // el "despacho" nunca salió de ningún lado según el ledger.
+      await prisma.$transaction(async (tx) => {
+        const dispatch = await tx.dispatch.create({
+          data: {
+            clientId: acme.id,
+            status: "despachado",
+            dispatchedDate: new Date(),
+            items: {
+              create: [{ productId: bulto.id, quantityRequested: 12, quantityDispatched: 12, notes: DISPATCH_SEED_MARKER }],
+            },
           },
-        },
+          include: { items: true },
+        });
+        await applyMovement(tx, {
+          productId: bulto.id,
+          quantity: -12,
+          movementType: "salida_despacho",
+          referenceType: "dispatch_item",
+          referenceId: dispatch.items[0].id,
+        });
       });
     }
   }

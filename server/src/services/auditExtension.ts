@@ -6,7 +6,10 @@ import { auditContext } from "./auditContext";
  * delete) con diff antes/después + quién/desde-dónde. Agregar un modelo acá
  * alcanza para auditarlo — no hace falta tocar sus routers.
  */
-const AUDITED_MODELS = new Set(["Client", "Dispatch", "ProductionEntry", "InventoryMovement"]);
+// RawMaterialMovement se agregó para tener la misma trazabilidad forense que
+// ya tenía InventoryMovement (producto terminado) -- antes un ajuste manual
+// de materia prima (ej. -800kg) no dejaba ningún rastro en Auditoría.
+const AUDITED_MODELS = new Set(["Client", "Dispatch", "ProductionEntry", "InventoryMovement", "RawMaterialMovement"]);
 
 const AUDITED_OPERATIONS = new Set(["create", "update", "delete"]);
 

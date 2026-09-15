@@ -95,6 +95,22 @@ dispatchesRouter.post("/", requireAlmacen, async (req, res) => {
   const parsed = createDispatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+  // Antes esto iba directo al create: un clientId o productId inexistente
+  // rompía la FK y tiraba un 500 crudo (sin manejador de errores global en
+  // index.ts que lo traduzca) en vez de un mensaje claro -- y un producto
+  // desactivado se aceptaba sin ningún aviso.
+  const client = await prisma.client.findUnique({ where: { id: parsed.data.clientId } });
+  if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+
+  const productIds = [...new Set(parsed.data.items.map((it) => it.productId))];
+  const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, active: true, name: true } });
+  const productById = new Map(products.map((p) => [p.id, p]));
+  for (const productId of productIds) {
+    const product = productById.get(productId);
+    if (!product) return res.status(404).json({ error: `Producto ${productId} no encontrado` });
+    if (!product.active) return res.status(400).json({ error: `${product.name} está desactivado, no se puede despachar` });
+  }
+
   const dispatch = await prisma.dispatch.create({
     data: {
       clientId: parsed.data.clientId,

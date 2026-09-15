@@ -140,8 +140,8 @@ export const api = {
     request<any>(`/raw-materials/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deactivateRawMaterial: (id: number) => request<any>(`/raw-materials/${id}`, { method: "DELETE" }),
   reactivateRawMaterial: (id: number) => request<any>(`/raw-materials/${id}/reactivate`, { method: "POST" }),
-  adjustRawMaterialStock: (id: number, quantity: number, notes?: string) =>
-    request<any>(`/raw-materials/${id}/adjust`, { method: "POST", body: JSON.stringify({ quantity, notes }) }),
+  adjustRawMaterialStock: (id: number, quantity: number, type: "compra" | "ajuste", notes?: string) =>
+    request<any>(`/raw-materials/${id}/adjust`, { method: "POST", body: JSON.stringify({ quantity, type, notes }) }),
   getProductLabel: (productId: number) =>
     request<{ sku: string; name: string; category: string; measure: string | null; unit: string; qrDataUrl: string }>(
       `/products/${productId}/label`
@@ -475,6 +475,15 @@ export const api = {
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<{ items: any[]; total: number; page: number; pageSize: number }>(`/audit-log${suffix}`);
   },
+  /** Compara el stock desnormalizado contra la suma real de su propia
+   * bitácora de movimientos -- para detectar un descuadre si alguna vez
+   * pasa (ver auditoría de inventario). */
+  getStockReconciliation: () =>
+    request<{
+      ok: boolean;
+      products: { productId: number; sku: string; name: string; stock: number; movementsSum: number; difference: number }[];
+      rawMaterials: { rawMaterialId: number; code: string; stock: number; movementsSum: number; difference: number }[];
+    }>("/audit-log/reconciliation"),
 
   getInventoryMovements: (params?: { productId?: number; movementType?: string; page?: number; pageSize?: number }) => {
     const qs = new URLSearchParams();
