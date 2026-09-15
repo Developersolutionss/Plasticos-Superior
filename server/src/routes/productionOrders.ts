@@ -513,6 +513,16 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
     return res.json(updated);
   }
 
+  // Esta segunda derivación en adelante SÍ crea una fila hija nueva y
+  // visible para planta (a diferencia de la primera, arriba, que solo
+  // asigna Extrusión sobre la misma fila) -- si el padre sigue en
+  // "borrador" (todavía no se liberó con POST /:id/release), la hija
+  // aparecería en la cola de su estación antes de que Gestión termine de
+  // armar la OP.
+  if (parent.status === "borrador") {
+    return res.status(400).json({ error: "Primero liberá la OP a planta (Liberar) antes de derivarla a otro proceso" });
+  }
+
   const allowed = DERIVATIONS[parent.station as OpStation];
   if (!allowed.includes(parsed.data.station)) {
     return res.status(400).json({
@@ -605,7 +615,7 @@ async function propagateSpecsToChildren(
   parentSpecs: Record<string, unknown> | null
 ) {
   const children = await tx.productionOrder.findMany({
-    where: { parentOrderId: parentId },
+    where: { parentOrderId: parentId, status: { in: [...OPEN_STATUSES, "borrador"] } },
     select: { id: true, station: true, specs: true },
   });
   for (const child of children) {
@@ -663,12 +673,51 @@ productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) 
   const parsed = updateOrderSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const order = await prisma.productionOrder.findUnique({ where: { id } });
+  const order = await prisma.productionOrder.findUnique({
+    where: { id },
+    include: { rolls: { select: { weightKg: true, wasteKg: true, details: true } } },
+  });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
   // "borrador" también es editable — es justo el estado en el que Gestión
   // carga materia prima/medidas/cliente/referencia antes de liberarla.
   if (order.status !== "borrador" && !OPEN_STATUSES.includes(order.status)) {
     return res.status(400).json({ error: "Solo se puede editar una OP en borrador o abierta (pendiente o en proceso)" });
+  }
+
+  // Mismo chequeo que POST / -- un clientId inexistente (cliente borrado
+  // entre que se cargó el dropdown y se guardó) rompía la FK y devolvía un
+  // 500 crudo en vez de un mensaje claro.
+  if (parsed.data.clientId != null) {
+    const client = await prisma.client.findUnique({ where: { id: parsed.data.clientId } });
+    if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+  }
+
+  // No se puede bajar la meta por debajo de lo que ya hay físicamente
+  // cargado (peso + desperdicio, mismo criterio que el tope de POST
+  // /:id/rolls) -- si no, la hoja pasa a "Completado" con material real sin
+  // registrar, y los cálculos de materia prima (que se derivan del % ×
+  // cantidad planificada) quedan recalculados sobre un número menor al
+  // realmente consumido al cerrar.
+  if (parsed.data.quantityPlanned != null) {
+    const yaCargado = order.rolls.reduce((acc, r) => acc + rollProducedKg(order.station as OpStation, r) + Number(r.wasteKg), 0);
+    if (parsed.data.quantityPlanned < yaCargado) {
+      return res.status(400).json({
+        error: `La meta no puede ser menor a lo ya cargado (${Math.round(yaCargado * 100) / 100} kg entre peso y desperdicio)`,
+      });
+    }
+  }
+
+  // Un umbral mayor a la meta nunca se cruza (el aviso compara contra
+  // `quantityPlanned` en POST /:id/rolls) -- Gestión configuraba una alerta
+  // que en la práctica nunca iba a saltar, sin ningún aviso de que estaba
+  // mal puesta.
+  if (parsed.data.alertThresholdKg != null) {
+    const effectivePlanned = parsed.data.quantityPlanned ?? Number(order.quantityPlanned);
+    if (parsed.data.alertThresholdKg > effectivePlanned) {
+      return res.status(400).json({
+        error: `El umbral de alerta no puede ser mayor a la meta (${effectivePlanned} kg) — nunca se cruzaría`,
+      });
+    }
   }
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -897,12 +946,16 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
         if (order.qualityCheck.result === "aprobado") {
           reversedProductKg = order.rolls.reduce((acc, r) => acc + rollProducedKg(order.station, r), 0);
           if (reversedProductKg > 0) {
+            // Se referencia la OP (order.id), no el qualityCheck -- ese
+            // registro se borra dos líneas más abajo, así que apuntar a su
+            // id dejaba el movimiento señalando a un registro inexistente,
+            // imposible de reconstruir después desde Auditoría/Trazabilidad.
             await applyMovement(tx, {
               productId: order.productId,
               quantity: -reversedProductKg,
               movementType: "ajuste",
               referenceType: "manual_adjustment",
-              referenceId: order.qualityCheck.id,
+              referenceId: order.id,
               createdById: req.user!.userId,
             });
           }
@@ -1134,10 +1187,18 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
   // default de siempre (90% de lo planificado).
   const newTotal = existingTotal + thisRollKg + Number(roll.wasteKg);
   const threshold = order.alertThresholdKg != null ? Number(order.alertThresholdKg) : planned * 0.9;
-  if (planned > 0 && existingTotal < threshold && newTotal >= threshold && newTotal < planned) {
+  // Antes se exigía `newTotal < planned`, así que un rollo que cruzaba el
+  // umbral Y completaba la OP en el mismo golpe (ej. pasaba de 30/40kg
+  // directo a 40/40kg) no disparaba ningún aviso -- ni este, ni ningún otro
+  // (no existe un aviso separado de "OP completada"). Con `<=` ese caso
+  // avisa igual, con un mensaje que refleja que ya se completó.
+  if (planned > 0 && existingTotal < threshold && newTotal >= threshold && newTotal <= planned) {
+    const completa = newTotal >= planned;
     await notifyRoles(ROLES.PRODUCCION_GESTION, {
       type: "op_proxima_a_completarse",
-      message: `OP #${order.orderNumber} está próxima a completarse (${Math.round(newTotal * 100) / 100} / ${planned} kg)`,
+      message: completa
+        ? `OP #${order.orderNumber} se completó (${Math.round(newTotal * 100) / 100} / ${planned} kg)`
+        : `OP #${order.orderNumber} está próxima a completarse (${Math.round(newTotal * 100) / 100} / ${planned} kg)`,
       link: `/produccion/ordenes/${productionOrderId}`,
     });
   }
@@ -1350,6 +1411,12 @@ productionOrdersRouter.get("/:id/report.pdf", async (req, res) => {
 productionOrdersRouter.get("/:id/attachments", async (req, res) => {
   const productionOrderId = Number(req.params.id);
   if (!Number.isInteger(productionOrderId)) return res.status(400).json({ error: "Id inválido" });
+  // Mismo ocultamiento que GET /:id: un operario puro no debería poder
+  // listar adjuntos de una OP en borrador que oficialmente no puede ver.
+  if (OPERARIO_ONLY_ROLES.includes(req.user!.role)) {
+    const order = await prisma.productionOrder.findUnique({ where: { id: productionOrderId }, select: { status: true } });
+    if (order?.status === "borrador") return res.status(404).json({ error: "OP no encontrada" });
+  }
   const attachments = await prisma.productionOrderAttachment.findMany({
     where: { productionOrderId },
     orderBy: { createdAt: "asc" },
@@ -1364,6 +1431,20 @@ productionOrdersRouter.post("/:id/attachments", requireOperarios, upload.single(
 
   const order = await prisma.productionOrder.findUnique({ where: { id: productionOrderId } });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
+
+  // A diferencia de POST /:id/rolls y /close, esto no aplicaba ningún
+  // chequeo de estación ni de estado -- un operario de una estación podía
+  // subir archivos a una OP de otra estación, incluso ya finalizada.
+  // Gestión (allowedStations undefined) sigue sin esta restricción.
+  const allowedStations = OPERARIO_STATIONS[req.user!.role];
+  if (allowedStations) {
+    if (!allowedStations.includes(order.station as OpStation)) {
+      return res.status(403).json({ error: `Tu rol solo puede adjuntar archivos a OPs de: ${allowedStations.join(", ")}` });
+    }
+    if (!OPEN_STATUSES.includes(order.status)) {
+      return res.status(400).json({ error: "Esta OP ya no está abierta" });
+    }
+  }
 
   const attachment = await prisma.productionOrderAttachment.create({
     data: {
@@ -1385,12 +1466,34 @@ productionOrdersRouter.get("/:id/attachments/:attachmentId/download", async (req
   if (!Number.isInteger(productionOrderId) || !Number.isInteger(attachmentId)) {
     return res.status(400).json({ error: "Id inválido" });
   }
+  if (OPERARIO_ONLY_ROLES.includes(req.user!.role)) {
+    const order = await prisma.productionOrder.findUnique({ where: { id: productionOrderId }, select: { status: true } });
+    if (order?.status === "borrador") return res.status(404).json({ error: "OP no encontrada" });
+  }
+
   const attachment = await prisma.productionOrderAttachment.findFirst({
     where: { id: attachmentId, productionOrderId },
   });
   if (!attachment) return res.status(404).json({ error: "Adjunto no encontrado" });
 
   res.download(path.join(UPLOADS_DIR, attachment.storedName), attachment.originalName);
+});
+
+/** Borra un adjunto subido por error — no existía ningún endpoint para esto. */
+productionOrdersRouter.delete("/:id/attachments/:attachmentId", requireProduccionGestion, async (req, res) => {
+  const productionOrderId = Number(req.params.id);
+  const attachmentId = Number(req.params.attachmentId);
+  if (!Number.isInteger(productionOrderId) || !Number.isInteger(attachmentId)) {
+    return res.status(400).json({ error: "Id inválido" });
+  }
+  const attachment = await prisma.productionOrderAttachment.findFirst({
+    where: { id: attachmentId, productionOrderId },
+  });
+  if (!attachment) return res.status(404).json({ error: "Adjunto no encontrado" });
+
+  await prisma.productionOrderAttachment.delete({ where: { id: attachmentId } });
+  fs.unlink(path.join(UPLOADS_DIR, attachment.storedName), () => {});
+  res.status(204).end();
 });
 
 /**

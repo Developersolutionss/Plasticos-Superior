@@ -53,12 +53,15 @@ export default function EstacionProduccion() {
     navigate(`/produccion/ordenes/${match.id}`);
   }
 
+  // La meta se completa con PESO + DESPERDICIO, no solo peso (mismo criterio
+  // que la hoja de la OP) -- si no, una OP ya completa se muestra acá como
+  // si le faltara trabajo que en realidad ya no se puede cargar.
   function kilosProducidos(order: any) {
     // Precorte carga 2 rollos de insumo por fila (ver opTemplates.ts) — el
     // segundo peso queda en details.pesoR2 y cuenta igual que el primero.
     return (order.rolls ?? []).reduce((acc: number, r: any) => {
       const r2 = order.station === "precorte" ? Number(r.details?.pesoR2 ?? 0) : 0;
-      return acc + Number(r.weightKg) + (Number.isFinite(r2) ? r2 : 0);
+      return acc + Number(r.weightKg) + (Number.isFinite(r2) ? r2 : 0) + Number(r.wasteKg);
     }, 0);
   }
 
@@ -111,8 +114,11 @@ export default function EstacionProduccion() {
         errorMessage="No se pudieron cargar las órdenes de esta estación."
       >
         {(allOrders) => {
+          // "borrador" no es ni abierta para operar ni cerrada -- Gestión
+          // todavía la está armando y no se liberó a planta. Mostrarla bajo
+          // "Cerradas" confundía (parecía una OP ya trabajada y terminada).
           const open = allOrders.filter((o: any) => OPEN_STATUSES.includes(o.status));
-          const closed = allOrders.filter((o: any) => !OPEN_STATUSES.includes(o.status));
+          const closed = allOrders.filter((o: any) => o.status !== "borrador" && !OPEN_STATUSES.includes(o.status));
           return (
             <>
               <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">

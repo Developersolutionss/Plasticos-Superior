@@ -4,6 +4,27 @@ function getToken() {
   return localStorage.getItem("token");
 }
 
+/**
+ * `body.error` de un 4xx es un string simple (la mayoría de los handlers)
+ * o el objeto de `z.SafeParseError.error.flatten()` (mensajes/campos
+ * inválidos). Antes esto se mandaba siempre por `JSON.stringify`, así que
+ * un string simple le llegaba al usuario CON comillas ("Esta OP ya no está
+ * abierta") y cada pantalla tenía que hacer su propio `JSON.parse` para
+ * mostrar el mensaje real. Ahora queda ya legible acá, una sola vez.
+ */
+function formatApiError(error: unknown): string | null {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const flat = error as { formErrors?: string[]; fieldErrors?: Record<string, string[] | undefined> };
+    const messages = [
+      ...(flat.formErrors ?? []),
+      ...Object.values(flat.fieldErrors ?? {}).flatMap((m) => m ?? []),
+    ];
+    if (messages.length > 0) return messages.join(" — ");
+  }
+  return null;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
@@ -32,7 +53,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       }
     }
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ? JSON.stringify(body.error) : `Error ${res.status}`);
+    throw new Error(formatApiError(body.error) ?? `Error ${res.status}`);
   }
 
   if (res.status === 204) return undefined as T;
@@ -361,6 +382,8 @@ export const api = {
     a.click();
     URL.revokeObjectURL(url);
   },
+  deleteProductionOrderAttachment: (id: number, attachmentId: number) =>
+    request<void>(`/production-orders/${id}/attachments/${attachmentId}`, { method: "DELETE" }),
 
   getCotizaciones: (clientId?: number) =>
     request<any[]>(`/cotizaciones${clientId ? `?clientId=${clientId}` : ""}`),

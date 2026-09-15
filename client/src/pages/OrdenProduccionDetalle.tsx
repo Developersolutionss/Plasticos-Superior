@@ -286,7 +286,13 @@ export default function OrdenProduccionDetalle() {
       notes: order.notes ?? "",
       alertThresholdKg: order.alertThresholdKg != null ? String(Number(order.alertThresholdKg)) : "",
     });
-    setDirty(false);
+    // El autocompletado de arriba (Medidas, Color/Densidad/Calibre del
+    // producto, Cantidad heredada del padre) puede haber agregado datos que
+    // todavía no están guardados -- si se deja `dirty=false` acá, Gestión ve
+    // la hoja ya llena pero el botón Guardar no aparece: si no toca ningún
+    // otro campo, esos valores nunca llegan a la base y el PDF sale con esas
+    // casillas vacías aunque en pantalla se vean cargadas.
+    setDirty(JSON.stringify(specs) !== JSON.stringify(order.specs ?? {}));
   }, [order]);
 
   if (!Number.isInteger(orderId)) return <p className="text-red-600 dark:text-red-400">OP inválida.</p>;
@@ -391,6 +397,15 @@ export default function OrdenProduccionDetalle() {
 
   async function handleSaveSpecs() {
     setError(null);
+    // Si Gestión vacía este campo o pone 0, `Number(...) || undefined` lo
+    // convertía en "no tocar este campo" -- el guardado quedaba en silencio
+    // sin avisar, y la pantalla seguía mostrando el valor tipeado hasta
+    // recargar. Mejor cortar acá con un mensaje claro.
+    const quantityPlannedNum = Number(headerDraft.quantityPlanned);
+    if (!headerDraft.quantityPlanned || !Number.isFinite(quantityPlannedNum) || quantityPlannedNum <= 0) {
+      setError("La cantidad planificada tiene que ser mayor a 0");
+      return;
+    }
     try {
       const specs: Record<string, any> = { ...specsDraft };
       if (template.materiaPrimaRefs) {
@@ -413,7 +428,7 @@ export default function OrdenProduccionDetalle() {
       }
       await api.updateProductionOrder(orderId, {
         specs,
-        quantityPlanned: Number(headerDraft.quantityPlanned) || undefined,
+        quantityPlanned: quantityPlannedNum,
         // "" (campo vaciado a propósito) tiene que mandarse como null, no
         // como undefined — undefined se cae del JSON y el backend interpreta
         // "no tocar este campo", dejando pisado el valor viejo.
@@ -448,8 +463,8 @@ export default function OrdenProduccionDetalle() {
   async function handleAddRoll(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!rollDraft.weight) {
-      setError("Completá el peso del rollo");
+    if (!rollDraft.weight || Number(rollDraft.weight) <= 0) {
+      setError("El peso tiene que ser mayor a 0");
       return;
     }
     // En Sellado/Precorte, ETIQUETA/PESO son el rollo de origen escaneado
@@ -512,14 +527,8 @@ export default function OrdenProduccionDetalle() {
       } else {
         // El server manda mensajes específicos (ej. "quedan X kg
         // disponibles") que vale la pena mostrar tal cual en vez del
-        // genérico — viene como un string JSON-stringificado.
-        let serverMessage: string | null = null;
-        try {
-          serverMessage = JSON.parse(err?.message ?? "");
-        } catch {
-          serverMessage = null;
-        }
-        setError(typeof serverMessage === "string" ? serverMessage : "No se pudo registrar el rollo");
+        // genérico — api/client.ts ya lo deja legible, sin comillas.
+        setError(err?.message || "No se pudo registrar el rollo");
       }
     }
   }
@@ -631,8 +640,12 @@ export default function OrdenProduccionDetalle() {
       // estado "sin proceso" y muestre ya la plantilla de Extrusión.
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       if (derived.id !== orderId) navigate(`/produccion/ordenes/${derived.id}`);
-    } catch {
-      setError("No se pudo derivar la OP");
+    } catch (err: any) {
+      // El server manda mensajes específicos (ej. "Esta OP ya fue derivada
+      // a Sellado (OP #12)", "Primero derivá la OP a Extrusión") que tapaba
+      // este genérico — mostrarlos tal cual ayuda mucho más a entender qué
+      // pasó.
+      setError(err?.message || "No se pudo derivar la OP");
     }
   }
 
@@ -644,9 +657,16 @@ export default function OrdenProduccionDetalle() {
       : "Quedará terminada (su material sigue en las OPs derivadas).";
     if (!(await confirm(confirmMsg, { title: "¿Cerrar la OP?", confirmLabel: "Cerrar OP" }))) return;
     try {
-      await api.closeProductionOrder(orderId);
+      const result = await api.closeProductionOrder(orderId);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
+      // El server avisa (sin bloquear el cierre) si alguna ref de materia
+      // prima de la tabla no matcheó ningún código del catálogo -- antes el
+      // frontend directamente ignoraba ese dato y nadie se enteraba de que
+      // un insumo no se descontó del inventario.
+      if (result?.skippedRawMaterialRefs?.length > 0) {
+        setMessage(`OP cerrada. Ojo: no se descontó materia prima para estas refs (no matchean el catálogo): ${result.skippedRawMaterialRefs.join(", ")}`);
+      }
     } catch (err: any) {
       setError(err?.message ?? "No se pudo cerrar la OP");
     }
@@ -703,6 +723,17 @@ export default function OrdenProduccionDetalle() {
     }
   }
 
+  async function handleDeleteAttachment(attachmentId: number) {
+    if (!confirm("¿Borrar este adjunto?")) return;
+    setError(null);
+    try {
+      await api.deleteProductionOrderAttachment(orderId, attachmentId);
+      queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+    } catch {
+      setError("No se pudo borrar el adjunto");
+    }
+  }
+
   /** `cumulative` es la suma de kg hasta esta fila inclusive (columna TOTAL
    * del papel) — la calcula el caller recorriendo order.rolls en orden. */
   function rollCellDisplay(roll: any, col: OpRollColumn, cumulative?: number) {
@@ -733,10 +764,13 @@ export default function OrdenProduccionDetalle() {
       case "detail": {
         const value = roll.details?.[col.detailKey!];
         if (value != null && value !== "") return String(value);
-        // E. BULTO: igual que ETIQUETA en Extrusión/Impresión — si no se
-        // escaneó ninguna etiqueta física, se autogenera un identificador
-        // propio en vez de dejarlo en blanco.
-        return col.scanBultoLabel ? `BULTO-${roll.id}` : "—";
+        // E. BULTO: a diferencia de ETIQUETA, acá no hay ningún código real
+        // que autogenerar si no se escaneó una etiqueta física — mostrar un
+        // `BULTO-<id>` inventado (que además usaba el prefijo viejo ya
+        // reemplazado por EXT-) hacía parecer que ese bulto tenía una
+        // etiqueta física cuando no la tiene, y no coincidía con el PDF
+        // (que sí queda en blanco en ese caso).
+        return "—";
       }
     }
   }
@@ -784,18 +818,16 @@ export default function OrdenProduccionDetalle() {
     if ((col.source === "label" || col.source === "weight") && !template.labelIsOwnRoll && !sourceRoll) {
       return { content: "escaneá el QR", className: "text-slate-400 dark:text-slate-500 text-center italic", title: "Se completa al escanear el QR del rollo de origen" };
     }
-    // E. BULTO: no se tipea a mano — se puede escanear una etiqueta física
-    // pre-impresa (ver EtiquetasBulto.tsx) como atajo opcional (mercancía
-    // comprada afuera), y si se deja vacío se autogenera solo al guardar
-    // (BULTO-<id>, ver rollCellDisplay), pero el campo en sí queda
-    // bloqueado, nunca es un input libre.
+    // E. BULTO: no se tipea a mano — solo se completa si se escanea una
+    // etiqueta física pre-impresa (ver EtiquetasBulto.tsx, mercancía
+    // comprada afuera); si no se escanea ninguna, queda vacía (no es un
+    // bulto con etiqueta externa) — el campo en sí queda bloqueado, nunca
+    // es un input libre.
     if (col.scanBultoLabel) {
       return {
-        content: bultoLabel ? bultoLabel.code : "se completa sola",
+        content: bultoLabel ? bultoLabel.code : "—",
         className: `text-center ${bultoLabel ? "text-slate-800 dark:text-slate-100 font-medium" : "text-slate-400 dark:text-slate-500 italic"}`,
-        title: bultoLabel
-          ? undefined
-          : "Se autogenera sola si es un bulto propio, o escaneá la etiqueta física si viene de mercadería comprada afuera",
+        title: bultoLabel ? undefined : "Solo se completa si escaneás la etiqueta física de una mercadería comprada afuera",
       };
     }
     return {
@@ -1441,7 +1473,7 @@ export default function OrdenProduccionDetalle() {
             ))}
             {order.rolls.length === 0 && (
               <tr>
-                <td className={`${cellBorder} px-2 py-3 text-center text-slate-500 dark:text-slate-400`} colSpan={template.rollColumns.length + 1}>
+                <td className={`${cellBorder} px-2 py-3 text-center text-slate-500 dark:text-slate-400`} colSpan={template.rollColumns.length + (canOperate ? 1 : 0)}>
                   Sin rollos registrados todavía.
                 </td>
               </tr>
@@ -1472,7 +1504,7 @@ export default function OrdenProduccionDetalle() {
               <tr>
                 <td
                   className={`${cellBorder} px-2 py-2 text-center text-emerald-700 dark:text-emerald-400 text-xs font-medium`}
-                  colSpan={template.rollColumns.length + 1}
+                  colSpan={template.rollColumns.length + (canOperate ? 1 : 0)}
                 >
                   Ya se completaron los {plannedKg} kg planificados (peso + desperdicio) — no se pueden cargar más rollos.
                 </td>
@@ -1643,12 +1675,19 @@ export default function OrdenProduccionDetalle() {
                 {a.originalName}{" "}
                 <span className="text-xs text-slate-500 dark:text-slate-400">({Math.round(a.sizeBytes / 1024)} KB)</span>
               </span>
-              <button
-                onClick={() => api.downloadProductionOrderAttachment(orderId, a.id, a.originalName)}
-                className="text-sky-700 dark:text-sky-400 text-xs hover:underline"
-              >
-                Descargar
-              </button>
+              <span className="flex items-center gap-3">
+                <button
+                  onClick={() => api.downloadProductionOrderAttachment(orderId, a.id, a.originalName)}
+                  className="text-sky-700 dark:text-sky-400 text-xs hover:underline"
+                >
+                  Descargar
+                </button>
+                {canGestion && (
+                  <button onClick={() => handleDeleteAttachment(a.id)} className="text-red-600 dark:text-red-400 text-xs hover:underline">
+                    Borrar
+                  </button>
+                )}
+              </span>
             </li>
           ))}
           {(!order.attachments || order.attachments.length === 0) && (

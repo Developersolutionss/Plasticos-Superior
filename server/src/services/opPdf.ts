@@ -11,6 +11,7 @@ const M = 40; // margen
 const W = 515; // ancho útil A4 con margen 40
 
 interface RollLike {
+  id: number;
   date: Date | string;
   shift: string | null;
   operatorName: string;
@@ -100,7 +101,7 @@ function fmtTime(d: Date | string) {
 /** `cumulative` es la suma de kg hasta esta fila inclusive (columna TOTAL
  * del papel de Extrusión) — la calcula el caller recorriendo las filas en
  * orden, ver el `reduce` en buildOpPdf. */
-function rollCellValue(roll: RollLike, col: OpRollColumn, cumulative?: number): string {
+function rollCellValue(roll: RollLike, col: OpRollColumn, labelIsOwnRoll: boolean, cumulative?: number): string {
   switch (col.source) {
     case "date":
       return fmtDate(roll.date);
@@ -113,7 +114,11 @@ function rollCellValue(roll: RollLike, col: OpRollColumn, cumulative?: number): 
     case "machine":
       return str(roll.machine);
     case "label":
-      return str(roll.label);
+      // En Extrusión/Impresión la etiqueta no se tipea, se genera sola
+      // (mismo código RL-<id> de la etiqueta QR impresa) — mismo fallback
+      // que la pantalla (OrdenProduccionDetalle.tsx), para que el PDF no
+      // salga con la columna vacía cuando en pantalla sí se ve un código.
+      return roll.label ?? (labelIsOwnRoll ? `RL-${roll.id}` : "—");
     case "weight":
       return String(num(roll.weightKg));
     case "waste":
@@ -336,7 +341,7 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
       widths,
       data.rolls.map((roll) => {
         cumulative += rollKg(data.station, roll);
-        return cols.map((c) => rollCellValue(roll, c, cumulative));
+        return cols.map((c) => rollCellValue(roll, c, !!template.labelIsOwnRoll, cumulative));
       })
     );
   }

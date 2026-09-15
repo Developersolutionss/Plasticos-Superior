@@ -2076,6 +2076,217 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
+
+  it("PATCH /:id rechaza un clientId inexistente con 404 (antes tiraba un 500 crudo por la FK)", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10 },
+    });
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ clientId: 999999999 }),
+    });
+    assert.equal(res.status, 404);
+    const body = (await res.json()) as { error: string };
+    assert.match(body.error, /Cliente no encontrado/);
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("PATCH /:id no deja bajar la meta por debajo de lo ya cargado (peso + desperdicio)", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 100 },
+    });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 70, wasteKg: 10 } });
+
+    const bad = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ quantityPlanned: 20 }),
+    });
+    assert.equal(bad.status, 400, "80kg ya cargados (70+10), no se puede bajar la meta a 20");
+
+    const ok = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ quantityPlanned: 80 }),
+    });
+    assert.equal(ok.status, 200, "bajar exactamente a lo ya cargado sí se permite");
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("PATCH /:id rechaza un alertThresholdKg mayor a la meta (nunca se cruzaría)", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 50 },
+    });
+    const bad = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ alertThresholdKg: 60 }),
+    });
+    assert.equal(bad.status, 400);
+
+    const ok = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ alertThresholdKg: 40 }),
+    });
+    assert.equal(ok.status, 200);
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("editar specs del padre NO pisa las specs de una hija ya finalizada/cancelada (solo hijas abiertas/borrador)", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40, specs: { color: "Natural" } },
+    });
+    const childFinalizada = await prisma.productionOrder.create({
+      data: { orderNumber: parent.orderNumber, station: "sellado", productId, quantityPlanned: 40, parentOrderId: parent.id, status: "finalizada", specs: { color: "Natural" } },
+    });
+    const childAbierta = await prisma.productionOrder.create({
+      data: { orderNumber: parent.orderNumber, station: "precorte", productId, quantityPlanned: 40, parentOrderId: parent.id, specs: { color: "Natural" } },
+    });
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ specs: { color: "Azul" } }),
+    });
+    assert.equal(res.status, 200);
+
+    const finalizadaAfter = await prisma.productionOrder.findUnique({ where: { id: childFinalizada.id } });
+    assert.equal((finalizadaAfter!.specs as any).color, "Natural", "una hija finalizada no se toca (su PDF ya se imprimió/archivó)");
+
+    const abiertaAfter = await prisma.productionOrder.findUnique({ where: { id: childAbierta.id } });
+    assert.equal((abiertaAfter!.specs as any).color, "Azul", "una hija todavía abierta sí sigue recibiendo la cascada");
+
+    await prisma.productionOrder.delete({ where: { id: childFinalizada.id } });
+    await prisma.productionOrder.delete({ where: { id: childAbierta.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
+  it("no se puede derivar una segunda vez mientras el padre sigue en borrador (sin liberar)", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 40, status: "borrador" },
+    });
+    const toExtrusion = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "extrusion" }),
+    });
+    assert.equal(toExtrusion.status, 200, "la primera derivación (asignar Extrusión) sí se permite en borrador");
+
+    const toSellado = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(toSellado.status, 400, "derivar a un segundo proceso crea una fila visible para planta -- no puede pasar mientras el padre sigue sin liberar");
+
+    await fetch(`${baseUrl}/api/production-orders/${parent.id}/release`, { method: "POST", headers: headersFor("produccion") });
+    const toSelladoOk = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(toSelladoOk.status, 201, "una vez liberada, sí se puede derivar de nuevo");
+    const derivedBody = (await toSelladoOk.json()) as { id: number };
+
+    await prisma.productionOrder.delete({ where: { id: derivedBody.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
+  it("adjuntos: un operario de otra estación no puede subir, y no se puede subir a una OP ya cerrada", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10 },
+    });
+
+    const wrongStation = await fetch(`${baseUrl}/api/production-orders/${order.id}/attachments`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tokens.operario_precorte}` },
+      body: (() => {
+        const form = new FormData();
+        form.append("file", new Blob(["contenido"], { type: "text/plain" }), "nota.txt");
+        return form;
+      })(),
+    });
+    assert.equal(wrongStation.status, 403, "un operario de otra estación no puede adjuntar acá");
+
+    await prisma.productionOrder.update({ where: { id: order.id }, data: { status: "finalizada" } });
+    const closedOrder = await fetch(`${baseUrl}/api/production-orders/${order.id}/attachments`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tokens.operario_sellado}` },
+      body: (() => {
+        const form = new FormData();
+        form.append("file", new Blob(["contenido"], { type: "text/plain" }), "nota.txt");
+        return form;
+      })(),
+    });
+    assert.equal(closedOrder.status, 400, "no se puede adjuntar a una OP que ya no está abierta");
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("DELETE /:id/attachments/:attachmentId borra el adjunto (solo Gestión)", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10 },
+    });
+    const form = new FormData();
+    form.append("file", new Blob(["contenido"], { type: "text/plain" }), "nota.txt");
+    const uploaded = await fetch(`${baseUrl}/api/production-orders/${order.id}/attachments`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tokens.operario_sellado}` },
+      body: form,
+    });
+    assert.equal(uploaded.status, 201);
+    const attachment = (await uploaded.json()) as { id: number };
+
+    const deniedDelete = await fetch(`${baseUrl}/api/production-orders/${order.id}/attachments/${attachment.id}`, {
+      method: "DELETE",
+      headers: headersFor("operario_sellado"),
+    });
+    assert.equal(deniedDelete.status, 403, "un operario no puede borrar adjuntos, solo Gestión");
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/attachments/${attachment.id}`, {
+      method: "DELETE",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(res.status, 204);
+
+    const listAfter = await fetch(`${baseUrl}/api/production-orders/${order.id}/attachments`, { headers: headersFor("produccion") });
+    const attachmentsAfter = (await listAfter.json()) as { id: number }[];
+    assert.ok(!attachmentsAfter.some((a) => a.id === attachment.id));
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("el aviso de completarse dispara aunque el rollo que cruza el umbral complete la OP en el mismo golpe", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 40, alertThresholdKg: 35 },
+    });
+    // Un solo rollo de 40kg salta directo de 0 a completo (40/40), cruzando
+    // el umbral (35) y completando la meta en el mismo golpe -- antes esto
+    // no disparaba ningún aviso (ni "próxima" ni ningún otro).
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+      body: JSON.stringify({ weightKg: 40 }),
+    });
+    assert.equal(res.status, 201);
+
+    const notif = await prisma.notification.findFirst({
+      where: { type: "op_proxima_a_completarse", message: { contains: order.orderNumber } },
+      orderBy: { createdAt: "desc" },
+    });
+    assert.ok(notif, "debió avisar aunque la OP se haya completado en el mismo rollo que cruzó el umbral");
+    assert.match(notif!.message, /se completó/);
+
+    await prisma.notification.delete({ where: { id: notif!.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
 });
 
 describe("etiquetas de bulto (E. BULTO escaneable en Sellado/Precorte)", () => {

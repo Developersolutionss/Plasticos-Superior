@@ -34,12 +34,17 @@ const STATION_COLORS: Record<string, string> = {
   precorte: "bg-amber-600 text-white",
 };
 
+// La meta se completa con PESO + DESPERDICIO, no solo peso (mismo criterio
+// que la hoja de la OP y que el tope real del backend en POST /:id/rolls)
+// -- si acá solo se sumara el peso, una OP ya completa (ej. 37kg producidos
+// + 3kg de desperdicio = meta de 40kg) se mostraría como "37/40" en vez de
+// "40/40", como si le faltara trabajo que ya no se puede cargar.
 function kilosProducidos(order: any) {
   // Precorte carga 2 rollos de insumo por fila (ver opTemplates.ts) — el
   // segundo peso queda en details.pesoR2 y cuenta igual que el primero.
   return (order.rolls ?? []).reduce((acc: number, r: any) => {
     const r2 = order.station === "precorte" ? Number(r.details?.pesoR2 ?? 0) : 0;
-    return acc + Number(r.weightKg) + (Number.isFinite(r2) ? r2 : 0);
+    return acc + Number(r.weightKg) + (Number.isFinite(r2) ? r2 : 0) + Number(r.wasteKg);
   }, 0);
 }
 
