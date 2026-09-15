@@ -79,6 +79,7 @@ enum DispatchStatus {
   pendiente
   en_proceso
   despachado
+  cancelada
 }
 
 enum ImportSource {
@@ -180,6 +181,7 @@ model User {
   productionEntries ProductionEntry[]
   inventoryMovements InventoryMovement[]
   dispatches        Dispatch[]
+  dispatchesCancelled Dispatch[] @relation("DispatchCancelledBy")
   importLogs        ImportLog[]
   productionOrders     ProductionOrder[]
   productionRolls      ProductionRoll[]
@@ -486,6 +488,7 @@ model WarehouseLocation {
   createdAt   DateTime @default(now()) @map("created_at")
 
   stock StockLocation[]
+  dispatchItems DispatchItem[]
 
   @@map("warehouse_locations")
 }
@@ -526,6 +529,13 @@ model Dispatch {
   productionOrderId Int?             @map("production_order_id")
   productionOrder   ProductionOrder? @relation(fields: [productionOrderId], references: [id])
 
+  /// Quién y cuándo canceló el despacho (ver POST /:id/cancel) — si algún
+  /// ítem ya tenía quantityDispatched cargado, cancelar revierte esos
+  /// movimientos de stock dentro de la misma transacción.
+  cancelledAt   DateTime? @map("cancelled_at")
+  cancelledById Int?      @map("cancelled_by")
+  cancelledBy   User?     @relation("DispatchCancelledBy", fields: [cancelledById], references: [id])
+
   items DispatchItem[]
 
   @@map("dispatches")
@@ -541,6 +551,11 @@ model DispatchItem {
   quantityDispatched Decimal? @map("quantity_dispatched") @db.Decimal(12, 2)
   labelCode          String?  @map("label_code")
   notes              String?
+  /// De qué ubicación física salió (ver POST /warehouse/assign) — opcional:
+  /// si el producto no tiene stock ubicado, el descuento sigue siendo solo
+  /// contra el total agregado (InventoryStock), igual que antes.
+  locationId Int?              @map("location_id")
+  location   WarehouseLocation? @relation(fields: [locationId], references: [id])
 
   @@map("dispatch_items")
 }

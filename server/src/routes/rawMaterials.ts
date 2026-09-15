@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
-import { applyRawMaterialMovement } from "../services/rawMaterialStockService";
+import { applyRawMaterialMovement, InsufficientStockError } from "../services/rawMaterialStockService";
 import { getRawMaterialStock, getRawMaterialLowStockAlerts } from "../services/rawMaterialStockService";
 
 export const rawMaterialsRouter = Router();
@@ -154,16 +154,23 @@ rawMaterialsRouter.post("/:id/adjust", requireCatalogoGestion, async (req, res) 
   const material = await prisma.rawMaterial.findUnique({ where: { id } });
   if (!material) return res.status(404).json({ error: "Materia prima no encontrada" });
 
-  await prisma.$transaction((tx) =>
-    applyRawMaterialMovement(tx, {
-      rawMaterialId: id,
-      quantity: parsed.data.quantity,
-      movementType: parsed.data.quantity > 0 ? "compra" : "ajuste",
-      referenceType: "manual_adjustment",
-      notes: parsed.data.notes,
-      createdById: req.user!.userId,
-    })
-  );
+  try {
+    await prisma.$transaction((tx) =>
+      applyRawMaterialMovement(tx, {
+        rawMaterialId: id,
+        quantity: parsed.data.quantity,
+        movementType: parsed.data.quantity > 0 ? "compra" : "ajuste",
+        referenceType: "manual_adjustment",
+        notes: parsed.data.notes,
+        createdById: req.user!.userId,
+      })
+    );
+  } catch (err) {
+    if (err instanceof InsufficientStockError) {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
 
   res.status(201).json({ ok: true });
 });

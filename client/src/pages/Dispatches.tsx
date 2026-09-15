@@ -18,6 +18,13 @@ export default function Dispatches() {
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [selectedDispatch, setSelectedDispatch] = useState<any>(null);
+  // Ítem que se está marcando despachado ahora mismo — deshabilita SU botón
+  // mientras la request está en vuelo. Antes no había ningún estado de
+  // "enviando", así que un doble clic o un reintento por señal lenta en
+  // bodega mandaba dos requests y descontaba el stock dos veces.
+  const [dispatchingItemId, setDispatchingItemId] = useState<number | null>(null);
+  const [locationChoice, setLocationChoice] = useState<Record<number, string>>({});
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
 
   const [newClientId, setNewClientId] = useState("");
   const [items, setItems] = useState<ItemDraft[]>([{ ...emptyItem }]);
@@ -36,16 +43,46 @@ export default function Dispatches() {
     queryKey: ["dispatches", clientId, status],
     queryFn: () => api.getDispatches({ clientId: clientId ? Number(clientId) : undefined, status: status || undefined }),
   });
+  // Para el selector opcional de ubicación al marcar despachado — de qué
+  // estante puntual sale el producto (ver auditoría de inventario: antes
+  // despachar nunca tocaba las ubicaciones, así que el QR de cada estante
+  // quedaba desincronizado del stock real apenas salía la primera mercadería).
+  const { data: warehouseStock } = useQuery({ queryKey: ["warehouseStock"], queryFn: api.getWarehouseStock });
 
-  async function markDispatched(dispatchId: number, itemId: number, quantityRequested: number) {
-    await api.markItemDispatched(dispatchId, itemId, quantityRequested);
-    queryClient.invalidateQueries({ queryKey: ["dispatches"] });
-    queryClient.invalidateQueries({ queryKey: ["inventory"] });
-    queryClient.invalidateQueries({ queryKey: ["alerts"] });
+  async function markDispatched(dispatchId: number, itemId: number, quantityRequested: number, locationId?: number) {
+    setDispatchingItemId(itemId);
+    try {
+      await api.markItemDispatched(dispatchId, itemId, quantityRequested, locationId);
+      queryClient.invalidateQueries({ queryKey: ["dispatches"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["warehouseStock"] });
+    } catch (err: any) {
+      setScanMessage(err?.message || "No se pudo marcar el ítem como despachado");
+    } finally {
+      setDispatchingItemId(null);
+    }
+  }
+
+  async function handleCancelDispatch(dispatchId: number) {
+    if (!confirm("¿Cancelar este despacho? Si ya tenía ítems despachados, se revierte ese stock.")) return;
+    setCancellingId(dispatchId);
+    try {
+      await api.cancelDispatch(dispatchId);
+      queryClient.invalidateQueries({ queryKey: ["dispatches"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      setSelectedDispatch(null);
+    } catch (err: any) {
+      setScanMessage(err?.message || "No se pudo cancelar el despacho");
+    } finally {
+      setCancellingId(null);
+    }
   }
 
   async function handleScanned(sku: string) {
     setScanning(false);
+    if (dispatchingItemId != null) return; // ya hay un ítem enviándose, evita duplicar
     const match = dispatches
       ?.flatMap((d: any) => d.items.map((item: any) => ({ dispatch: d, item })))
       .find(({ item }: any) => item.quantityDispatched == null && item.product.sku === sku);
@@ -177,6 +214,7 @@ export default function Dispatches() {
           <option value="pendiente">Pendiente</option>
           <option value="en_proceso">En proceso</option>
           <option value="despachado">Despachado</option>
+          <option value="cancelada">Cancelada</option>
         </select>
       </div>
 
@@ -194,31 +232,64 @@ export default function Dispatches() {
               <span className="font-medium">
                 Pedido #{d.id} - {d.client.name}
               </span>
-              <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{d.status}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{d.status}</span>
+                {d.status !== "despachado" && d.status !== "cancelada" && (
+                  <button
+                    type="button"
+                    className="text-red-600 dark:text-red-400 text-xs hover:underline disabled:opacity-50"
+                    disabled={cancellingId === d.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCancelDispatch(d.id);
+                    }}
+                  >
+                    {cancellingId === d.id ? "Cancelando..." : "Cancelar"}
+                  </button>
+                )}
+              </span>
             </div>
             <ul className="space-y-2">
-              {d.items.map((item: any) => (
-                <li
-                  key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-2"
-                >
-                  <span>
-                    {item.product.name} — solicitado: {item.quantityRequested} {item.product.unit}
-                    {item.quantityDispatched != null && ` · despachado: ${item.quantityDispatched}`}
-                  </span>
-                  {item.quantityDispatched == null && (
-                    <button
-                      className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        markDispatched(d.id, item.id, Number(item.quantityRequested));
-                      }}
-                    >
-                      Marcar despachado
-                    </button>
-                  )}
-                </li>
-              ))}
+              {d.items.map((item: any) => {
+                const locations = warehouseStock?.find((p: any) => p.productId === item.product.id)?.locations ?? [];
+                return (
+                  <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-2">
+                    <span>
+                      {item.product.name} — solicitado: {item.quantityRequested} {item.product.unit}
+                      {item.quantityDispatched != null && ` · despachado: ${item.quantityDispatched}`}
+                    </span>
+                    {item.quantityDispatched == null && d.status !== "cancelada" && (
+                      <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        {locations.length > 0 && (
+                          <select
+                            className="border rounded px-1.5 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                            value={locationChoice[item.id] ?? ""}
+                            onChange={(e) => setLocationChoice((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                            title="De qué ubicación física sale (opcional)"
+                          >
+                            <option value="">Sin ubicación puntual</option>
+                            {locations.map((l: any) => (
+                              <option key={l.locationId} value={l.locationId}>
+                                {l.code} ({l.quantity})
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <button
+                          className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded disabled:opacity-50"
+                          disabled={dispatchingItemId === item.id}
+                          onClick={() => {
+                            const locationId = locationChoice[item.id] ? Number(locationChoice[item.id]) : undefined;
+                            markDispatched(d.id, item.id, Number(item.quantityRequested), locationId);
+                          }}
+                        >
+                          {dispatchingItemId === item.id ? "Enviando..." : "Marcar despachado"}
+                        </button>
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}
@@ -271,6 +342,17 @@ export default function Dispatches() {
                 ))}
               </ul>
             </div>
+
+            {selectedDispatch.status !== "despachado" && selectedDispatch.status !== "cancelada" && (
+              <button
+                type="button"
+                className="text-red-600 dark:text-red-400 text-sm hover:underline disabled:opacity-50"
+                disabled={cancellingId === selectedDispatch.id}
+                onClick={() => handleCancelDispatch(selectedDispatch.id)}
+              >
+                {cancellingId === selectedDispatch.id ? "Cancelando..." : "Cancelar despacho"}
+              </button>
+            )}
           </div>
         </Modal>
       )}

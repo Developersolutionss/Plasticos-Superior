@@ -2,8 +2,11 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
-import { applyMovement } from "../services/stockService";
+import { applyMovement, InsufficientStockError } from "../services/stockService";
 import { sendWhatsAppMessage } from "../services/whatsapp";
+
+class ItemAlreadyDispatchedError extends Error {}
+class AlreadyCancelledError extends Error {}
 
 export const dispatchesRouter = Router();
 dispatchesRouter.use(requireAuth);
@@ -100,12 +103,20 @@ dispatchesRouter.post("/", requireAlmacen, async (req, res) => {
   res.status(201).json(dispatch);
 });
 
+const dispatchItemSchema = z.object({
+  quantityDispatched: z.number().positive(),
+  /** Ubicación física de la que sale el producto (opcional — un producto
+   * sin stock ubicado sigue pudiendo despacharse, solo contra el total
+   * agregado, igual que antes). Si se manda y esa ubicación no tiene
+   * suficiente cantidad, se rechaza (ver decrementLocationStock). */
+  locationId: z.number().int().optional(),
+});
+
 /** Marca un item del despacho como despachado: descuenta stock automáticamente. */
 dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req, res) => {
   const dispatchId = Number(req.params.dispatchId);
   const itemId = Number(req.params.itemId);
-  const quantitySchema = z.object({ quantityDispatched: z.number().positive() });
-  const parsed = quantitySchema.safeParse(req.body);
+  const parsed = dispatchItemSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   const item = await prisma.dispatchItem.findFirst({ where: { id: itemId, dispatchId } });
@@ -116,37 +127,58 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
   // si no, dos requests casi simultáneas (o un reintento de red del último
   // ítem) mandarían el WhatsApp de "despachado" dos o tres veces seguidas.
   const dispatchBefore = await prisma.dispatch.findUnique({ where: { id: dispatchId }, select: { status: true } });
+  if (dispatchBefore?.status === "cancelada") {
+    return res.status(400).json({ error: "Este despacho está cancelado" });
+  }
 
   let dispatchCompleted = false;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.dispatchItem.update({
-      where: { id: itemId },
-      data: { quantityDispatched: parsed.data.quantityDispatched },
-    });
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Claim atómico y condicional (mismo patrón que /close y /reopen en
+      // Órdenes de Producción): si dos requests casi simultáneas (doble
+      // clic, reintento de red, el mismo QR escaneado dos veces) llegan acá,
+      // solo una encuentra `quantityDispatched: null` y logra el update —
+      // la otra ve count=0 y aborta ANTES de tocar el stock, así nunca se
+      // descuenta dos veces el mismo ítem.
+      const claimed = await tx.dispatchItem.updateMany({
+        where: { id: itemId, dispatchId, quantityDispatched: null },
+        data: { quantityDispatched: parsed.data.quantityDispatched, locationId: parsed.data.locationId },
+      });
+      if (claimed.count === 0) throw new ItemAlreadyDispatchedError();
 
-    await applyMovement(tx, {
-      productId: item.productId,
-      quantity: -parsed.data.quantityDispatched,
-      movementType: "salida_despacho",
-      referenceType: "dispatch_item",
-      referenceId: item.id,
-      createdById: req.user!.userId,
-    });
+      await applyMovement(tx, {
+        productId: item.productId,
+        quantity: -parsed.data.quantityDispatched,
+        movementType: "salida_despacho",
+        referenceType: "dispatch_item",
+        referenceId: item.id,
+        createdById: req.user!.userId,
+        locationId: parsed.data.locationId,
+      });
 
-    const remainingPending = await tx.dispatchItem.count({
-      where: { dispatchId, quantityDispatched: null },
-    });
-    dispatchCompleted = remainingPending === 0;
+      const remainingPending = await tx.dispatchItem.count({
+        where: { dispatchId, quantityDispatched: null },
+      });
+      dispatchCompleted = remainingPending === 0;
 
-    await tx.dispatch.update({
-      where: { id: dispatchId },
-      data: {
-        status: dispatchCompleted ? "despachado" : "en_proceso",
-        dispatchedDate: dispatchCompleted ? new Date() : undefined,
-      },
+      await tx.dispatch.update({
+        where: { id: dispatchId },
+        data: {
+          status: dispatchCompleted ? "despachado" : "en_proceso",
+          dispatchedDate: dispatchCompleted ? new Date() : undefined,
+        },
+      });
     });
-  });
+  } catch (err) {
+    if (err instanceof ItemAlreadyDispatchedError) {
+      return res.status(400).json({ error: "Este ítem ya fue despachado" });
+    }
+    if (err instanceof InsufficientStockError) {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
 
   if (dispatchCompleted && dispatchBefore?.status !== "despachado") {
     const dispatch = await prisma.dispatch.findUnique({
@@ -163,4 +195,57 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
   }
 
   res.json({ ok: true });
+});
+
+/**
+ * Cancela un despacho — antes no existía NINGÚN camino para corregir un
+ * despacho, ni siquiera uno que nunca se completó. Si ya tenía ítems
+ * marcados como despachados (stock ya descontado), revierte esos
+ * movimientos dentro de la misma transacción (y la ubicación de origen, si
+ * se había cargado una) — mismo criterio que /reopen en Órdenes de
+ * Producción. El histórico de `quantityDispatched` de cada ítem NO se
+ * borra (queda como registro de qué se llegó a despachar antes de
+ * cancelar); lo único que cambia es el estado del despacho.
+ */
+dispatchesRouter.post("/:dispatchId/cancel", requireAlmacen, async (req, res) => {
+  const dispatchId = Number(req.params.dispatchId);
+  if (!Number.isInteger(dispatchId)) return res.status(400).json({ error: "Id inválido" });
+
+  const dispatch = await prisma.dispatch.findUnique({ where: { id: dispatchId }, include: { items: true } });
+  if (!dispatch) return res.status(404).json({ error: "Despacho no encontrado" });
+
+  let reversedTotal = 0;
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Claim atómico: dos cancelaciones casi simultáneas del mismo
+      // despacho no pueden las dos revertir el mismo stock.
+      const claimed = await tx.dispatch.updateMany({
+        where: { id: dispatchId, status: { not: "cancelada" } },
+        data: { status: "cancelada", cancelledAt: new Date(), cancelledById: req.user!.userId },
+      });
+      if (claimed.count === 0) throw new AlreadyCancelledError();
+
+      for (const item of dispatch.items) {
+        if (item.quantityDispatched == null) continue;
+        const qty = Number(item.quantityDispatched);
+        reversedTotal += qty;
+        await applyMovement(tx, {
+          productId: item.productId,
+          quantity: qty,
+          movementType: "devolucion",
+          referenceType: "dispatch_item",
+          referenceId: item.id,
+          createdById: req.user!.userId,
+          locationId: item.locationId ?? undefined,
+        });
+      }
+    });
+  } catch (err) {
+    if (err instanceof AlreadyCancelledError) {
+      return res.status(400).json({ error: "Este despacho ya está cancelado" });
+    }
+    throw err;
+  }
+
+  res.json({ ok: true, reversedTotal });
 });

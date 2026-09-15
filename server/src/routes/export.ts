@@ -15,8 +15,13 @@ function sendXlsx(res: import("express").Response, filename: string, buffer: Buf
   res.send(buffer);
 }
 
-/** Mismo nivel de acceso que inventory.ts hoy: cualquier usuario autenticado. */
-exportRouter.get("/inventario", async (_req, res) => {
+/** Mismo guard que GET /inventory (ROLES.EXISTENCIAS) — a pedido del
+ * cliente, Gerente de Producción y los operarios de planta no ven cuánto
+ * stock hay (ver comentario en middleware/auth.ts). Este export se había
+ * quedado con el comentario viejo ("cualquier autenticado") de antes de que
+ * ese guard existiera en /inventory — el export nunca se actualizó junto
+ * con la ruta. */
+exportRouter.get("/inventario", requireRole(...ROLES.EXISTENCIAS), async (_req, res) => {
   const stock = await getStockByCategory();
   const buffer = await buildExcelBuffer(
     "Inventario",

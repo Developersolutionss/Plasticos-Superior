@@ -103,6 +103,26 @@ before(async () => {
   tokens.operario_impresion = await loginAs("operario.impresion@empresa.com");
   tokens.operario_sellado = await loginAs("operario.sellado@empresa.com");
   tokens.operario_precorte = await loginAs("operario.precorte@empresa.com");
+
+  // Despachar/consumir ya no deja el stock en negativo (ver auditoría de
+  // inventario) -- si esta base de dev compartida quedó con algún saldo
+  // negativo de corridas anteriores (de antes de que ese chequeo
+  // existiera), cualquier test que reste sobre ese producto fallaría con
+  // "stock insuficiente" aunque su propia lógica esté bien. Se normaliza
+  // acá, una sola vez, a un piso seguro -- cada test ya captura su propio
+  // "antes"/"después" y restaura exacto, así que esto no afecta esa
+  // contabilidad relativa, solo evita arrancar en negativo.
+  const demoProducts = await prisma.product.findMany({ where: { sku: { in: ["BUL-001", "ROL-F-002", "ROL-PL-001"] } }, select: { id: true } });
+  for (const p of demoProducts) {
+    const stock = await prisma.inventoryStock.findUnique({ where: { productId: p.id } });
+    if (Number(stock?.currentQuantity ?? 0) < 1000) {
+      await prisma.inventoryStock.upsert({
+        where: { productId: p.id },
+        create: { productId: p.id, currentQuantity: 1000 },
+        update: { currentQuantity: 1000 },
+      });
+    }
+  }
 });
 
 after(async () => {
@@ -437,6 +457,26 @@ describe("materia prima", () => {
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
+  it("/adjust rechaza un ajuste negativo que dejaría el insumo en negativo (nunca se descuenta a ciegas)", async () => {
+    const stockAntes = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("planeacion") })).json()) as {
+      id: number;
+      currentStock: number;
+    }[];
+    const antes = stockAntes.find((s) => s.id === materialId)!.currentStock;
+
+    const bad = await fetch(`${baseUrl}/api/raw-materials/${materialId}/adjust`, {
+      method: "POST",
+      headers: headersFor("planeacion"),
+      body: JSON.stringify({ quantity: -(antes + 1000) }),
+    });
+    assert.equal(bad.status, 400, "no hay 1000kg de más que ese insumo no tiene");
+    const badBody = (await bad.json()) as { error: string };
+    assert.match(badBody.error, /insuficiente/i);
+
+    const stockDespues = (await (await fetch(`${baseUrl}/api/raw-materials/stock`, { headers: headersFor("planeacion") })).json()) as typeof stockAntes;
+    assert.equal(stockDespues.find((s) => s.id === materialId)!.currentStock, antes, "el intento rechazado no debe haber tocado el stock");
+  });
+
   it("desactiva y reactiva; desactivada no aparece afectada en /stock (sigue existiendo, solo cambia active)", async () => {
     const off = await fetch(`${baseUrl}/api/raw-materials/${materialId}`, { method: "DELETE", headers: headersFor("planeacion") });
     assert.equal(off.status, 200);
@@ -494,6 +534,18 @@ describe("despachos", () => {
     const forbidden = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: headersFor("ventas") });
     assert.equal(forbidden.status, 403);
 
+    // Despachar ya no deja el stock en negativo (ver auditoría de
+    // inventario) -- si el saldo compartido de dev no alcanza, se sube
+    // temporalmente y se restaura exacto al final.
+    const stockBefore = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+    if (Number(stockBefore?.currentQuantity ?? 0) < 5) {
+      await prisma.inventoryStock.upsert({
+        where: { productId: product.id },
+        create: { productId: product.id, currentQuantity: 5 },
+        update: { currentQuantity: 5 },
+      });
+    }
+
     const before = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: authHeaders() });
     const rowsBefore = (await before.json()) as { clientId: number; productId: number; totalQuantity: number; dispatchCount: number }[];
     const beforeRow = rowsBefore.find((r) => r.clientId === client.id && r.productId === product.id);
@@ -528,9 +580,230 @@ describe("despachos", () => {
     await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatchBody.id } });
     await prisma.inventoryMovement.deleteMany({ where: { referenceType: "dispatch_item", referenceId: dispatchBody.items[0].id } });
     await prisma.dispatch.delete({ where: { id: dispatchBody.id } });
-    // applyMovement() ya restó 5 al stock real del producto al completar el
-    // ítem (mismo caso que el otro test de despachos) — hay que reponerlo.
-    await prisma.inventoryStock.update({ where: { productId: product.id }, data: { currentQuantity: { increment: 5 } } });
+    // Restaura el stock exacto a como estaba antes del test (haya hecho
+    // falta subirlo temporalmente o no).
+    await prisma.inventoryStock.update({
+      where: { productId: product.id },
+      data: { currentQuantity: Number(stockBefore?.currentQuantity ?? 0) },
+    });
+  });
+
+  it("marcar despachado dos veces el mismo ítem (doble clic / reintento) solo descuenta stock una vez", async () => {
+    const clientsRes = await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() });
+    const clients = (await clientsRes.json()) as { id: number }[];
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+
+    const created = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ clientId: clients[0].id, items: [{ productId: product.id, quantityRequested: 50 }] }),
+    });
+    const dispatch = (await created.json()) as { id: number; items: { id: number }[] };
+
+    const first = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched: 50 }),
+    });
+    assert.equal(first.status, 200);
+
+    const retry = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched: 50 }),
+    });
+    assert.equal(retry.status, 400, "un ítem ya despachado se rechaza en el reintento");
+
+    const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+    assert.equal(
+      Number(stockAntes?.currentQuantity ?? 0) - Number(stockDespues?.currentQuantity ?? 0),
+      50,
+      "el stock solo debe bajar 50 una vez, no 100"
+    );
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "dispatch_item", referenceId: dispatch.items[0].id } });
+    await prisma.dispatch.delete({ where: { id: dispatch.id } });
+    await prisma.inventoryStock.update({ where: { productId: product.id }, data: { currentQuantity: stockAntes?.currentQuantity ?? 0 } });
+  });
+
+  it("no se puede despachar más de lo que hay en stock — se rechaza sin tocar el stock", async () => {
+    const clientsRes = await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() });
+    const clients = (await clientsRes.json()) as { id: number }[];
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+    const disponible = Number(stockAntes?.currentQuantity ?? 0);
+
+    const created = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ clientId: clients[0].id, items: [{ productId: product.id, quantityRequested: disponible + 500 }] }),
+    });
+    const dispatch = (await created.json()) as { id: number; items: { id: number }[] };
+
+    const res = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched: disponible + 500 }),
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: string };
+    assert.match(body.error, /insuficiente/i);
+
+    const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+    assert.equal(Number(stockDespues?.currentQuantity ?? 0), disponible, "el intento rechazado no debe haber tocado el stock");
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch.id } });
+    await prisma.dispatch.delete({ where: { id: dispatch.id } });
+  });
+
+  it("al marcar despachado con locationId, descuenta la ubicación además del total — y rechaza si esa ubicación no tiene suficiente", async () => {
+    const clientsRes = await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() });
+    const clients = (await clientsRes.json()) as { id: number }[];
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const location = await prisma.warehouseLocation.create({ data: { code: `TEST-LOC-${Date.now()}`, label: "Estante de prueba", publicToken: `tok-${Date.now()}` } });
+    await prisma.stockLocation.create({ data: { productId: product.id, locationId: location.id, quantity: 20 } });
+
+    const created = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ clientId: clients[0].id, items: [{ productId: product.id, quantityRequested: 15 }] }),
+    });
+    const dispatch = (await created.json()) as { id: number; items: { id: number }[] };
+
+    // La ubicación solo tiene 20 -- pedir 25 desde ahí se rechaza.
+    const tooMuch = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched: 25, locationId: location.id }),
+    });
+    assert.equal(tooMuch.status, 400, "esa ubicación no tiene 25, aunque el total agregado del producto sí alcance");
+
+    const ok = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched: 15, locationId: location.id }),
+    });
+    assert.equal(ok.status, 200);
+
+    const locationStock = await prisma.stockLocation.findUnique({ where: { productId_locationId: { productId: product.id, locationId: location.id } } });
+    assert.equal(Number(locationStock?.quantity), 5, "20 - 15 = 5 en esa ubicación puntual");
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "dispatch_item", referenceId: dispatch.items[0].id } });
+    await prisma.dispatch.delete({ where: { id: dispatch.id } });
+    await prisma.stockLocation.deleteMany({ where: { productId: product.id, locationId: location.id } });
+    await prisma.warehouseLocation.delete({ where: { id: location.id } });
+    await prisma.inventoryStock.update({ where: { productId: product.id }, data: { currentQuantity: { increment: 15 } } });
+  });
+
+  it("POST /:id/cancel en un despacho pendiente (nada despachado aún) solo cambia el estado, no toca stock", async () => {
+    const clientsRes = await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() });
+    const clients = (await clientsRes.json()) as { id: number }[];
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+
+    const created = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ clientId: clients[0].id, items: [{ productId: product.id, quantityRequested: 10 }] }),
+    });
+    const dispatch = (await created.json()) as { id: number };
+
+    const cancel = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/cancel`, { method: "POST", headers: headersFor("almacen") });
+    assert.equal(cancel.status, 200);
+
+    const updated = await prisma.dispatch.findUnique({ where: { id: dispatch.id } });
+    assert.equal(updated?.status, "cancelada");
+
+    const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+    assert.equal(Number(stockDespues?.currentQuantity ?? 0), Number(stockAntes?.currentQuantity ?? 0), "nada se había despachado, no hay nada que revertir");
+
+    // Cancelar de nuevo se rechaza.
+    const again = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/cancel`, { method: "POST", headers: headersFor("almacen") });
+    assert.equal(again.status, 400);
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch.id } });
+    await prisma.dispatch.delete({ where: { id: dispatch.id } });
+  });
+
+  it("POST /:id/cancel en un despacho ya completado revierte el stock descontado", async () => {
+    const clientsRes = await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() });
+    const clients = (await clientsRes.json()) as { id: number }[];
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+
+    const created = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ clientId: clients[0].id, items: [{ productId: product.id, quantityRequested: 30 }] }),
+    });
+    const dispatch = (await created.json()) as { id: number; items: { id: number }[] };
+
+    const complete = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched: 30 }),
+    });
+    assert.equal(complete.status, 200);
+
+    const stockDespachado = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+    assert.equal(Number(stockAntes?.currentQuantity ?? 0) - Number(stockDespachado?.currentQuantity ?? 0), 30);
+
+    const cancel = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/cancel`, { method: "POST", headers: headersFor("almacen") });
+    assert.equal(cancel.status, 200);
+    const cancelBody = (await cancel.json()) as { reversedTotal: number };
+    assert.equal(cancelBody.reversedTotal, 30);
+
+    const stockFinal = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+    assert.equal(Number(stockFinal?.currentQuantity ?? 0), Number(stockAntes?.currentQuantity ?? 0), "el stock vuelve exacto a como estaba antes de despachar");
+
+    const updated = await prisma.dispatch.findUnique({ where: { id: dispatch.id } });
+    assert.equal(updated?.status, "cancelada");
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "dispatch_item", referenceId: dispatch.items[0].id } });
+    await prisma.dispatch.delete({ where: { id: dispatch.id } });
+  });
+
+  it("un despacho generado por una OP y cancelado ya no bloquea la reapertura de esa OP", async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-CANCEL-REOPEN-${Date.now()}` } });
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId: product.id, clientId: client.id, quantityPlanned: 10, status: "pendiente_calidad" },
+    });
+    await prisma.productionRoll.create({ data: { productionOrderId: order.id, operatorName: "Op", weightKg: 6 } });
+    const stockAntes = await prisma.inventoryStock.findUnique({ where: { productId: product.id } });
+
+    const approve = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
+      method: "POST",
+      headers: headersFor("calidad"),
+      body: JSON.stringify({ result: "aprobado" }),
+    });
+    assert.equal(approve.status, 201);
+
+    const dispatch = await prisma.dispatch.findFirst({ where: { productionOrderId: order.id } });
+    assert.ok(dispatch, "debió crearse el despacho automático");
+
+    const blocked = await fetch(`${baseUrl}/api/production-orders/${order.id}/reopen`, { method: "POST", headers: headersFor("produccion") });
+    assert.equal(blocked.status, 400, "mientras el despacho siga vivo, no se puede reabrir");
+
+    const cancel = await fetch(`${baseUrl}/api/dispatches/${dispatch!.id}/cancel`, { method: "POST", headers: headersFor("almacen") });
+    assert.equal(cancel.status, 200);
+
+    const reopen = await fetch(`${baseUrl}/api/production-orders/${order.id}/reopen`, { method: "POST", headers: headersFor("produccion") });
+    assert.equal(reopen.status, 200, "un despacho cancelado ya no cuenta como 'vivo' para el bloqueo de reapertura");
+
+    await prisma.notification.deleteMany({ where: { type: "despacho_generado_desde_op", message: { contains: order.orderNumber } } });
+    await prisma.qualityCheck.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch!.id } });
+    await prisma.dispatch.delete({ where: { id: dispatch!.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { productId: product.id, createdAt: { gte: order.createdAt } } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await prisma.inventoryStock.update({ where: { productId: product.id }, data: { currentQuantity: stockAntes?.currentQuantity ?? 0 } });
   });
 });
 
@@ -2837,13 +3110,16 @@ describe("despachos · notificación por WhatsApp al completarse", () => {
       });
       assert.equal(complete.status, 200);
 
-      // Reintento sobre el mismo item ya completado: no debe reenviar el aviso.
+      // Reintento sobre el mismo item ya completado: ahora se rechaza (ver
+      // fix de idempotencia — antes esto pisaba `quantityDispatched` con el
+      // mismo valor pero volvía a descontar stock, duplicando la salida) —
+      // así que tampoco debe reenviar el aviso.
       const retry = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
         method: "PATCH",
         headers: headersFor("almacen"),
         body: JSON.stringify({ quantityDispatched: 2 }),
       });
-      assert.equal(retry.status, 200);
+      assert.equal(retry.status, 400, "un reintento sobre un ítem ya despachado se rechaza, no se vuelve a aplicar");
     } finally {
       console.log = originalLog;
     }
@@ -3202,6 +3478,22 @@ describe("almacén / WMS + ubicación pública por QR", () => {
     assert.equal(invalidToken.status, 404);
   });
 
+  it("ubicar desde 'sin ubicar' (sin fromLocationId) rechaza pedir más de lo que realmente está sin ubicar", async () => {
+    const stock = await fetch(`${baseUrl}/api/warehouse/stock`, { headers: headersFor("almacen") });
+    const stockBody = (await stock.json()) as { productId: number; unassigned: number }[];
+    const row = stockBody.find((p) => p.productId === productId);
+    const unassigned = row?.unassigned ?? 0;
+
+    const tooMuch = await fetch(`${baseUrl}/api/warehouse/assign`, {
+      method: "POST",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ productId, toLocationId: locationId, quantity: unassigned + 500 }),
+    });
+    assert.equal(tooMuch.status, 400, "no hay 500 unidades de más sin ubicar");
+    const body = (await tooMuch.json()) as { error: string };
+    assert.match(body.error, /sin ubicar/i);
+  });
+
   it("mover stock entre ubicaciones valida que el origen tenga suficiente", async () => {
     const otherCode = `TEST-LOC-2-${Date.now()}`;
     const other = await prisma.warehouseLocation.create({
@@ -3293,13 +3585,21 @@ describe("dashboard", () => {
 });
 
 describe("exportaciones", () => {
-  it("GET /inventario devuelve un .xlsx no vacío para cualquier autenticado", async () => {
+  it("GET /inventario devuelve un .xlsx no vacío para roles con acceso a Existencias, y 403 para Gerente de Producción/operarios", async () => {
     const res = await fetch(`${baseUrl}/api/export/inventario`, { headers: headersFor("almacen") });
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type") ?? "", /spreadsheetml/);
     assert.match(res.headers.get("content-disposition") ?? "", /inventario\.xlsx/);
     const buf = await res.arrayBuffer();
     assert.ok(buf.byteLength > 0);
+
+    // Mismo guard que GET /inventory (ROLES.EXISTENCIAS) -- a pedido del
+    // cliente, Gerente de Producción no ve cuánto stock hay, y menos un
+    // operario de planta. El export se había quedado sin este guard.
+    const denied = await fetch(`${baseUrl}/api/export/inventario`, { headers: headersFor("produccion") });
+    assert.equal(denied.status, 403);
+    const deniedOperario = await fetch(`${baseUrl}/api/export/inventario`, { headers: headersFor("operario_extrusion") });
+    assert.equal(deniedOperario.status, 403);
   });
 
   it("/pedidos y /facturas exigen además rol de ventas (403 para almacén)", async () => {
@@ -3927,7 +4227,7 @@ describe("dashboard", () => {
 });
 
 describe("exportaciones", () => {
-  it("inventario es accesible para cualquier autenticado; pedidos requiere Ventas", async () => {
+  it("inventario es accesible para roles con acceso a Existencias; pedidos requiere Ventas", async () => {
     const inv = await fetch(`${baseUrl}/api/export/inventario`, { headers: headersFor("almacen") });
     assert.equal(inv.status, 200);
     assert.ok(inv.headers.get("content-type")?.includes("spreadsheetml"));

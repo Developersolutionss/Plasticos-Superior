@@ -9,7 +9,7 @@ import { Prisma } from "../generated/prisma/client";
 import type { ProductionOrderStatus } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
-import { applyMovement, TxClient } from "../services/stockService";
+import { applyMovement, TxClient, InsufficientStockError } from "../services/stockService";
 import { applyRawMaterialMovement } from "../services/rawMaterialStockService";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
 import { notifyRoles } from "../services/notify";
@@ -858,6 +858,14 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
     if (err instanceof StatusRaceError) {
       return res.status(400).json({ error: "Esta OP ya no está abierta" });
     }
+    if (err instanceof InsufficientStockError) {
+      // No hay suficiente materia prima cargada en el sistema para lo que
+      // esta OP declara haber consumido -- antes esto se descontaba igual y
+      // dejaba el insumo en negativo sin ningún aviso; ahora se bloquea el
+      // cierre para que Planeación cargue el faltante (o corrija specs)
+      // antes de seguir.
+      return res.status(400).json({ error: `No se puede cerrar: ${err.message}` });
+    }
     throw err;
   }
 
@@ -913,8 +921,10 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
   // inventario mientras ese despacho sigue vivo, y si Almacén ya lo
   // completa (o si se vuelve a aprobar y se genera un segundo despacho) el
   // stock queda descontado dos veces. Más simple y seguro: no se puede
-  // reabrir mientras exista ESE despacho, resuélvanlo (cancélenlo) primero.
-  const existingDispatch = await prisma.dispatch.findFirst({ where: { productionOrderId: id } });
+  // reabrir mientras exista ESE despacho vivo, resuélvanlo (cancélenlo,
+  // ver POST /dispatches/:id/cancel) primero — uno ya cancelado no cuenta,
+  // porque cancelar ya revirtió su stock.
+  const existingDispatch = await prisma.dispatch.findFirst({ where: { productionOrderId: id, status: { not: "cancelada" } } });
   if (existingDispatch) {
     return res.status(400).json({
       error: `Esta OP ya generó el Despacho #${existingDispatch.id} para su cliente — resolvé o cancelá ese despacho antes de reabrir la OP`,
@@ -999,6 +1009,16 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
   } catch (err) {
     if (err instanceof StatusRaceError) {
       return res.status(400).json({ error: "Esta OP no se puede reabrir desde su estado actual" });
+    }
+    if (err instanceof InsufficientStockError) {
+      // El producto que esta OP sumó al aprobarse ya no está completo en
+      // stock (ej. se despachó a mano, sin pasar por el Despacho automático
+      // que el chequeo de arriba sabe detectar) -- revertir dejaría el
+      // stock en negativo, así que se bloquea en vez de "arreglarlo" a
+      // costa de un número roto.
+      return res.status(400).json({
+        error: `No se puede reabrir: ${err.message} (probablemente parte de lo que produjo esta OP ya se despachó por otro lado)`,
+      });
     }
     throw err;
   }

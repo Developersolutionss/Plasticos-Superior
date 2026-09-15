@@ -4,7 +4,7 @@ import QRCode from "qrcode";
 import { randomBytes } from "crypto";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
-import { getStockByCategory } from "../services/stockService";
+import { getStockByCategory, decrementLocationStock, incrementLocationStock, InsufficientStockError } from "../services/stockService";
 
 export const warehouseRouter = Router();
 warehouseRouter.use(requireAuth);
@@ -133,26 +133,41 @@ warehouseRouter.post("/assign", async (req, res) => {
   if (!product) return res.status(404).json({ error: "Producto no encontrado" });
   if (!toLocation) return res.status(404).json({ error: "Ubicación destino no encontrada" });
 
-  await prisma.$transaction(async (tx) => {
-    if (fromLocationId) {
-      const fromStock = await tx.stockLocation.findUnique({
-        where: { productId_locationId: { productId, locationId: fromLocationId } },
-      });
-      if (!fromStock || Number(fromStock.quantity) < quantity) {
-        throw Object.assign(new Error("La ubicación de origen no tiene suficiente cantidad"), { status: 400 });
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (fromLocationId) {
+        // Claim atómico y condicional (mismo patrón que el resto del
+        // sistema de stock) — antes esto era un find-then-check: dos
+        // movidas casi simultáneas desde la misma ubicación podían las dos
+        // leer el mismo saldo viejo, las dos pasar el chequeo, y dejar la
+        // ubicación de origen en negativo.
+        await decrementLocationStock(tx, productId, fromLocationId, quantity, req.user!.userId);
+      } else {
+        // Ubicar desde "sin ubicar" (sin fromLocationId) antes no validaba
+        // NADA contra el total real del producto — se podía ubicar más
+        // cantidad de la que existe físicamente. `unassigned` acá se
+        // recalcula adentro de la transacción para achicar la ventana de
+        // carrera, aunque no es 100% atómico contra otro /assign paralelo
+        // del mismo producto (caso raro: dos personas ubicando el mismo
+        // lote recién llegado al mismo tiempo).
+        const [stock, located] = await Promise.all([
+          tx.inventoryStock.findUnique({ where: { productId } }),
+          tx.stockLocation.aggregate({ where: { productId }, _sum: { quantity: true } }),
+        ]);
+        const unassigned = Number(stock?.currentQuantity ?? 0) - Number(located._sum.quantity ?? 0);
+        if (quantity > unassigned) {
+          throw new InsufficientStockError(`Solo hay ${Math.round(unassigned * 100) / 100} sin ubicar de este producto`);
+        }
       }
-      await tx.stockLocation.update({
-        where: { productId_locationId: { productId, locationId: fromLocationId } },
-        data: { quantity: { decrement: quantity }, updatedById: req.user!.userId },
-      });
-    }
 
-    await tx.stockLocation.upsert({
-      where: { productId_locationId: { productId, locationId: toLocationId } },
-      create: { productId, locationId: toLocationId, quantity, updatedById: req.user!.userId },
-      update: { quantity: { increment: quantity }, updatedById: req.user!.userId },
+      await incrementLocationStock(tx, productId, toLocationId, quantity, req.user!.userId);
     });
-  });
+  } catch (err) {
+    if (err instanceof InsufficientStockError) {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
 
   res.status(201).json({ ok: true });
 });
