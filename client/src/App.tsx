@@ -51,6 +51,7 @@ import {
   AUDITORIA,
   EXISTENCIAS,
   CATALOGO_GESTION,
+  DESPACHOS_LECTURA,
 } from "./components/navConfig";
 
 /** La hoja de una OP la ven todos los que participan del ciclo: operarios y
@@ -158,7 +159,7 @@ export default function App() {
         <Route
           path="despachos"
           element={
-            <RequireRole roles={ALMACEN}>
+            <RequireRole roles={DESPACHOS_LECTURA}>
               <Dispatches />
             </RequireRole>
           }
@@ -166,7 +167,7 @@ export default function App() {
         <Route
           path="despachos/por-cliente"
           element={
-            <RequireRole roles={ALMACEN}>
+            <RequireRole roles={DESPACHOS_LECTURA}>
               <DespachosPorCliente />
             </RequireRole>
           }

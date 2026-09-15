@@ -21,9 +21,11 @@ cotizacionesRouter.get("/", async (req, res) => {
   res.json(cotizaciones);
 });
 
+const ID_ERROR = { error: "ID de cotización inválido" };
+
 cotizacionesRouter.get("/:id/pdf", async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID de cotización inválido" });
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json(ID_ERROR);
 
   const cotizacion = await prisma.cotizacion.findUnique({
     where: { id },
@@ -123,6 +125,7 @@ const updateStatusSchema = z.object({
 
 cotizacionesRouter.patch("/:id/status", requireVentas, async (req, res) => {
   const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json(ID_ERROR);
   const parsed = updateStatusSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -137,48 +140,75 @@ cotizacionesRouter.patch("/:id/status", requireVentas, async (req, res) => {
  * Convierte la cotización en un Pedido nuevo (v1), copiando sus ítems tal
  * cual. La cotización no se borra ni se modifica, solo queda enlazada.
  */
+class AlreadyConvertedError extends Error {}
+
 cotizacionesRouter.post("/:id/convertir-a-pedido", requireVentas, async (req, res) => {
   const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json(ID_ERROR);
   const cotizacion = await prisma.cotizacion.findUnique({
     where: { id },
     include: { items: true },
   });
   if (!cotizacion) return res.status(404).json({ error: "Cotización no encontrada" });
   if (cotizacion.items.length === 0) return res.status(400).json({ error: "La cotización no tiene ítems" });
+  if (cotizacion.status !== "aceptada") {
+    return res.status(400).json({ error: "Solo se puede convertir una cotización aceptada por el cliente" });
+  }
+  const existingPedido = await prisma.pedido.findUnique({ where: { cotizacionId: cotizacion.id }, select: { id: true } });
+  if (existingPedido) {
+    return res.status(400).json({ error: "Esta cotización ya fue convertida a pedido" });
+  }
 
-  const pedido = await withSequentialNumberRetry(() =>
-    prisma.$transaction(async (tx) => {
-    const count = await tx.pedido.count();
-    const orderNumber = `PED-${String(count + 1).padStart(5, "0")}`;
+  let pedido;
+  try {
+    pedido = await withSequentialNumberRetry(() =>
+      prisma.$transaction(async (tx) => {
+      // Re-chequea DENTRO de la transacción, no solo antes: con
+      // @prisma/adapter-pg el P2002 del `@unique` de cotizacionId no trae
+      // `err.meta.target` (viene undefined), así que no se puede traducir el
+      // choque de la unique a un 400 leyendo el error -- hay que evitar que
+      // ocurra re-chequeando acá adentro, mismo patrón que from-pedido-item
+      // en productionOrders.ts.
+      const raceExisting = await tx.pedido.findUnique({ where: { cotizacionId: cotizacion.id }, select: { id: true } });
+      if (raceExisting) throw new AlreadyConvertedError();
 
-    return tx.pedido.create({
-      data: {
-        orderNumber,
-        clientId: cotizacion.clientId,
-        cotizacionId: cotizacion.id,
-        status: "borrador",
-        currentVersion: 1,
-        createdById: req.user!.userId,
-        versions: {
-          create: {
-            versionNumber: 1,
-            status: "borrador",
-            createdById: req.user!.userId,
-            items: {
-              create: cotizacion.items.map((item) => ({
-                productId: item.productId,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                measure: item.measure,
-              })),
+      const count = await tx.pedido.count();
+      const orderNumber = `PED-${String(count + 1).padStart(5, "0")}`;
+
+      return tx.pedido.create({
+        data: {
+          orderNumber,
+          clientId: cotizacion.clientId,
+          cotizacionId: cotizacion.id,
+          status: "borrador",
+          currentVersion: 1,
+          createdById: req.user!.userId,
+          versions: {
+            create: {
+              versionNumber: 1,
+              status: "borrador",
+              createdById: req.user!.userId,
+              items: {
+                create: cotizacion.items.map((item) => ({
+                  productId: item.productId,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  measure: item.measure,
+                })),
+              },
             },
           },
         },
-      },
-      include: { versions: { include: { items: true } } },
-    });
-    })
-  );
+        include: { versions: { include: { items: true } } },
+      });
+      })
+    );
+  } catch (err) {
+    if (err instanceof AlreadyConvertedError) {
+      return res.status(400).json({ error: "Esta cotización ya fue convertida a pedido" });
+    }
+    throw err;
+  }
 
   res.status(201).json(pedido);
 });

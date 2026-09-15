@@ -114,9 +114,13 @@ export default function Clients() {
   function selectClient(c: any) {
     if (selectedClientId === c.id) return;
     setSelectedClientId(c.id);
-    // Actualización optimista + registro en backend (alimenta "Frecuentes").
-    // Replica el boost en vivo: al cruzar el umbral de interacciones el cliente
-    // sube arriba del ranking al instante, sin esperar al refresh.
+    // Actualización optimista (para que el ranking salte al instante, sin
+    // esperar la respuesta) + reconciliación con lo que el backend realmente
+    // calculó -- antes el resultado real de recordClientVisit se descartaba
+    // (`.catch(() => {})` sin usar la respuesta), así que si el cálculo
+    // optimista se desviaba del real (dos pestañas abiertas, dos clientes
+    // cruzando el umbral casi al mismo tiempo) el ranking en pantalla quedaba
+    // desincronizado hasta el próximo refetch completo de ["clients"].
     queryClient.setQueryData(["clients"], (old: any[]) => {
       const maxScore = Math.max(...(old ?? []).map((x) => x.viewCount ?? 0), 0);
       return old?.map((x) =>
@@ -125,7 +129,16 @@ export default function Clients() {
           : x
       );
     });
-    api.recordClientVisit(c.id).catch(() => {});
+    api
+      .recordClientVisit(c.id)
+      .then((real) => {
+        queryClient.setQueryData(["clients"], (old: any[]) =>
+          old?.map((x) => (x.id === c.id ? { ...x, ...real } : x))
+        );
+      })
+      .catch((err) => {
+        console.error("No se pudo registrar la visita al cliente", err);
+      });
   }
 
   useEffect(() => {

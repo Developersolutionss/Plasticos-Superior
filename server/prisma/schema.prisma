@@ -536,6 +536,15 @@ model Dispatch {
   cancelledById Int?      @map("cancelled_by")
   cancelledBy   User?     @relation("DispatchCancelledBy", fields: [cancelledById], references: [id])
 
+  /// Constancia del aviso de WhatsApp al completar el despacho (ver PATCH
+  /// /:dispatchId/items/:itemId) — antes un envío fallido (teléfono mal
+  /// cargado, WhatsApp caído) quedaba solo en un log de servidor que nadie en
+  /// Almacén revisa; ahora queda visible en la ficha del despacho.
+  /// `notifiedAt` sin `notifyError`: se mandó bien. Ninguno de los dos y el
+  /// despacho ya está completo: el cliente no tiene teléfono cargado.
+  notifiedAt   DateTime? @map("notified_at")
+  notifyError  String?   @map("notify_error")
+
   items DispatchItem[]
 
   @@map("dispatches")
@@ -788,7 +797,10 @@ model Pedido {
   orderNumber    String   @unique @map("order_number")
   clientId       Int      @map("client_id")
   client         Client   @relation(fields: [clientId], references: [id])
-  cotizacionId   Int?     @map("cotizacion_id")
+  /// @unique: una cotización solo se puede convertir en Pedido UNA vez (ver
+  /// POST /cotizaciones/:id/convertir-a-pedido) — antes nada impedía crear
+  /// un segundo Pedido de la misma cotización con un doble click.
+  cotizacionId   Int?     @unique @map("cotizacion_id")
   cotizacion     Cotizacion? @relation(fields: [cotizacionId], references: [id])
   /// Se mantienen desnormalizados acá (además de vivir en la versión
   /// vigente) para poder listar/filtrar pedidos sin tener que buscar

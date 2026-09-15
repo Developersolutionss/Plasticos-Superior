@@ -12,15 +12,24 @@ export const dispatchesRouter = Router();
 dispatchesRouter.use(requireAuth);
 
 const requireAlmacen = requireRole(...ROLES.ALMACEN);
-dispatchesRouter.use(requireAlmacen);
+// GET es de lectura ampliada (Almacén + Ventas, ver ROLES.DESPACHOS_LECTURA);
+// todo lo demás (crear, marcar ítems, cancelar) sigue exigiendo Almacén, con
+// `requireAlmacen` puesto explícito en cada ruta de mutación de acá abajo.
+dispatchesRouter.use(requireRole(...ROLES.DESPACHOS_LECTURA));
+
+const DISPATCH_STATUSES = ["pendiente", "en_proceso", "despachado", "cancelada"] as const;
 
 dispatchesRouter.get("/", async (req, res) => {
-  const { clientId, status } = req.query as { clientId?: string; status?: string };
+  const { clientId } = req.query as { clientId?: string };
+  const statusParam = req.query.status as string | undefined;
+  if (statusParam !== undefined && !DISPATCH_STATUSES.includes(statusParam as any)) {
+    return res.status(400).json({ error: "Status inválido" });
+  }
 
   const dispatches = await prisma.dispatch.findMany({
     where: {
       clientId: clientId ? Number(clientId) : undefined,
-      status: status as any,
+      status: statusParam as (typeof DISPATCH_STATUSES)[number] | undefined,
     },
     include: { client: true, items: { include: { product: true } }, createdBy: { select: { name: true } } },
     orderBy: { requestedDate: "desc" },
@@ -136,11 +145,19 @@ const dispatchItemSchema = z.object({
 dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req, res) => {
   const dispatchId = Number(req.params.dispatchId);
   const itemId = Number(req.params.itemId);
+  if (!Number.isInteger(dispatchId) || !Number.isInteger(itemId)) {
+    return res.status(400).json({ error: "IDs inválidos" });
+  }
   const parsed = dispatchItemSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   const item = await prisma.dispatchItem.findFirst({ where: { id: itemId, dispatchId } });
   if (!item) return res.status(404).json({ error: "Item de despacho no encontrado" });
+  // Nunca se despacha más de lo pedido -- se bloquea siempre, nunca se deja
+  // pasar con un aviso (mismo criterio que el resto de esta auditoría).
+  if (parsed.data.quantityDispatched > Number(item.quantityRequested)) {
+    return res.status(400).json({ error: `No se puede despachar más de lo pedido (${Number(item.quantityRequested)})` });
+  }
 
   // Se lee ANTES de la transacción para poder distinguir "recién se completó
   // ahora" de "ya estaba despachado y esto es un doble click/reintento" —
@@ -183,6 +200,16 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
         locationId: parsed.data.locationId,
       });
 
+      // Bloquea la fila del despacho antes de contar cuánto falta: sin esto,
+      // si los dos ÚLTIMOS ítems pendientes se completan casi al mismo
+      // tiempo (dos requests concurrentes, cada una en su propia
+      // transacción), cada una cuenta el estado ANTES de que la otra
+      // commitee -- las dos ven "todavía falta 1" y ninguna marca el
+      // despacho como completo, quedando trabado en "en_proceso" para
+      // siempre. El lock fuerza a la segunda transacción a esperar a que la
+      // primera termine, así ve el conteo real y actualizado.
+      await tx.$queryRaw`SELECT id FROM dispatches WHERE id = ${dispatchId} FOR UPDATE`;
+
       const remainingPending = await tx.dispatchItem.count({
         where: { dispatchId, quantityDispatched: null },
       });
@@ -213,10 +240,24 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
     });
     const phone = dispatch?.client.contacts.find((c) => c.isPrimary)?.phone ?? dispatch?.client.contacts[0]?.phone;
     if (dispatch && phone) {
-      await sendWhatsAppMessage(
+      const result = await sendWhatsAppMessage(
         phone,
         `Hola ${dispatch.client.name}, tu pedido fue despachado. ¡Gracias por tu compra! — Plásticos Superior S.A.S.`
       );
+      await prisma.dispatch.update({
+        where: { id: dispatchId },
+        data: result.ok
+          ? { notifiedAt: new Date(), notifyError: null }
+          : { notifiedAt: null, notifyError: result.error },
+      });
+    } else if (dispatch) {
+      // Sin ningún teléfono cargado no hay a quién avisar -- se deja
+      // constancia explícita en vez de un no-op silencioso, para que
+      // Almacén vea en la ficha del despacho que el cliente no se enteró.
+      await prisma.dispatch.update({
+        where: { id: dispatchId },
+        data: { notifiedAt: null, notifyError: "El cliente no tiene teléfono de contacto cargado" },
+      });
     }
   }
 

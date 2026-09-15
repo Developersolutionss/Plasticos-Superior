@@ -11,13 +11,26 @@ const STATUS_LABELS: Record<string, string> = {
   cancelado: "Cancelado",
 };
 
+// Mismas transiciones que el backend (VALID_PEDIDO_TRANSITIONS en
+// pedidos.ts) -- sin esto el selector ofrecía los 6 estados sin importar el
+// actual, y el PATCH terminaba rechazado recién al guardar.
+const VALID_TRANSITIONS: Record<string, string[]> = {
+  borrador: ["borrador", "pendiente", "aprobado", "cancelado"],
+  pendiente: ["pendiente", "aprobado", "borrador", "cancelado"],
+  aprobado: ["aprobado", "en_produccion", "cancelado"],
+  en_produccion: ["en_produccion", "despachado", "cancelado"],
+  despachado: [],
+  cancelado: [],
+};
+
 interface ItemDraft {
   productId: string;
   quantity: string;
   unitPrice: string;
+  measure?: string;
 }
 
-const emptyItem: ItemDraft = { productId: "", quantity: "", unitPrice: "" };
+const emptyItem: ItemDraft = { productId: "", quantity: "", unitPrice: "", measure: "" };
 
 function total(items: any[]) {
   return items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
@@ -170,6 +183,7 @@ export default function Pedidos() {
         productId: String(it.productId),
         quantity: String(it.quantity),
         unitPrice: String(it.unitPrice),
+        measure: it.measure ?? "",
       }))
     );
     setEditing(true);
@@ -192,14 +206,15 @@ export default function Pedidos() {
           productId: Number(it.productId),
           quantity: Number(it.quantity),
           unitPrice: it.unitPrice ? Number(it.unitPrice) : undefined,
+          measure: it.measure || undefined,
         })),
       });
       setEditing(false);
       queryClient.invalidateQueries({ queryKey: ["pedidos"] });
       queryClient.invalidateQueries({ queryKey: ["pedidoVersions", selectedPedidoId] });
       setMessage("Se guardó una nueva versión del pedido.");
-    } catch {
-      setError("No se pudo guardar la nueva versión");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo guardar la nueva versión");
     }
   }
 
@@ -224,8 +239,8 @@ export default function Pedidos() {
       queryClient.invalidateQueries({ queryKey: ["pedidos"] });
       queryClient.invalidateQueries({ queryKey: ["pedidoVersions", pedidoId] });
       setMessage("Pedido aprobado — ya aparece en la cola de Planeación.");
-    } catch {
-      setError("No se pudo aprobar el pedido");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo aprobar el pedido");
     }
   }
 
@@ -430,9 +445,11 @@ export default function Pedidos() {
                       Aprobar y enviar a Planeación
                     </button>
                   )}
-                  <button onClick={startEditing} className="bg-slate-800 text-white text-sm px-4 py-2 rounded">
-                    Editar (crea nueva versión)
-                  </button>
+                  {(VALID_TRANSITIONS[latestVersion.status] ?? []).length > 0 && (
+                    <button onClick={startEditing} className="bg-slate-800 text-white text-sm px-4 py-2 rounded">
+                      Editar (crea nueva versión)
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -440,9 +457,9 @@ export default function Pedidos() {
             {tab === "actual" && editing && (
               <form onSubmit={handleSaveVersion} className="space-y-2">
                 <select className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
-                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                  {(VALID_TRANSITIONS[latestVersion?.status ?? "borrador"] ?? []).map((value) => (
                     <option key={value} value={value}>
-                      {label}
+                      {STATUS_LABELS[value]}
                     </option>
                   ))}
                 </select>

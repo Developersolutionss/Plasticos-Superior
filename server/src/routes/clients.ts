@@ -56,15 +56,29 @@ clientsRouter.post("/", requireVentas, async (req, res) => {
   const parsed = createClientSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+  // No hay unique constraint en el nombre a nivel de DB (a propósito: ya
+  // existían nombres duplicados en datos históricos y forzar una migración
+  // con un `@unique` los hubiera roto) — este chequeo evita que un vendedor
+  // cree sin querer un cliente duplicado por no buscarlo primero.
+  const duplicate = await prisma.client.findFirst({
+    where: { active: true, name: { equals: parsed.data.name, mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (duplicate) {
+    return res.status(400).json({ error: `Ya existe un cliente activo con el nombre "${parsed.data.name}" — buscalo antes de crear uno nuevo` });
+  }
+
   // Un cliente nuevo nace arriba del ranking "Frecuentes": arranca en el
   // máximo actual + 1 y ya cuenta como "hot" para esta semana.
-  const { _max } = await prisma.client.aggregate({ _max: { viewCount: true } });
-  const client = await prisma.client.create({
-    data: {
-      ...parsed.data,
-      viewCount: boostValue(_max.viewCount),
-      cycleInteractions: HOT_THRESHOLD,
-    },
+  const client = await prisma.$transaction(async (tx) => {
+    const { _max } = await tx.client.aggregate({ _max: { viewCount: true } });
+    return tx.client.create({
+      data: {
+        ...parsed.data,
+        viewCount: boostValue(_max.viewCount),
+        cycleInteractions: HOT_THRESHOLD,
+      },
+    });
   });
   res.status(201).json(client);
 });
@@ -180,6 +194,27 @@ clientsRouter.delete("/:id", requireVentas, async (req, res) => {
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
 
+  // No se puede desactivar un cliente con trabajo abierto: dejaría pedidos
+  // o despachos en curso apuntando a un cliente que ya no aparece en
+  // ningún listado ni selector (bloquea siempre, mismo criterio que el
+  // resto de la auditoría de este módulo).
+  const [openPedido, openDispatch] = await Promise.all([
+    prisma.pedido.findFirst({
+      where: { clientId, status: { in: ["pendiente", "aprobado", "en_produccion"] } },
+      select: { id: true, orderNumber: true },
+    }),
+    prisma.dispatch.findFirst({
+      where: { clientId, status: { in: ["pendiente", "en_proceso"] } },
+      select: { id: true },
+    }),
+  ]);
+  if (openPedido) {
+    return res.status(400).json({ error: `No se puede desactivar: el cliente tiene el pedido ${openPedido.orderNumber} sin cerrar` });
+  }
+  if (openDispatch) {
+    return res.status(400).json({ error: "No se puede desactivar: el cliente tiene un despacho sin cerrar" });
+  }
+
   const updated = await prisma.client.update({ where: { id: clientId }, data: { active: false } });
   res.json(updated);
 });
@@ -191,6 +226,9 @@ const updateCreditLimitSchema = z.object({
 /** Edita el límite de crédito manual del cliente (módulo "Cartera"). */
 clientsRouter.patch("/:id/credit-limit", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
   const parsed = updateCreditLimitSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -210,6 +248,9 @@ clientsRouter.patch("/:id/credit-limit", requireVentas, async (req, res) => {
  */
 clientsRouter.get("/:id/cartera", async (req, res) => {
   const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
 
@@ -223,16 +264,19 @@ clientsRouter.get("/:id/cartera", async (req, res) => {
     const total = f.items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unitPrice), 0);
     const paid = f.payments.reduce((sum, p) => sum + Number(p.amount), 0);
     const saldo = total - paid;
-    const vencida = f.dueDate != null && f.dueDate < new Date() && saldo > 0;
+    // Tolerancia de medio centavo: un residuo de punto flotante entre pagos
+    // parciales (ej. 1499.995 en vez de 1500.00) no debe hacer figurar una
+    // factura ya cobrada por completo como "pendiente".
+    const vencida = f.dueDate != null && f.dueDate < new Date() && saldo > 0.005;
     return { id: f.id, invoiceNumber: f.invoiceNumber, status: f.status, total, paid, saldo, dueDate: f.dueDate, vencida };
   });
 
-  const saldoPendiente = facturasConSaldo.reduce((sum, f) => sum + f.saldo, 0);
+  const saldoPendiente = facturasConSaldo.reduce((sum, f) => sum + (f.saldo > 0.005 ? f.saldo : 0), 0);
 
   res.json({
     creditLimit: client.creditLimit,
     saldoPendiente,
-    facturasPendientes: facturasConSaldo.filter((f) => f.saldo > 0),
+    facturasPendientes: facturasConSaldo.filter((f) => f.saldo > 0.005),
   });
 });
 
@@ -434,9 +478,13 @@ clientsRouter.get("/:id/contacts", async (req, res) => {
 
 const createContactSchema = z.object({
   name: z.string().min(1),
-  position: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.email().optional(),
+  // Acepta `null` además de `undefined`: el mismo <ContactoForm> se usa para
+  // crear y editar, y al editar manda `null` explícito para poder borrar un
+  // campo (ver updateContactSchema) -- acá un `null` simplemente significa
+  // "no cargar este campo todavía".
+  position: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  email: z.email().nullable().optional(),
   isPrimary: z.boolean().optional().default(false),
 });
 
@@ -483,6 +531,19 @@ clientsRouter.post("/:id/contacts", requireVentas, async (req, res) => {
   res.status(201).json(contact);
 });
 
+// Edición parcial: a diferencia de crear, acá `name` es opcional (no hace
+// falta reenviar todo el contacto para cambiar un solo campo) y
+// `phone`/`email` aceptan `null` explícito -- si no, no había forma de
+// BORRAR un teléfono o email ya cargado, solo de reemplazarlo por otro
+// (el frontend nunca podía mandar `undefined` para "borrar este campo").
+const updateContactSchema = z.object({
+  name: z.string().min(1).optional(),
+  position: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  email: z.email().nullable().optional(),
+  isPrimary: z.boolean().optional(),
+});
+
 /** Edita un contacto. Si isPrimary:true, desmarca los demás del cliente. */
 clientsRouter.patch("/:id/contacts/:contactId", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
@@ -491,7 +552,7 @@ clientsRouter.patch("/:id/contacts/:contactId", requireVentas, async (req, res) 
     return res.status(400).json({ error: "IDs inválidos" });
   }
 
-  const parsed = createContactSchema.safeParse(req.body);
+  const parsed = updateContactSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   const contact = await prisma.clientContact.findFirst({ where: { id: contactId, clientId } });
@@ -554,6 +615,9 @@ clientsRouter.delete("/:id/contacts/:contactId", requireVentas, async (req, res)
 
 clientsRouter.get("/:id/addresses", async (req, res) => {
   const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
   const addresses = await prisma.clientAddress.findMany({
     where: { clientId },
     orderBy: [{ isPrimary: "desc" }, { label: "asc" }],
@@ -573,6 +637,9 @@ const createAddressSchema = z.object({
 
 clientsRouter.post("/:id/addresses", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
   const parsed = createAddressSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -592,6 +659,9 @@ clientsRouter.post("/:id/addresses", requireVentas, async (req, res) => {
 clientsRouter.delete("/:id/addresses/:addressId", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
   const addressId = Number(req.params.addressId);
+  if (!Number.isInteger(clientId) || !Number.isInteger(addressId)) {
+    return res.status(400).json({ error: "IDs inválidos" });
+  }
 
   const address = await prisma.clientAddress.findFirst({ where: { id: addressId, clientId } });
   if (!address) return res.status(404).json({ error: "Dirección no encontrada" });
@@ -604,6 +674,9 @@ clientsRouter.delete("/:id/addresses/:addressId", requireVentas, async (req, res
 
 clientsRouter.get("/:id/interactions", async (req, res) => {
   const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
   const interactions = await prisma.clientInteraction.findMany({
     where: { clientId },
     orderBy: { createdAt: "desc" },
@@ -618,6 +691,9 @@ const createInteractionSchema = z.object({
 
 clientsRouter.post("/:id/interactions", requireVentas, async (req, res) => {
   const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "ID de cliente inválido" });
+  }
   const parsed = createInteractionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 

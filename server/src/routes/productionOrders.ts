@@ -398,6 +398,8 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
  * derivarla a Extrusión (el proceso base) antes de liberarla a planta
  * (POST /:id/release). Los procesos siguientes se derivan desde ella.
  */
+class ItemAlreadyHasOrderError extends Error {}
+
 productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requireProduccionGestion, async (req, res) => {
   const pedidoVersionItemId = Number(req.params.pedidoVersionItemId);
   if (!Number.isInteger(pedidoVersionItemId)) return res.status(400).json({ error: "Id inválido" });
@@ -409,27 +411,62 @@ productionOrdersRouter.post("/from-pedido-item/:pedidoVersionItemId", requirePro
   if (!item) return res.status(404).json({ error: "Item de pedido no encontrado" });
   if (item.productionOrder) return res.status(400).json({ error: "Este item ya tiene una OP generada" });
 
-  const order = await withSequentialNumberRetry(() =>
-    prisma.$transaction(async (tx) => {
-      const orderNumber = await nextOrderNumber(tx);
+  // El item puede venir de una versión que ya no es la vigente (el pedido se
+  // volvió a editar y PATCH /pedidos/:id creó una versión nueva) — generar
+  // una OP desde ahí dejaría una orden real colgada de un pedido que el
+  // cliente ya no ve. También exige que el pedido esté en un estado desde el
+  // que tiene sentido planear producción (mismo filtro que GET
+  // /pending-planning).
+  const pedido = item.pedidoVersion.pedido;
+  if (item.pedidoVersion.versionNumber !== pedido.currentVersion) {
+    return res.status(400).json({ error: "Esta versión del pedido ya fue reemplazada por una más reciente, recargá la pantalla" });
+  }
+  if (!["aprobado", "en_produccion"].includes(pedido.status)) {
+    return res.status(400).json({ error: "El pedido no está en un estado desde el que se pueda generar producción" });
+  }
 
-      return tx.productionOrder.create({
-        data: {
-          orderNumber,
-          // Igual que POST /: sin proceso hasta que Gestión la derive a
-          // Extrusión explícitamente.
-          station: null,
-          status: "borrador",
-          productId: item.productId,
-          clientId: item.pedidoVersion.pedido.clientId,
-          quantityPlanned: item.quantity,
-          measure: item.measure ?? item.product.measure,
-          pedidoVersionItemId: item.id,
-          createdById: req.user!.userId,
-        },
-      });
-    })
-  );
+  let order;
+  try {
+    order = await withSequentialNumberRetry(() =>
+      prisma.$transaction(async (tx) => {
+        // Re-chequea DENTRO de la transacción, no solo antes: dos clicks
+        // casi simultáneos pasan los dos el chequeo de arriba (leído fuera
+        // de cualquier transacción) y sin esto los dos intentarían crear una
+        // OP para el mismo item — el segundo choca contra el unique de
+        // pedidoVersionItemId y, como withSequentialNumberRetry reintenta
+        // cualquier P2002, terminaba reintentando ciegamente hasta agotar
+        // los intentos y devolver un 500 crudo en vez de un 400 claro.
+        const existing = await tx.productionOrder.findUnique({
+          where: { pedidoVersionItemId: item.id },
+          select: { id: true },
+        });
+        if (existing) throw new ItemAlreadyHasOrderError();
+
+        const orderNumber = await nextOrderNumber(tx);
+
+        return tx.productionOrder.create({
+          data: {
+            orderNumber,
+            // Igual que POST /: sin proceso hasta que Gestión la derive a
+            // Extrusión explícitamente.
+            station: null,
+            status: "borrador",
+            productId: item.productId,
+            clientId: pedido.clientId,
+            quantityPlanned: item.quantity,
+            measure: item.measure ?? item.product.measure,
+            pedidoVersionItemId: item.id,
+            createdById: req.user!.userId,
+          },
+        });
+      })
+    );
+  } catch (err) {
+    if (err instanceof ItemAlreadyHasOrderError) {
+      return res.status(400).json({ error: "Este item ya tiene una OP generada" });
+    }
+    throw err;
+  }
 
   res.status(201).json(order);
 });

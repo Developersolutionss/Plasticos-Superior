@@ -114,8 +114,8 @@ export default function Cotizaciones() {
       const pedido = await api.convertCotizacionToPedido(id);
       setMessage(`Convertida en el pedido ${pedido.orderNumber}.`);
       queryClient.invalidateQueries({ queryKey: ["pedidos"] });
-    } catch {
-      setError("No se pudo convertir la cotización en pedido");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo convertir la cotización en pedido");
     }
   }
 
@@ -263,9 +263,11 @@ export default function Cotizaciones() {
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-3">
-                        <button onClick={() => handleConvert(c.id)} className="text-sky-700 dark:text-sky-400 text-xs hover:underline">
-                          Convertir en pedido
-                        </button>
+                        {c.status === "aceptada" && (
+                          <button onClick={() => handleConvert(c.id)} className="text-sky-700 dark:text-sky-400 text-xs hover:underline">
+                            Convertir en pedido
+                          </button>
+                        )}
                         <button
                           onClick={() => api.downloadCotizacionPdf(c.id, c.quoteNumber)}
                           className="text-slate-600 dark:text-slate-300 text-xs hover:underline"
@@ -303,9 +305,11 @@ export default function Cotizaciones() {
                   ))}
                 </select>
                 <div className="flex items-center gap-4">
-                  <button onClick={() => handleConvert(c.id)} className="text-sky-700 dark:text-sky-400 text-sm hover:underline">
-                    Convertir en pedido
-                  </button>
+                  {c.status === "aceptada" && (
+                    <button onClick={() => handleConvert(c.id)} className="text-sky-700 dark:text-sky-400 text-sm hover:underline">
+                      Convertir en pedido
+                    </button>
+                  )}
                   <button onClick={() => api.downloadCotizacionPdf(c.id, c.quoteNumber)} className="text-slate-600 dark:text-slate-300 text-sm hover:underline">
                     Descargar PDF
                   </button>

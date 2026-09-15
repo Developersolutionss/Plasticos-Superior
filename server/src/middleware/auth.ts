@@ -92,6 +92,11 @@ export const ROLES = {
   // pudiendo ELEGIR un producto ya cargado al armar una OP (INVENTARIO),
   // pero no gestionar el catálogo ni ver Materia prima.
   CATALOGO_GESTION: ["super_admin", "admin", "planeacion"] as UserRole[],
+  // Ventas necesita poder responderle a un cliente si ya se despachó su
+  // pedido sin tener que llamar a Almacén cada vez — solo lectura (ver GET
+  // en dispatches.ts): las mutaciones (marcar ítem, cancelar) siguen siendo
+  // dominio exclusivo de Almacén.
+  DESPACHOS_LECTURA: ["super_admin", "admin", "almacen_despachos", "ventas_pedidos"] as UserRole[],
 };
 
 /**

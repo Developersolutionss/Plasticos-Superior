@@ -4,6 +4,8 @@ import { ScanLine } from "lucide-react";
 import { api } from "../api/client";
 import BarcodeScanner from "../components/BarcodeScanner";
 import Modal from "../components/Modal";
+import { useAuth } from "../auth/AuthContext";
+import { ALMACEN } from "../components/navConfig";
 
 interface ItemDraft {
   productId: string;
@@ -33,8 +35,13 @@ export default function Dispatches() {
   const [creating, setCreating] = useState(false);
 
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  // Ventas también entra a esta pantalla (ver App.tsx, DESPACHOS_LECTURA) pero
+  // solo para consultar -- crear despacho, marcar ítems y cancelar siguen
+  // siendo de Almacén, las mutaciones no aparecen para otro rol.
+  const canManage = !!user && (ALMACEN as string[]).includes(user.role);
 
-  // La pantalla de Despachos ya está restringida al rol Almacén (ver App.tsx)
+  // La pantalla de Despachos ya está restringida al rol Almacén/Ventas (ver App.tsx)
   // así que cualquiera que llegue acá puede leer el listado de clientes
   // (GET /clients ahora acepta Ventas o Almacén, ver clients.ts).
   const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: api.getClients });
@@ -140,6 +147,7 @@ export default function Dispatches() {
 
   return (
     <div className="space-y-4">
+      {canManage && (
       <form onSubmit={handleCreateDispatch} className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-2 max-w-xl">
         <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nuevo despacho</p>
         {createError && <p className="text-red-600 dark:text-red-400 text-sm">{createError}</p>}
@@ -202,18 +210,21 @@ export default function Dispatches() {
           {creating ? "Creando..." : "Crear despacho"}
         </button>
       </form>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className="bg-slate-800 text-white text-sm px-3 py-2 rounded inline-flex items-center gap-1.5 hover:bg-slate-700"
-          onClick={() => {
-            setScanMessage(null);
-            setScanning(true);
-          }}
-        >
-          <ScanLine size={16} strokeWidth={2} aria-hidden="true" /> Escanear
-        </button>
+        {canManage && (
+          <button
+            type="button"
+            className="bg-slate-800 text-white text-sm px-3 py-2 rounded inline-flex items-center gap-1.5 hover:bg-slate-700"
+            onClick={() => {
+              setScanMessage(null);
+              setScanning(true);
+            }}
+          >
+            <ScanLine size={16} strokeWidth={2} aria-hidden="true" /> Escanear
+          </button>
+        )}
         <select className="border rounded px-3 py-2 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={clientId} onChange={(e) => setClientId(e.target.value)}>
           <option value="">Todos los clientes</option>
           {clients?.map((c: any) => (
@@ -247,7 +258,7 @@ export default function Dispatches() {
               </span>
               <span className="flex items-center gap-2">
                 <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{d.status}</span>
-                {d.status !== "cancelada" && (
+                {canManage && d.status !== "cancelada" && (
                   <button
                     type="button"
                     className="text-red-600 dark:text-red-400 text-xs hover:underline disabled:opacity-50"
@@ -283,7 +294,7 @@ export default function Dispatches() {
                       {item.product.name} — solicitado: {item.quantityRequested} {item.product.unit}
                       {item.quantityDispatched != null && ` · despachado: ${item.quantityDispatched}`}
                     </span>
-                    {item.quantityDispatched == null && d.status !== "cancelada" && (
+                    {canManage && item.quantityDispatched == null && d.status !== "cancelada" && (
                       <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                         {locationRequired && (
                           <select
@@ -350,6 +361,18 @@ export default function Dispatches() {
               )}
             </div>
 
+            {selectedDispatch.dispatchedDate && (
+              <p className="text-xs">
+                {selectedDispatch.notifiedAt ? (
+                  <span className="text-emerald-700 dark:text-emerald-400">✓ Se avisó al cliente por WhatsApp</span>
+                ) : (
+                  <span className="text-amber-700 dark:text-amber-400">
+                    ⚠ No se le avisó al cliente por WhatsApp{selectedDispatch.notifyError ? ` — ${selectedDispatch.notifyError}` : ""}
+                  </span>
+                )}
+              </p>
+            )}
+
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1.5">Productos</p>
               <ul className="divide-y">
@@ -367,7 +390,7 @@ export default function Dispatches() {
               </ul>
             </div>
 
-            {selectedDispatch.status !== "cancelada" && (
+            {canManage && selectedDispatch.status !== "cancelada" && (
               <button
                 type="button"
                 className="text-red-600 dark:text-red-400 text-sm hover:underline disabled:opacity-50"

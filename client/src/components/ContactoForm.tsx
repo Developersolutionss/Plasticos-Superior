@@ -2,9 +2,9 @@ import { FormEvent, useState } from "react";
 
 export interface ContactoFormValues {
   name: string;
-  position?: string;
-  phone?: string;
-  email?: string;
+  position?: string | null;
+  phone?: string | null;
+  email?: string | null;
   isPrimary?: boolean;
 }
 
@@ -35,9 +35,12 @@ export default function ContactoForm({
     if (!form.name.trim()) return;
     onSubmit({
       name: form.name.trim(),
-      position: form.position?.trim() ? form.position.trim() : undefined,
-      phone: form.phone?.trim() ? form.phone.trim() : undefined,
-      email: form.email?.trim() ? form.email.trim() : undefined,
+      // `null` (no `undefined`): así el backend sabe distinguir "no se tocó
+      // este campo" de "se borró" -- `undefined` desaparece en el JSON y el
+      // PATCH nunca llegaba a limpiar un teléfono/email ya cargado.
+      position: form.position?.trim() ? form.position.trim() : null,
+      phone: form.phone?.trim() ? form.phone.trim() : null,
+      email: form.email?.trim() ? form.email.trim() : null,
       isPrimary: form.isPrimary,
     });
   }
@@ -54,20 +57,20 @@ export default function ContactoForm({
         <input
           className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           placeholder="Cargo"
-          value={form.position}
+          value={form.position ?? ""}
           onChange={(e) => setForm({ ...form, position: e.target.value })}
         />
         <input
           className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           placeholder="Teléfono"
-          value={form.phone}
+          value={form.phone ?? ""}
           onChange={(e) => setForm({ ...form, phone: e.target.value })}
         />
         <input
           className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           placeholder="Email"
           type="email"
-          value={form.email}
+          value={form.email ?? ""}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
         />
       </div>

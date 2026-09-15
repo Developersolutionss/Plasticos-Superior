@@ -604,6 +604,32 @@ describe("despachos", () => {
     await prisma.dispatch.delete({ where: { id: dispatch.id } });
   });
 
+  it("no se puede despachar más de lo pedido (quantityDispatched > quantityRequested)", async () => {
+    const clientsRes = await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() });
+    const clients = (await clientsRes.json()) as { id: number }[];
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+
+    const res = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ clientId: clients[0].id, items: [{ productId: product.id, quantityRequested: 5 }] }),
+    });
+    const dispatch = (await res.json()) as { id: number; items: { id: number }[] };
+
+    const overshoot = await fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ quantityDispatched: 10 }),
+    });
+    assert.equal(overshoot.status, 400);
+
+    const stillPending = await prisma.dispatchItem.findUnique({ where: { id: dispatch.items[0].id } });
+    assert.equal(stillPending!.quantityDispatched, null, "el intento rechazado no debe haber descontado nada");
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatchId: dispatch.id } });
+    await prisma.dispatch.delete({ where: { id: dispatch.id } });
+  });
+
   it("POST / valida que el cliente y los productos existan, y que el producto esté activo", async () => {
     const clientsRes = await fetch(`${baseUrl}/api/clients`, { headers: authHeaders() });
     const clients = (await clientsRes.json()) as { id: number }[];
@@ -636,9 +662,20 @@ describe("despachos", () => {
     await prisma.product.delete({ where: { id: inactiveProduct.id } });
   });
 
-  it("devuelve 403 para un rol sin acceso a Despachos", async () => {
-    const res = await fetch(`${baseUrl}/api/dispatches`, { headers: headersFor("ventas") });
+  it("devuelve 403 para un rol sin acceso a Despachos, y 200 de solo lectura para Ventas", async () => {
+    const res = await fetch(`${baseUrl}/api/dispatches`, { headers: headersFor("produccion") });
     assert.equal(res.status, 403);
+
+    // Ventas puede consultar despachos (para responderle a un cliente sin
+    // llamar a Almacén) pero solo lectura -- las mutaciones siguen dando 403.
+    const ventasRead = await fetch(`${baseUrl}/api/dispatches`, { headers: headersFor("ventas") });
+    assert.equal(ventasRead.status, 200);
+    const createForbidden = await fetch(`${baseUrl}/api/dispatches`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ clientId: 1, items: [{ productId: 1, quantityRequested: 1 }] }),
+    });
+    assert.equal(createForbidden.status, 403);
   });
 
   it("GET /summary-by-client agrupa lo YA despachado (no lo pendiente) por cliente+producto", async () => {
@@ -647,7 +684,7 @@ describe("despachos", () => {
     const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
     const client = clients[0];
 
-    const forbidden = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: headersFor("ventas") });
+    const forbidden = await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: headersFor("produccion") });
     assert.equal(forbidden.status, 403);
 
     // Despachar ya no deja el stock en negativo (ver auditoría de
@@ -3032,6 +3069,159 @@ describe("cotizaciones → pedido → factura → pagos", () => {
     await prisma.cotizacion.delete({ where: { id: cotizacion.id } });
   });
 
+  it("no se puede convertir dos veces la misma cotización (400, no un choque de FK crudo)", async () => {
+    const cotRes = await fetch(`${baseUrl}/api/cotizaciones`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ clientId, items: [{ productId, quantity: 2 }] }),
+    });
+    const cotizacion = (await cotRes.json()) as { id: number };
+
+    const noAceptada = await fetch(`${baseUrl}/api/cotizaciones/${cotizacion.id}/convertir-a-pedido`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+    });
+    assert.equal(noAceptada.status, 400, "solo se puede convertir una cotización aceptada");
+
+    await fetch(`${baseUrl}/api/cotizaciones/${cotizacion.id}/status`, {
+      method: "PATCH",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ status: "aceptada" }),
+    });
+
+    const first = await fetch(`${baseUrl}/api/cotizaciones/${cotizacion.id}/convertir-a-pedido`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+    });
+    assert.equal(first.status, 201);
+    const pedido = (await first.json()) as { id: number };
+
+    const second = await fetch(`${baseUrl}/api/cotizaciones/${cotizacion.id}/convertir-a-pedido`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+    });
+    assert.equal(second.status, 400);
+
+    const allVersions = await prisma.pedidoVersion.findMany({ where: { pedidoId: pedido.id } });
+    for (const v of allVersions) await prisma.pedidoVersionItem.deleteMany({ where: { pedidoVersionId: v.id } });
+    await prisma.pedidoVersion.deleteMany({ where: { pedidoId: pedido.id } });
+    await prisma.pedido.delete({ where: { id: pedido.id } });
+    await prisma.cotizacionItem.deleteMany({ where: { cotizacionId: cotizacion.id } });
+    await prisma.cotizacion.delete({ where: { id: cotizacion.id } });
+  });
+
+  it("PATCH /pedidos/:id rechaza transiciones inválidas y productos repetidos", async () => {
+    const createRes = await fetch(`${baseUrl}/api/pedidos`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ clientId, items: [{ productId, quantity: 1 }] }),
+    });
+    const pedido = (await createRes.json()) as { id: number };
+
+    // borrador → despachado: transición imposible, se salta todo el flujo.
+    const badTransition = await fetch(`${baseUrl}/api/pedidos/${pedido.id}`, {
+      method: "PATCH",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ status: "despachado", items: [{ productId, quantity: 1 }] }),
+    });
+    assert.equal(badTransition.status, 400);
+
+    const dupeItems = await fetch(`${baseUrl}/api/pedidos/${pedido.id}`, {
+      method: "PATCH",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({
+        status: "pendiente",
+        items: [
+          { productId, quantity: 1 },
+          { productId, quantity: 2 },
+        ],
+      }),
+    });
+    assert.equal(dupeItems.status, 400, "el mismo producto dos veces en items debe rechazarse");
+
+    await prisma.pedidoVersionItem.deleteMany({ where: { pedidoVersion: { pedidoId: pedido.id } } });
+    await prisma.pedidoVersion.deleteMany({ where: { pedidoId: pedido.id } });
+    await prisma.pedido.delete({ where: { id: pedido.id } });
+  });
+
+  it("PATCH /pedidos/:id se bloquea si ya hay una OP generada desde el pedido", async () => {
+    const createRes = await fetch(`${baseUrl}/api/pedidos`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ clientId, items: [{ productId, quantity: 3 }] }),
+    });
+    const pedido = (await createRes.json()) as { id: number; versions: { items: { id: number }[] }[] };
+
+    // El PATCH crea una v2 (mismo comportamiento aunque solo cambie el
+    // status) -- el ítem que sirve para generar la OP es el de la versión
+    // NUEVA (currentVersion), no el de la v1 original.
+    const aprobar = await fetch(`${baseUrl}/api/pedidos/${pedido.id}`, {
+      method: "PATCH",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ status: "aprobado", items: [{ productId, quantity: 3 }] }),
+    });
+    assert.equal(aprobar.status, 201);
+    const aprobarBody = (await aprobar.json()) as { items: { id: number }[] };
+    const itemId = aprobarBody.items[0].id;
+
+    const generate = await fetch(`${baseUrl}/api/production-orders/from-pedido-item/${itemId}`, {
+      method: "POST",
+      headers: headersFor("planeacion"),
+    });
+    assert.equal(generate.status, 201);
+    const order = (await generate.json()) as { id: number };
+
+    const blockedEdit = await fetch(`${baseUrl}/api/pedidos/${pedido.id}`, {
+      method: "PATCH",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ status: "en_produccion", items: [{ productId, quantity: 5 }] }),
+    });
+    assert.equal(blockedEdit.status, 400, "no se puede cambiar los ítems de un pedido con OP ya generada");
+
+    // Pero SÍ se puede avanzar el status con los mismos ítems -- si no, el
+    // pedido queda clavado en "aprobado" para siempre en cuanto Planeación
+    // genera la OP, sin poder pasar a en_produccion/despachado ni cancelarse.
+    const advanceStatus = await fetch(`${baseUrl}/api/pedidos/${pedido.id}`, {
+      method: "PATCH",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ status: "en_produccion", items: [{ productId, quantity: 3 }] }),
+    });
+    assert.equal(advanceStatus.status, 201, "avanzar el status con los mismos ítems debe permitirse aunque haya OP");
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+    await prisma.pedidoVersionItem.deleteMany({ where: { pedidoVersion: { pedidoId: pedido.id } } });
+    await prisma.pedidoVersion.deleteMany({ where: { pedidoId: pedido.id } });
+    await prisma.pedido.delete({ where: { id: pedido.id } });
+  });
+
+  it("POST /production-orders/from-pedido-item rechaza una versión reemplazada del pedido", async () => {
+    const createRes = await fetch(`${baseUrl}/api/pedidos`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ clientId, items: [{ productId, quantity: 2 }] }),
+    });
+    const pedido = (await createRes.json()) as { id: number; versions: { items: { id: number }[] }[] };
+    const staleItemId = pedido.versions[0].items[0].id;
+
+    // Editar crea v2 (status aprobado) -- v1 queda reemplazada.
+    const editRes = await fetch(`${baseUrl}/api/pedidos/${pedido.id}`, {
+      method: "PATCH",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ status: "aprobado", items: [{ productId, quantity: 2 }] }),
+    });
+    assert.equal(editRes.status, 201);
+
+    const staleGenerate = await fetch(`${baseUrl}/api/production-orders/from-pedido-item/${staleItemId}`, {
+      method: "POST",
+      headers: headersFor("planeacion"),
+    });
+    assert.equal(staleGenerate.status, 400, "no se puede generar OP desde un ítem de una versión reemplazada");
+
+    await prisma.pedidoVersionItem.deleteMany({ where: { pedidoVersion: { pedidoId: pedido.id } } });
+    await prisma.pedidoVersion.deleteMany({ where: { pedidoId: pedido.id } });
+    await prisma.pedido.delete({ where: { id: pedido.id } });
+  });
+
   it("crear cotización sin ítems devuelve 400 (zod min 1)", async () => {
     const res = await fetch(`${baseUrl}/api/cotizaciones`, {
       method: "POST",
@@ -4203,6 +4393,75 @@ describe("clientes · nuevo CRM (edición, visitas, avatar, lista global)", () =
     assert.equal(body.viewCount, (antes._max.viewCount ?? 0) + 1);
     assert.equal(body.cycleInteractions, HOT_THRESHOLD, "nace 'hot'");
     await prisma.client.delete({ where: { id: body.id } });
+  });
+
+  it("POST /clients rechaza un nombre duplicado (case-insensitive) entre clientes activos", async () => {
+    const name = `TEST-DUP-${Date.now()}`;
+    const first = await fetch(`${baseUrl}/api/clients`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name }),
+    });
+    assert.equal(first.status, 201);
+    const created = (await first.json()) as { id: number };
+
+    const dup = await fetch(`${baseUrl}/api/clients`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: name.toLowerCase() }),
+    });
+    assert.equal(dup.status, 400);
+
+    await prisma.client.delete({ where: { id: created.id } });
+  });
+
+  it("DELETE /:id se bloquea si el cliente tiene un pedido o despacho abierto", async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-OPEN-WORK-${Date.now()}` } });
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+
+    const pedido = await prisma.pedido.create({
+      data: {
+        orderNumber: `PED-TEST-${Date.now()}`,
+        clientId: client.id,
+        status: "pendiente",
+        currentVersion: 1,
+        versions: { create: { versionNumber: 1, status: "pendiente", items: { create: { productId: product.id, quantity: 1, unitPrice: 1 } } } },
+      },
+    });
+
+    const blocked = await fetch(`${baseUrl}/api/clients/${client.id}`, { method: "DELETE", headers: authHeaders() });
+    assert.equal(blocked.status, 400);
+
+    await prisma.pedidoVersionItem.deleteMany({ where: { pedidoVersion: { pedidoId: pedido.id } } });
+    await prisma.pedidoVersion.deleteMany({ where: { pedidoId: pedido.id } });
+    await prisma.pedido.delete({ where: { id: pedido.id } });
+
+    const okNow = await fetch(`${baseUrl}/api/clients/${client.id}`, { method: "DELETE", headers: authHeaders() });
+    assert.equal(okNow.status, 200, "sin trabajo abierto, la desactivación funciona normal");
+
+    await prisma.client.delete({ where: { id: client.id } });
+  });
+
+  it("PATCH /:id/contacts/:contactId acepta null explícito para borrar teléfono/email", async () => {
+    const created = await fetch(`${baseUrl}/api/clients/${clientId}/contacts`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "TEST-CLEAR-CONTACT", phone: "3001234567", email: "test@example.com" }),
+    });
+    const contact = (await created.json()) as { id: number };
+
+    const cleared = await fetch(`${baseUrl}/api/clients/${clientId}/contacts/${contact.id}`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ phone: null, email: null }),
+    });
+    assert.equal(cleared.status, 200);
+    const body = (await cleared.json()) as { phone: string | null; email: string | null; name: string };
+    assert.equal(body.phone, null);
+    assert.equal(body.email, null);
+    assert.equal(body.name, "TEST-CLEAR-CONTACT", "editar sin mandar name no lo borra (name sigue siendo opcional en el PATCH)");
+
+    await prisma.clientContact.delete({ where: { id: contact.id } });
   });
 
   it("POST /contacts/:id/visit incrementa la frecuencia DEL CONTACTO (independiente del cliente)", async () => {

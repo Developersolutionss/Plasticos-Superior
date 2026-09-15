@@ -48,6 +48,11 @@ export const EXISTENCIAS: UserRole[] = [...ADMIN, "almacen_despachos", "planeaci
 // cliente -- sigue pudiendo ELEGIR un producto al armar una OP (INVENTARIO),
 // pero no gestionar el catálogo ni ver Materia prima.
 export const CATALOGO_GESTION: UserRole[] = [...ADMIN, "planeacion"];
+// Ventas necesita ver Despachos para responderle a un cliente sin llamar a
+// Almacén -- solo lectura, las mutaciones (marcar ítem, cancelar) siguen
+// siendo de Almacén (ver Dispatches.tsx, que oculta esos controles si el
+// rol no está en ALMACEN).
+export const DESPACHOS_LECTURA: UserRole[] = [...ALMACEN, "ventas_pedidos"];
 const TODOS: UserRole[] = [
   "super_admin",
   "admin",
@@ -117,8 +122,8 @@ export const navSections: NavEntry[] = [
       { id: "clientes-cotizaciones", label: "Cotizaciones", to: "/clientes/cotizaciones" },
     ],
   },
-  { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: ALMACEN, group: "Ventas" },
-  { id: "despachos-por-cliente", icon: "truck", label: "Despachos por cliente", to: "/despachos/por-cliente", roles: ALMACEN, group: "Ventas" },
+  { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: DESPACHOS_LECTURA, group: "Ventas" },
+  { id: "despachos-por-cliente", icon: "truck", label: "Despachos por cliente", to: "/despachos/por-cliente", roles: DESPACHOS_LECTURA, group: "Ventas" },
   { id: "pedidos", icon: "package", label: "Pedidos", to: "/pedidos", roles: VENTAS, group: "Ventas" },
   // Oculto a pedido de Steban: el cliente factura en un sistema aparte.
   // Se deja el módulo creado (código, ruta, backend intactos) por si se
