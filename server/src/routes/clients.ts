@@ -10,12 +10,14 @@ import { boostValue, isHot, nextCycle, nextVisitState, HOT_THRESHOLD } from "../
 export const clientsRouter = Router();
 clientsRouter.use(requireAuth);
 
-/** Almacén también necesita leer el listado de clientes (solo lectura, para
- * elegir a quién despachar) — por eso este GET va ANTES del guard general de
- * Ventas de acá abajo, con su propio permiso ampliado. El resto del CRM
- * (contactos, direcciones, cotizaciones, cualquier mutación) sigue siendo
- * dominio exclusivo de Ventas/Pedidos. */
-clientsRouter.get("/", requireRole(...ROLES.VENTAS, ...ROLES.ALMACEN), async (_req, res) => {
+/** Almacén y Gestión de Producción también necesitan leer el listado de
+ * clientes (solo lectura) — Almacén para elegir a quién despachar, Gestión
+ * para elegir el destino de una OP (¿estantería o un cliente puntual?, ver
+ * POST /production-orders y PATCH /production-orders/:id) — por eso este
+ * GET va ANTES del guard general de Ventas de acá abajo, con su propio
+ * permiso ampliado. El resto del CRM (contactos, direcciones, cotizaciones,
+ * cualquier mutación) sigue siendo dominio exclusivo de Ventas/Pedidos. */
+clientsRouter.get("/", requireRole(...ROLES.VENTAS, ...ROLES.ALMACEN, ...ROLES.PRODUCCION_GESTION), async (_req, res) => {
   const clients = await prisma.client.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   res.json(clients);
 });

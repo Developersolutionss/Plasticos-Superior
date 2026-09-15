@@ -215,6 +215,24 @@ describe("clientes", () => {
     const client = (await res.json()) as { id: number };
     await prisma.client.delete({ where: { id: client.id } });
   });
+
+  it("GET / también es legible por Gestión de Producción (elige el destino de una OP), no solo Ventas/Almacén", async () => {
+    const res = await fetch(`${baseUrl}/api/clients`, { headers: headersFor("produccion") });
+    assert.equal(res.status, 200);
+    const clients = (await res.json()) as { name: string }[];
+    assert.ok(Array.isArray(clients));
+
+    // El resto del CRM (mutaciones) sigue siendo exclusivo de Ventas.
+    const create = await fetch(`${baseUrl}/api/clients`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ name: "TEST-CLIENT-NO-GESTION" }),
+    });
+    assert.equal(create.status, 403);
+
+    const denied = await fetch(`${baseUrl}/api/clients`, { headers: headersFor("operario_extrusion") });
+    assert.equal(denied.status, 403, "un operario puro sigue sin poder ver clientes");
+  });
 });
 
 describe("inventario", () => {
@@ -2558,6 +2576,36 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     assert.match(body.error, /Cliente no encontrado/);
 
     await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("PATCH /:id cambia el destino de la OP (estantería <-> cliente) mientras siga abierta", async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-DESTINO-${Date.now()}` } });
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 10 },
+    });
+    assert.equal(order.clientId, null, "nace en estantería (sin cliente) por defecto");
+
+    const toClient = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ clientId: client.id }),
+    });
+    assert.equal(toClient.status, 200);
+    const toClientBody = (await toClient.json()) as { clientId: number | null };
+    assert.equal(toClientBody.clientId, client.id);
+
+    // Y de vuelta a estantería (clientId: null explícito).
+    const toShelf = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ clientId: null }),
+    });
+    assert.equal(toShelf.status, 200);
+    const toShelfBody = (await toShelf.json()) as { clientId: number | null };
+    assert.equal(toShelfBody.clientId, null);
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+    await prisma.client.delete({ where: { id: client.id } });
   });
 
   it("PATCH /:id no deja bajar la meta por debajo de lo ya cargado (peso + desperdicio)", async () => {

@@ -176,7 +176,7 @@ export default function OrdenProduccionDetalle() {
   const [specsDraft, setSpecsDraft] = useState<Record<string, any>>({});
   const [materiaPrima, setMateriaPrima] = useState<MateriaPrimaRow[]>([]);
   const [colores, setColores] = useState<{ cara1: ColorRow[]; cara2: ColorRow[] }>({ cara1: [], cara2: [] });
-  const [headerDraft, setHeaderDraft] = useState({ quantityPlanned: "", measure: "", notes: "", alertThresholdKg: "" });
+  const [headerDraft, setHeaderDraft] = useState({ quantityPlanned: "", measure: "", notes: "", alertThresholdKg: "", clientId: "" });
   const [dirty, setDirty] = useState(false);
   const [rollDraft, setRollDraft] = useState<Record<string, string>>({});
   const [sourceRoll, setSourceRoll] = useState<{ id: number; label: string | null; weightKg: unknown; createdBy?: { name: string } | null } | null>(null);
@@ -198,6 +198,8 @@ export default function OrdenProduccionDetalle() {
     queryFn: () => api.getProductionOrder(orderId),
     enabled: Number.isInteger(orderId),
   });
+  // Para poder editar el destino (Estantería/Cliente) desde la hoja.
+  const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: api.getClients });
 
   // Sincroniza los borradores locales cuando llega/cambia la OP del server.
   useEffect(() => {
@@ -285,6 +287,7 @@ export default function OrdenProduccionDetalle() {
       measure: order.measure ?? "",
       notes: order.notes ?? "",
       alertThresholdKg: order.alertThresholdKg != null ? String(Number(order.alertThresholdKg)) : "",
+      clientId: order.clientId != null ? String(order.clientId) : "",
     });
     // El autocompletado de arriba (Medidas, Color/Densidad/Calibre del
     // producto, Cantidad heredada del padre) puede haber agregado datos que
@@ -435,6 +438,7 @@ export default function OrdenProduccionDetalle() {
         measure: headerDraft.measure || null,
         notes: headerDraft.notes || null,
         alertThresholdKg: headerDraft.alertThresholdKg ? Number(headerDraft.alertThresholdKg) : null,
+        clientId: headerDraft.clientId ? Number(headerDraft.clientId) : null,
       });
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
@@ -948,8 +952,30 @@ export default function OrdenProduccionDetalle() {
             <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{order.orderNumber}</span>
           </div>
           <div className={`${cellBorder} p-2`}>
-            <span className={cellLabel}>Cliente</span>
-            <span className="text-sm text-slate-800 dark:text-slate-100">{order.client?.name ?? "—"}</span>
+            <span className={cellLabel} title="A qué cliente se despacha esta OP al aprobarse en Calidad -- vacío = entra a stock general (estantería)">
+              Destino
+            </span>
+            {canEditSpecs ? (
+              <select
+                className={sheetInput}
+                value={headerDraft.clientId}
+                onChange={(e) => {
+                  setHeaderDraft((h) => ({ ...h, clientId: e.target.value }));
+                  markDirty();
+                }}
+              >
+                <option value="">Estantería (stock general)</option>
+                {clients?.map((c: any) => (
+                  <option key={c.id} value={c.id}>
+                    Cliente: {c.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-sm text-slate-800 dark:text-slate-100">
+                {order.client?.name ? `Cliente: ${order.client.name}` : "Estantería (stock general)"}
+              </span>
+            )}
           </div>
           <div className={`${cellBorder} p-2`}>
             <span className={cellLabel}>Referencia</span>

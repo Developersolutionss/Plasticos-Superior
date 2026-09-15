@@ -188,6 +188,11 @@ export function StationBadge({ station }: { station: string | null }) {
 export default function OrdenesProduccion() {
   const [station, setStation] = useState<string>("");
   const [productId, setProductId] = useState("");
+  // El destino (estantería vs. cliente puntual) ahora es una elección
+  // explícita y obligatoria -- antes "Cliente" era un dropdown opcional
+  // fácil de pasar por alto, así que una OP terminaba yéndose a stock
+  // general sin que nadie lo haya decidido a propósito.
+  const [destino, setDestino] = useState<"estanteria" | "cliente">("estanteria");
   const [clientId, setClientId] = useState("");
   const [quantityPlanned, setQuantityPlanned] = useState("");
   const [measure, setMeasure] = useState("");
@@ -217,12 +222,16 @@ export default function OrdenesProduccion() {
     e.preventDefault();
     setError(null);
     if (!productId || !quantityPlanned) return;
+    if (destino === "cliente" && !clientId) {
+      setError("Elegí a qué cliente va, o cambiá el destino a Estantería");
+      return;
+    }
     try {
       const order = await api.createProductionOrder({
         // Sin proceso todavía: se crea "en blanco" y se deriva a Extrusión
         // como primer paso explícito desde la hoja de la OP.
         productId: Number(productId),
-        clientId: clientId ? Number(clientId) : undefined,
+        clientId: destino === "cliente" ? Number(clientId) : undefined,
         quantityPlanned: Number(quantityPlanned),
         measure: measure || undefined,
         notes: notes || undefined,
@@ -271,18 +280,39 @@ export default function OrdenesProduccion() {
               </option>
             ))}
           </select>
-          <select
-            className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-          >
-            <option value="">Cliente (opcional)...</option>
-            {clients?.map((c: any) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <div className="sm:col-span-3 flex flex-wrap items-center gap-4 text-sm">
+            <span className="text-slate-500 dark:text-slate-400">Destino:</span>
+            <label className="inline-flex items-center gap-1.5">
+              <input
+                type="radio"
+                name="destino"
+                checked={destino === "estanteria"}
+                onChange={() => {
+                  setDestino("estanteria");
+                  setClientId("");
+                }}
+              />
+              Estantería (stock general)
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="destino" checked={destino === "cliente"} onChange={() => setDestino("cliente")} />
+              Cliente específico
+            </label>
+            {destino === "cliente" && (
+              <select
+                className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+              >
+                <option value="">Elegí el cliente...</option>
+                {clients?.map((c: any) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
           <input
             className="border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             placeholder="Cantidad planificada (kg)"
