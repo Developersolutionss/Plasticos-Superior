@@ -69,13 +69,22 @@ describe("App", () => {
     expect(screen.getByLabelText("Contraseña")).toHaveValue("");
   });
 
-  it("inicia sesión y navega al layout con el usuario logueado", async () => {
+  it("inicia sesión, muestra la transición de bienvenida y navega al layout", async () => {
     const user = userEvent.setup();
     renderApp("/login");
     await user.type(screen.getByLabelText("Email"), "despacho@empresa.com");
     await user.type(screen.getByLabelText("Contraseña"), "password123");
     await user.click(screen.getByRole("button", { name: "Ingresar" }));
-    expect(await screen.findByRole("button", { name: "Salir" })).toBeInTheDocument();
+
+    // Antes de llegar al layout se ve la pantalla de transición ("Bienvenido,
+    // <nombre>") -- login() ya corrió (la sesión existe) pero la navegación
+    // a "/" se demora un momento a propósito, no es instantánea.
+    expect(await screen.findByText("Bienvenido, Admin")).toBeInTheDocument();
+
+    // La navegación real tarda ~1.6s (ver setTimeout en Login.tsx) -- se le
+    // da margen de sobra al timeout default de findBy (1s) para no volverse
+    // un test flaky.
+    expect(await screen.findByRole("button", { name: "Salir" }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
     expect(api.login).toHaveBeenCalledWith("despacho@empresa.com", "password123", undefined);
   });

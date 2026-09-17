@@ -1,8 +1,35 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, KeyRound, Loader2, Lock, Mail, ShieldCheck, TriangleAlert } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+
+/** Frases que se van turnando mientras se arma la sesión (puramente
+ * cosmético — no hay ninguna carga real detrás, es para que el salto del
+ * login al dashboard no se sienta instantáneo/brusco). */
+const WELCOME_STEPS = ["Verificando tus credenciales...", "Configurando tu experiencia personalizada...", "Ya casi..."];
+
+function WelcomeTransition({ name }: { name?: string }) {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setStep((s) => Math.min(s + 1, WELCOME_STEPS.length - 1)), 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-5 bg-gradient-to-br from-slate-900 via-slate-900 to-sky-950 text-white px-6">
+      <div className="bg-white/95 backdrop-blur rounded-2xl p-3.5 shadow-xl shadow-black/30 ring-1 ring-white/10">
+        <img src="/logo-full.png" alt="Plásticos Superior San Judas S.A.S." className="h-12 w-auto" />
+      </div>
+      <Loader2 size={28} strokeWidth={2} className="animate-spin text-sky-400" aria-hidden="true" />
+      <div className="text-center space-y-1">
+        <p className="text-slate-100 font-medium">{name ? `Bienvenido, ${name}` : "Bienvenido"}</p>
+        <p className="text-slate-400 text-sm">{WELCOME_STEPS[step]}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -12,6 +39,7 @@ export default function Login() {
   const [needs2fa, setNeeds2fa] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [welcomeUser, setWelcomeUser] = useState<{ name?: string } | null>(null);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -27,13 +55,22 @@ export default function Login() {
       }
       if (res.token && res.user) {
         login(res.token, res.user as any);
-        navigate("/");
+        // La sesión ya quedó armada (login() de arriba) -- esta pantalla es
+        // puramente de transición, para que pasar del form al dashboard no
+        // se sienta como un salto brusco. `name` es opcional porque no
+        // todos los roles lo traen en el payload del token.
+        setWelcomeUser({ name: (res.user as any)?.name });
+        setTimeout(() => navigate("/"), 1600);
       }
     } catch (err: any) {
       setError(err.message?.includes("bloqueada") ? err.message : needs2fa ? "Código inválido" : "Credenciales inválidas");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (welcomeUser) {
+    return <WelcomeTransition name={welcomeUser.name} />;
   }
 
   return (
@@ -53,7 +90,7 @@ export default function Login() {
         <div className="absolute -bottom-32 -left-16 h-96 w-96 rounded-full bg-emerald-500/10 blur-3xl" aria-hidden="true" />
 
         <div className="relative z-10 flex flex-col justify-between p-12 w-full">
-          <div className="bg-white rounded-xl p-3 w-fit shadow-lg">
+          <div className="bg-white/95 backdrop-blur rounded-2xl p-3.5 w-fit shadow-xl shadow-black/30 ring-1 ring-white/10">
             <img src="/logo-full.png" alt="Plásticos Superior San Judas S.A.S." className="h-12 w-auto" />
           </div>
 
