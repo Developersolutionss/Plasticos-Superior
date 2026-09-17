@@ -701,9 +701,20 @@ model ProductionRoll {
   wasteKg           Decimal         @default(0) @map("waste_kg") @db.Decimal(12, 2)
   details           Json?
   notes             String?
-  sourceRollId      Int?             @unique @map("source_roll_id")
+  /// Rollo madre PRINCIPAL del que salió este (el primero que se escaneó).
+  /// Ya NO es `@unique`: en Sellado/Precorte un mismo rollo de Extrusión
+  /// alimenta muchas filas — se monta en la máquina y se le van sacando
+  /// rollos chicos hasta agotarlo. El reparto real en kilos vive en
+  /// `RollConsumption`; esto queda como atajo para mostrar "de dónde salió"
+  /// sin tener que cargar el ledger.
+  sourceRollId      Int?             @map("source_roll_id")
   sourceRoll        ProductionRoll?  @relation("RollSource", fields: [sourceRollId], references: [id])
   consumedBy        ProductionRoll[] @relation("RollSource")
+  /// Kilos que ESTE rollo le sacó a cada rollo madre.
+  consumptions      RollConsumption[] @relation("RollConsumed")
+  /// Kilos que le sacaron a ESTE rollo (cuando actúa como rollo madre) —
+  /// el saldo disponible es `weightKg` menos la suma de esto.
+  consumedAsSource  RollConsumption[] @relation("RollSourceOf")
   createdById       Int?            @map("created_by")
   createdBy         User?           @relation(fields: [createdById], references: [id])
   createdAt         DateTime        @default(now()) @map("created_at")
@@ -711,6 +722,30 @@ model ProductionRoll {
   bultoLabel        BultoLabel?
 
   @@map("production_rolls")
+}
+
+/// Cuántos kilos le sacó un rollo a su rollo madre. Un rollo grande de
+/// Extrusión (45, 50, 70 kg) se monta en Sellado/Precorte y de ahí salen
+/// varios rollos chicos: cada uno descuenta del saldo del madre, y si un
+/// rollo chico se pasa del saldo que quedaba, el excedente sale del rollo
+/// madre siguiente (por eso un rollo puede tener más de una fila acá).
+/// Antes esto no existía: `sourceRollId` era `@unique`, así que un rollo
+/// madre solo podía consumirse entero y de una sola vez, y el saldo lo
+/// llevaban a mano en papel.
+model RollConsumption {
+  id           Int            @id @default(autoincrement())
+  /// Rollo chico que consumió el material.
+  rollId       Int            @map("roll_id")
+  roll         ProductionRoll @relation("RollConsumed", fields: [rollId], references: [id], onDelete: Cascade)
+  /// Rollo madre del que salieron estos kilos.
+  sourceRollId Int            @map("source_roll_id")
+  sourceRoll   ProductionRoll @relation("RollSourceOf", fields: [sourceRollId], references: [id])
+  quantityKg   Decimal        @map("quantity_kg") @db.Decimal(12, 2)
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  @@index([rollId])
+  @@index([sourceRollId])
+  @@map("roll_consumptions")
 }
 
 /// Etiqueta física de bulto pre-impresa con QR (Sellado): a diferencia del

@@ -165,6 +165,54 @@ interface ColorRow {
   lote: string;
 }
 
+/** Un rollo madre escaneado, con el saldo que le quedaba al momento del
+ * escaneo (`remainingKg`, lo calcula el server en GET /rolls/by-code). */
+interface SourceRollChip {
+  id: number;
+  code: string;
+  label: string | null;
+  weightKg: number;
+  remainingKg: number;
+  createdByName?: string | null;
+}
+
+/** Reparte los kilos de la fila entre los rollos madre escaneados, agotando
+ * cada uno antes de pasar al siguiente — la misma cuenta que hace el server
+ * al guardar (allocateFromSourceRolls). Acá es solo para mostrarle al
+ * operario cómo va a quedar el reparto ANTES de guardar. */
+function previewAllocation(rolls: SourceRollChip[], quantityKg: number) {
+  const allocations: { roll: SourceRollChip; quantityKg: number }[] = [];
+  let pending = Math.round(quantityKg * 100) / 100;
+  for (const roll of rolls) {
+    if (pending <= 0) break;
+    if (roll.remainingKg <= 0) continue;
+    const take = Math.round(Math.min(roll.remainingKg, pending) * 100) / 100;
+    allocations.push({ roll, quantityKg: take });
+    pending = Math.round((pending - take) * 100) / 100;
+  }
+  return { allocations, missingKg: pending > 0.005 ? pending : 0 };
+}
+
+/** Cómo van a quedar repartidos los kilos de la fila entre los rollos madre
+ * escaneados, o cuánto falta todavía por cubrir. Se muestra mientras el
+ * operario tipea el peso, para que no se entere recién al guardar. */
+function SourceAllocationHint({ rolls, weightKg }: { rolls: SourceRollChip[]; weightKg: number }) {
+  const { allocations, missingKg } = previewAllocation(rolls, weightKg);
+  if (missingKg > 0) {
+    return (
+      <span className="text-[10px] text-amber-700 dark:text-amber-400">
+        Faltan {missingKg} kg — escaneá el siguiente rollo madre
+      </span>
+    );
+  }
+  if (allocations.length < 2) return null;
+  return (
+    <span className="text-[10px] text-slate-600 dark:text-slate-300">
+      Sale de: {allocations.map((a) => `${a.roll.code} ${a.quantityKg} kg`).join(" + ")}
+    </span>
+  );
+}
+
 export default function OrdenProduccionDetalle() {
   const { id } = useParams<{ id: string }>();
   const orderId = Number(id);
@@ -180,7 +228,11 @@ export default function OrdenProduccionDetalle() {
   const [headerDraft, setHeaderDraft] = useState({ quantityPlanned: "", measure: "", notes: "", alertThresholdKg: "", clientId: "" });
   const [dirty, setDirty] = useState(false);
   const [rollDraft, setRollDraft] = useState<Record<string, string>>({});
-  const [sourceRoll, setSourceRoll] = useState<{ id: number; label: string | null; weightKg: unknown; createdBy?: { name: string } | null } | null>(null);
+  // Rollos madre escaneados para la fila que se está cargando, EN ORDEN. En
+  // Extrusión/Impresión siempre es uno solo (el insumo se consume entero);
+  // en Sellado/Precorte puede haber un segundo cuando el rollo chico se pasa
+  // del saldo que le quedaba al primero.
+  const [sourceRolls, setSourceRolls] = useState<SourceRollChip[]>([]);
   const [scanningSource, setScanningSource] = useState(false);
   const [bultoLabel, setBultoLabel] = useState<{ id: number; code: string } | null>(null);
   const [scanningBultoLabel, setScanningBultoLabel] = useState(false);
@@ -493,9 +545,20 @@ export default function OrdenProduccionDetalle() {
     // esos valores sean confiables (podrían ser un resto de un escaneo que
     // se quitó con "Quitar" sin volver a escanear), así que se bloquea acá
     // además de en la UI.
-    if (!template.labelIsOwnRoll && !template.originRollFields && !sourceRoll) {
+    if (!template.labelIsOwnRoll && !template.originRollFields && sourceRolls.length === 0) {
       setError("Escaneá el rollo de origen antes de registrar la fila");
       return;
+    }
+    // El rollo chico no puede salir de la nada: si pesa más de lo que queda
+    // entre todos los rollos madre escaneados, falta montar el siguiente. El
+    // server lo vuelve a chequear (es el que manda), esto es para avisarle al
+    // operario antes de mandar la fila.
+    if (template.consumesSourceByWeight) {
+      const { missingKg } = previewAllocation(sourceRolls, Number(rollDraft.weight));
+      if (missingKg > 0) {
+        setError(`Faltan ${missingKg} kg para cubrir esta fila — escaneá el siguiente rollo madre`);
+        return;
+      }
     }
     // E. BULTO no se tipea a mano — o se escanea la etiqueta física (se
     // manda por separado como `bultoLabelCode` más abajo) o se deja vacío y
@@ -528,7 +591,7 @@ export default function OrdenProduccionDetalle() {
         weightKg: Number(rollDraft.weight),
         wasteKg: rollDraft.waste ? Number(rollDraft.waste) : undefined,
         details: Object.keys(details).length ? details : undefined,
-        sourceRollId: sourceRoll?.id,
+        sourceRollIds: sourceRolls.length > 0 ? sourceRolls.map((r) => r.id) : undefined,
         bultoLabelCode: bultoLabel?.code,
       });
       // No se limpia del todo -- Color/Densidad (Precorte) heredados de
@@ -541,8 +604,23 @@ export default function OrdenProduccionDetalle() {
           defaults[`detail:${col.detailKey}`] = String(specsDraft[col.specDefaultKey]);
         }
       }
+      // El rollo madre SIGUE montado en la máquina después de sacarle un
+      // rollo chico: se le descuenta lo que se acaba de llevar y queda listo
+      // para la fila siguiente. Solo se suelta cuando se agota — ahí el
+      // operario tiene que escanear el que monte a continuación. Obligarlo a
+      // re-escanear el mismo rollo en cada fila sería pelearse con el proceso
+      // real de planta.
+      let nextSourceRolls: SourceRollChip[] = [];
+      if (template.consumesSourceByWeight) {
+        const { allocations } = previewAllocation(sourceRolls, Number(rollDraft.weight));
+        const takenById = new Map(allocations.map((a) => [a.roll.id, a.quantityKg]));
+        nextSourceRolls = sourceRolls
+          .map((r) => ({ ...r, remainingKg: Math.round((r.remainingKg - (takenById.get(r.id) ?? 0)) * 100) / 100 }))
+          .filter((r) => r.remainingKg > 0.005);
+      }
+      if (nextSourceRolls.length > 0) defaults.label = nextSourceRolls[0].code;
+      setSourceRolls(nextSourceRolls);
       setRollDraft(defaults);
-      setSourceRoll(null);
       setBultoLabel(null);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
@@ -580,16 +658,23 @@ export default function OrdenProduccionDetalle() {
    * ya no corresponde a ningún escaneo vigente pero igual se mandaría al
    * guardar la fila (el campo se ve bloqueado, así que el operario no tiene
    * forma de notar ni corregir ese resto). */
-  function handleClearSourceRoll() {
-    setSourceRoll(null);
+  function handleClearSourceRoll(rollId?: number) {
+    const remaining = rollId == null ? [] : sourceRolls.filter((r) => r.id !== rollId);
+    setSourceRolls(remaining);
     setRollDraft((d) => {
       const next = { ...d };
       if (template.originRollFields) {
         delete next[`detail:${template.originRollFields.labelDetailKey}`];
         delete next[`detail:${template.originRollFields.weightDetailKey}`];
       } else if (!template.labelIsOwnRoll) {
-        delete next.label;
-        delete next.weight;
+        // La ETIQUETA es el rollo madre principal: si todavía queda alguno
+        // escaneado pasa a serlo el primero de los que quedan, y si no queda
+        // ninguno se limpia. El PESO en estas estaciones lo tipea el
+        // operario (son los kilos que salió el rollo chico), así que no se
+        // toca — borrarlo le haría perder lo que ya venía cargando.
+        if (remaining.length > 0) next.label = remaining[0].code;
+        else delete next.label;
+        if (!template.consumesSourceByWeight) delete next.weight;
       }
       for (const col of template.rollColumns) {
         if (col.source === "detail" && col.kind === "siNo") {
@@ -606,7 +691,23 @@ export default function OrdenProduccionDetalle() {
     api
       .getProductionRollByCode(code)
       .then((roll) => {
-        setSourceRoll(roll);
+        const chip: SourceRollChip = {
+          id: roll.id,
+          code,
+          label: roll.label ?? null,
+          weightKg: Number(roll.weightKg),
+          remainingKg: Number(roll.remainingKg ?? roll.weightKg),
+          createdByName: roll.createdBy?.name ?? null,
+        };
+        if (sourceRolls.some((r) => r.id === chip.id)) {
+          setError("Ese rollo madre ya está escaneado para esta fila");
+          return;
+        }
+        // En Sellado/Precorte se pueden acumular rollos madre (el segundo
+        // cubre lo que se pasó del primero); en el resto, escanear reemplaza
+        // porque el insumo se consume entero y es uno solo.
+        const nextRolls = template.consumesSourceByWeight ? [...sourceRolls, chip] : [chip];
+        setSourceRolls(nextRolls);
         setRollDraft((d) => {
           const next = { ...d };
           if (template.originRollFields) {
@@ -615,10 +716,11 @@ export default function OrdenProduccionDetalle() {
           } else if (!template.labelIsOwnRoll) {
             // Sellado/Precorte no tienen columnas de detalle propias para el
             // rollo de origen (a diferencia de Impresión) — ahí la columna
-            // base ETIQUETA/PESO directamente ES el rollo escaneado, no un
-            // rollo nuevo de esta estación.
-            next.label = roll.label ?? code;
-            next.weight = String(Number(roll.weightKg));
+            // base ETIQUETA es el rollo madre. El PESO ya NO se precarga con
+            // el peso del madre: son los kilos que salió el rollo chico, los
+            // tipea el operario y le descuentan saldo al madre.
+            next.label = nextRolls[0].code;
+            if (!template.consumesSourceByWeight) next.weight = String(Number(roll.weightKg));
           }
           // Pruebas SI/NO (ej. P. RESISTENCIA): si el rollo escaneado ya
           // tiene esa misma prueba registrada de su propia estación, se
@@ -847,8 +949,18 @@ export default function OrdenProduccionDetalle() {
     // propio"). El jefe pidió que acá no se pueda tipear a mano: se
     // bloquean hasta escanear el QR del rollo de origen, que es lo que los
     // rellena — recién ahí quedan editables por si hace falta corregir algo.
-    if ((col.source === "label" || col.source === "weight") && !template.labelIsOwnRoll && !sourceRoll) {
+    if ((col.source === "label" || col.source === "weight") && !template.labelIsOwnRoll && sourceRolls.length === 0) {
       return { content: "escaneá el QR", className: "text-slate-400 dark:text-slate-500 text-center italic", title: "Se completa al escanear el QR del rollo de origen" };
+    }
+    // Con el rollo madre ya escaneado, la ETIQUETA es ese rollo (no se tipea)
+    // y el PESO pasa a ser lo único que carga el operario: cuántos kilos
+    // salió el rollo chico que acaba de sacar.
+    if (col.source === "label" && template.consumesSourceByWeight) {
+      return {
+        content: sourceRolls[0].code,
+        className: "text-slate-800 dark:text-slate-100 text-center font-medium",
+        title: "Rollo madre del que está saliendo esta fila",
+      };
     }
     // E. BULTO: no se tipea a mano — solo se completa si se escanea una
     // etiqueta física pre-impresa (ver EtiquetasBulto.tsx, mercancía
@@ -1422,26 +1534,51 @@ export default function OrdenProduccionDetalle() {
 
         {order.parentOrderId && canOperate && isOpen && (
           <div className="px-3 py-2 border-b border-slate-300 dark:border-slate-600 flex flex-wrap items-center gap-2">
-            {!sourceRoll ? (
+            {sourceRolls.map((roll, i) => (
+              <div
+                key={roll.id}
+                className="inline-flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded px-3 py-1.5"
+              >
+                <span>
+                  {template.consumesSourceByWeight ? (i === 0 ? "Rollo madre: " : "Sigue con: ") : "Rollo de origen: "}
+                  <strong>{roll.code}</strong>{" "}
+                  {template.consumesSourceByWeight ? (
+                    <>
+                      · quedan <strong>{roll.remainingKg} kg</strong> de {roll.weightKg}
+                    </>
+                  ) : (
+                    <>({roll.weightKg} kg)</>
+                  )}
+                  {roll.createdByName && <> · cargado por {roll.createdByName}</>}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleClearSourceRoll(roll.id)}
+                  title="Quitar"
+                  className="text-emerald-700 dark:text-emerald-400"
+                >
+                  <X size={13} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+            {(sourceRolls.length === 0 || template.consumesSourceByWeight) && (
               <button
                 type="button"
                 onClick={() => setScanningSource(true)}
                 className="inline-flex items-center gap-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
               >
-                <ScanLine size={13} aria-hidden="true" /> Escanear rollo de origen
+                <ScanLine size={13} aria-hidden="true" />{" "}
+                {sourceRolls.length === 0 ? "Escanear rollo madre" : "Escanear otro rollo madre"}
               </button>
-            ) : (
-              <div className="inline-flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded px-3 py-1.5">
-                <span>
-                  Rollo de origen: <strong>{sourceRoll.label ?? `#${sourceRoll.id}`}</strong> ({Number(sourceRoll.weightKg)} kg)
-                  {sourceRoll.createdBy?.name && <> · cargado por {sourceRoll.createdBy.name}</>}
-                </span>
-                <button type="button" onClick={handleClearSourceRoll} title="Quitar" className="text-emerald-700 dark:text-emerald-400">
-                  <X size={13} aria-hidden="true" />
-                </button>
-              </div>
             )}
-            <span className="text-[10px] text-slate-500 dark:text-slate-400">Escaneá el QR pegado al rollo que estás tomando como insumo</span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+              {template.consumesSourceByWeight
+                ? "Escaneá el rollo grande que montaste: cada fila le descuenta los kilos que sacás. Si se acaba a mitad de un rollo, escaneá el siguiente y el resto sale de ahí."
+                : "Escaneá el QR pegado al rollo que estás tomando como insumo"}
+            </span>
+            {template.consumesSourceByWeight && sourceRolls.length > 0 && Number(rollDraft.weight) > 0 && (
+              <SourceAllocationHint rolls={sourceRolls} weightKg={Number(rollDraft.weight)} />
+            )}
           </div>
         )}
 

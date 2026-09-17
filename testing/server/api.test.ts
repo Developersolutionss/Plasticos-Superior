@@ -1933,6 +1933,114 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
 
+  /** Arma un padre de Extrusión con los rollos madre pedidos y una OP hija
+   * de la estación indicada, para los tests de consumo parcial. */
+  async function setupRolloMadre(station: "sellado" | "precorte", pesos: number[]) {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}-${Math.random()}`, station: "extrusion", productId, quantityPlanned: 500 },
+    });
+    const madres = [];
+    for (const weightKg of pesos) {
+      madres.push(await prisma.productionRoll.create({ data: { productionOrderId: parent.id, operatorName: "Op", weightKg } }));
+    }
+    const child = await prisma.productionOrder.create({
+      data: { orderNumber: parent.orderNumber, station, productId, quantityPlanned: 500, parentOrderId: parent.id },
+    });
+    return { parent, child, madres };
+  }
+
+  async function saldoDe(rollId: number) {
+    const res = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/EXT-${rollId}`, { headers: headersFor("produccion") });
+    assert.equal(res.status, 200);
+    return ((await res.json()) as { remainingKg: number }).remainingKg;
+  }
+
+  async function cargarFila(childId: number, weightKg: number, sourceRollIds: number[]) {
+    return fetch(`${baseUrl}/api/production-orders/${childId}/rolls`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ weightKg, sourceRollIds }),
+    });
+  }
+
+  async function limpiar(parentId: number, childId: number) {
+    await prisma.rollConsumption.deleteMany({ where: { roll: { productionOrderId: childId } } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: childId } });
+    await prisma.productionOrder.delete({ where: { id: childId } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: parentId } });
+    await prisma.productionOrder.delete({ where: { id: parentId } });
+  }
+
+  it("el rollo madre alimenta varias filas y se le va descontando el saldo (45 → 30 → 20 → 10)", async () => {
+    const { parent, child, madres } = await setupRolloMadre("sellado", [45]);
+    const madre = madres[0];
+
+    assert.equal(await saldoDe(madre.id), 45, "recién salido de Extrusión el saldo es su peso completo");
+
+    // La cuenta exacta que los operarios venían haciendo a mano en el papel.
+    for (const [kg, saldoEsperado] of [
+      [15, 30],
+      [10, 20],
+      [10, 10],
+    ]) {
+      const res = await cargarFila(child.id, kg, [madre.id]);
+      assert.equal(res.status, 201, `cargar ${kg} kg contra el mismo rollo madre se acepta`);
+      assert.equal(await saldoDe(madre.id), saldoEsperado);
+    }
+
+    await limpiar(parent.id, child.id);
+  });
+
+  it("si el rollo chico se pasa del saldo, hay que escanear el siguiente y el excedente sale de ahí", async () => {
+    const { parent, child, madres } = await setupRolloMadre("sellado", [10, 50]);
+    const [madreA, madreB] = madres;
+
+    const sinCubrir = await cargarFila(child.id, 15, [madreA.id]);
+    assert.equal(sinCubrir.status, 400, "no alcanza el saldo del rollo madre y no se escaneó otro");
+    assert.match(((await sinCubrir.json()) as { error: string }).error, /Faltan 5 kg/);
+
+    const conElSiguiente = await cargarFila(child.id, 15, [madreA.id, madreB.id]);
+    assert.equal(conElSiguiente.status, 201);
+
+    assert.equal(await saldoDe(madreA.id), 0, "el rollo madre viejo queda agotado");
+    assert.equal(await saldoDe(madreB.id), 45, "del siguiente salieron solo los 5 kg que faltaban");
+
+    await limpiar(parent.id, child.id);
+  });
+
+  it("en Precorte el reparto entre dos rollos madre queda en los dos pares ETIQUETA R / PESO R del papel", async () => {
+    const { parent, child, madres } = await setupRolloMadre("precorte", [10, 50]);
+    const [madreA, madreB] = madres;
+
+    const res = await cargarFila(child.id, 15, [madreA.id, madreB.id]);
+    assert.equal(res.status, 201);
+    const fila = (await res.json()) as { weightKg: string; details: Record<string, unknown> };
+
+    assert.equal(Number(fila.weightKg), 10, "el primer par lleva lo que salió del primer rollo madre");
+    assert.equal(Number(fila.details.pesoR2), 5, "el segundo par lleva el excedente que salió del siguiente");
+    assert.equal(fila.details.etiquetaR2, `EXT-${madreB.id}`);
+
+    await limpiar(parent.id, child.id);
+  });
+
+  it("borrar una fila le devuelve los kilos al rollo madre", async () => {
+    const { parent, child, madres } = await setupRolloMadre("sellado", [45]);
+    const madre = madres[0];
+
+    const res = await cargarFila(child.id, 15, [madre.id]);
+    const fila = (await res.json()) as { id: number };
+    assert.equal(await saldoDe(madre.id), 30);
+
+    const del = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls/${fila.id}`, {
+      method: "DELETE",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(del.status, 204);
+    assert.equal(await saldoDe(madre.id), 45, "la fila borrada libera lo que había consumido");
+
+    await limpiar(parent.id, child.id);
+  });
+
   it("cerrar una OP de extrusión la finaliza directo sin mover stock; sin rollos se rechaza", async () => {
     const order = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10 },

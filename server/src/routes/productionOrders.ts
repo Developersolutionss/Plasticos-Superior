@@ -14,7 +14,15 @@ import { applyRawMaterialMovement } from "../services/rawMaterialStockService";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
 import { notifyRoles } from "../services/notify";
 import { buildOpPdf } from "../services/opPdf";
-import { DERIVATIONS, FINAL_STATIONS, OpStation, STATION_LABELS, ROLL_CODE_PREFIX, inheritSpecs } from "../services/opTemplates";
+import { DERIVATIONS, FINAL_STATIONS, OP_TEMPLATES, OpStation, STATION_LABELS, ROLL_CODE_PREFIX, inheritSpecs } from "../services/opTemplates";
+import {
+  Allocation,
+  InsufficientSourceRollError,
+  SourceRollExhaustedError,
+  allocateFromSourceRolls,
+  allocateWholeSourceRolls,
+  remainingSourceKg,
+} from "../services/rollBalance";
 
 const UPLOADS_DIR = path.join(__dirname, "..", "..", "uploads", "produccion");
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -83,6 +91,21 @@ const OPEN_STATUSES: ProductionOrderStatus[] = ["pendiente", "en_proceso"];
  * La etiqueta del segundo rollo (`details.etiquetaR2`) sigue siendo solo de
  * referencia — no hay una segunda relación `sourceRollId` para trazabilidad.
  */
+interface SourceRollInfo {
+  id: number;
+  label: string | null;
+  station: OpStation | null;
+}
+
+/** Cómo se identifica un rollo madre en el papel: el código de su QR
+ * (EXT-12, IMP-30...), o la etiqueta que tenga cargada si por algún motivo
+ * no se le puede armar el código. */
+function sourceRollCode(info: SourceRollInfo | undefined): string {
+  if (!info) return "";
+  if (info.station) return `${ROLL_CODE_PREFIX[info.station]}-${info.id}`;
+  return info.label ?? String(info.id);
+}
+
 function rollProducedKg(station: OpStation | null, roll: { weightKg: unknown; details?: unknown }): number {
   const base = Number(roll.weightKg);
   if (station !== "precorte") return base;
@@ -248,7 +271,11 @@ productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
   });
   if (!roll) return res.status(404).json({ error: "Rollo no encontrado" });
 
-  res.json(roll);
+  // Saldo que le queda al rollo: es lo que el operario necesita ver al
+  // escanearlo para saber cuánto más puede sacarle antes de tener que montar
+  // el siguiente (antes esa cuenta la llevaban a mano en el papel).
+  const remainingKg = await remainingSourceKg(prisma, roll.id);
+  res.json({ ...roll, remainingKg });
 });
 
 /**
@@ -943,7 +970,6 @@ const REOPENABLE_STATUSES: ProductionOrderStatus[] = ["finalizada", "pendiente_c
  */
 class StatusRaceError extends Error {}
 class BultoLabelUnavailableError extends Error {}
-class SourceRollAlreadyUsedError extends Error {}
 
 productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
@@ -1095,6 +1121,12 @@ const createRollSchema = z.object({
    * (GET /rolls/by-code/:code). Queda registrado quién lo tomó porque
    * `createdById` es siempre el usuario logueado que hizo el POST. */
   sourceRollId: z.number().int().optional(),
+  /** Rollos madre escaneados, EN EL ORDEN en que se escanearon (Sellado/
+   * Precorte). Los kilos de esta fila se reparten agotando el primero antes
+   * de tocar el siguiente: si quedaban 10 kg del madre A y se cargan 15,
+   * salen 10 de A y 5 de B. `sourceRollId` de arriba es el caso viejo de un
+   * solo rollo consumido entero (Impresión) y se sigue aceptando. */
+  sourceRollIds: z.array(z.number().int()).min(1).optional(),
   /** Código de la etiqueta física de bulto escaneada (Sellado/Precorte) —
    * ver GET /bulto-labels/by-code/:code. Reemplaza tipear "E. BULTO" a
    * mano: se valida que exista y siga disponible, y queda consumida
@@ -1124,8 +1156,20 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     return res.status(403).json({ error: `Tu rol solo puede registrar rollos en OPs de: ${allowedStations.join(", ")}` });
   }
 
-  if (parsed.data.sourceRollId) {
-    const source = await prisma.productionRoll.findUnique({ where: { id: parsed.data.sourceRollId } });
+  // Los rollos madre escaneados, en orden. `sourceRollIds` (varios, Sellado/
+  // Precorte) y `sourceRollId` (uno solo, el caso de siempre) se unifican acá
+  // para que el resto del handler no tenga que distinguirlos.
+  const sourceRollIds = parsed.data.sourceRollIds ?? (parsed.data.sourceRollId ? [parsed.data.sourceRollId] : []);
+  if (new Set(sourceRollIds).size !== sourceRollIds.length) {
+    return res.status(400).json({ error: "Se escaneó el mismo rollo madre dos veces en la misma fila" });
+  }
+  const template = OP_TEMPLATES[order.station as OpStation];
+  const sourceRollById = new Map<number, SourceRollInfo>();
+  for (const sourceRollId of sourceRollIds) {
+    const source = await prisma.productionRoll.findUnique({
+      where: { id: sourceRollId },
+      include: { productionOrder: { select: { station: true } } },
+    });
     if (!source) return res.status(404).json({ error: "El rollo de origen escaneado no existe" });
     // El insumo escaneado tiene que salir de la OP padre real (la cadena de
     // derivación), no de cualquier rollo del sistema — si no, el QR deja de
@@ -1133,6 +1177,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     if (source.productionOrderId !== order.parentOrderId) {
       return res.status(400).json({ error: "El rollo escaneado no pertenece a la OP de la que deriva esta orden" });
     }
+    sourceRollById.set(sourceRollId, { id: source.id, label: source.label, station: source.productionOrder.station });
   }
 
   // La meta de la OP (quantityPlanned) se completa con PESO + DESPERDICIO,
@@ -1186,38 +1231,62 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
         details = { ...details, eBulto: parsed.data.bultoLabelCode };
       }
 
-      let created;
-      try {
-        created = await tx.productionRoll.create({
-          data: {
-            productionOrderId,
-            date: parsed.data.date ? new Date(parsed.data.date) : undefined,
-            shift: autoShift(),
-            // El operario SIEMPRE sale del JWT, nunca del body — si no, cualquiera
-            // con un token válido podría firmar rollos a nombre de otra persona
-            // llamando la API directo (el frontend ya manda esto, pero no hay
-            // que confiar en eso del lado del cliente).
-            operatorName: req.user!.name,
-            machine: parsed.data.machine,
-            label: parsed.data.label,
-            weightKg: parsed.data.weightKg,
-            wasteKg: parsed.data.wasteKg,
-            details: details as Prisma.InputJsonValue | undefined,
-            notes: parsed.data.notes,
-            sourceRollId: parsed.data.sourceRollId,
-            createdById: req.user!.userId,
-          },
-        });
-      } catch (err) {
-        // Un rollo físico solo se puede consumir una vez como insumo — el
-        // unique constraint en source_roll_id es lo que lo garantiza de
-        // verdad (un pre-check simple no alcanza: dos escaneos casi
-        // simultáneos del mismo QR podrían pasar el check los dos antes de
-        // que cualquiera termine de crear su rollo).
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-          throw new SourceRollAlreadyUsedError();
+      // Reparto contra los rollos madre. En Sellado/Precorte el rollo madre
+      // se monta en la máquina y se le van sacando rollos chicos, así que
+      // esta fila le descuenta solo sus kilos y el madre queda con saldo
+      // para las siguientes; en el resto de las estaciones el insumo
+      // escaneado se consume entero, como siempre.
+      let allocations: Allocation[] = [];
+      if (sourceRollIds.length > 0) {
+        allocations = template.consumesSourceByWeight
+          ? await allocateFromSourceRolls(tx, sourceRollIds, parsed.data.weightKg)
+          : await allocateWholeSourceRolls(tx, sourceRollIds);
+      }
+
+      // Precorte tiene DOS pares ETIQUETA R / PESO R en el papel — son
+      // justamente para el caso en que un rollo chico se pasa del saldo del
+      // madre y el excedente sale del siguiente. El primer par va en los
+      // campos base y el segundo en `details`, que es donde la plantilla los
+      // lee (ver rollProducedKg: para Precorte el total de la fila es
+      // weightKg + pesoR2, así que el reparto no cambia el total).
+      let weightKg = parsed.data.weightKg;
+      if (template.consumesSourceByWeight && order.station === "precorte" && allocations.length > 0) {
+        weightKg = allocations[0].quantityKg;
+        const spill = allocations.slice(1);
+        if (spill.length > 0) {
+          const spillKg = Math.round(spill.reduce((acc, a) => acc + a.quantityKg, 0) * 100) / 100;
+          details = { ...details, etiquetaR2: sourceRollCode(sourceRollById.get(spill[0].sourceRollId)), pesoR2: spillKg };
         }
-        throw err;
+      }
+
+      const created = await tx.productionRoll.create({
+        data: {
+          productionOrderId,
+          date: parsed.data.date ? new Date(parsed.data.date) : undefined,
+          shift: autoShift(),
+          // El operario SIEMPRE sale del JWT, nunca del body — si no, cualquiera
+          // con un token válido podría firmar rollos a nombre de otra persona
+          // llamando la API directo (el frontend ya manda esto, pero no hay
+          // que confiar en eso del lado del cliente).
+          operatorName: req.user!.name,
+          machine: parsed.data.machine,
+          label: parsed.data.label,
+          weightKg,
+          wasteKg: parsed.data.wasteKg,
+          details: details as Prisma.InputJsonValue | undefined,
+          notes: parsed.data.notes,
+          // Rollo madre principal (el primero escaneado) — el reparto real
+          // en kilos vive en roll_consumptions, esto queda como atajo para
+          // mostrar "de dónde salió" sin cargar el ledger.
+          sourceRollId: allocations[0]?.sourceRollId ?? parsed.data.sourceRollId,
+          createdById: req.user!.userId,
+        },
+      });
+
+      if (allocations.length > 0) {
+        await tx.rollConsumption.createMany({
+          data: allocations.map((a) => ({ rollId: created.id, sourceRollId: a.sourceRollId, quantityKg: a.quantityKg })),
+        });
       }
 
       if (parsed.data.bultoLabelCode) {
@@ -1236,8 +1305,15 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     if (err instanceof BultoLabelUnavailableError) {
       return res.status(400).json({ error: "Esa etiqueta de bulto no existe o ya fue usada" });
     }
-    if (err instanceof SourceRollAlreadyUsedError) {
+    if (err instanceof SourceRollExhaustedError) {
       return res.status(400).json({ error: "Este rollo ya fue consumido como insumo en otra fila — no se puede volver a escanear" });
+    }
+    if (err instanceof InsufficientSourceRollError) {
+      // El caso del papel: quedaban 10 kg del rollo madre y el operario carga
+      // 15. Hay que escanear el siguiente para cubrir los 5 que faltan.
+      return res.status(400).json({
+        error: `Faltan ${err.missingKg} kg para cubrir esta fila — escaneá el siguiente rollo madre`,
+      });
     }
     throw err;
   }

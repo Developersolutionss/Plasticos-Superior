@@ -59,6 +59,12 @@ export interface OpTemplate {
    * está creando (Extrusión, Impresión) — se genera sola en vez de pedirse
    * a mano. En Sellado/Precorte esa misma columna es el rollo de ORIGEN. */
   labelIsOwnRoll?: boolean;
+  /** true en Sellado/Precorte: el rollo madre que se escanea NO se consume
+   * entero de una: se monta en la máquina y se le van sacando rollos chicos,
+   * cada uno descontando kilos de su saldo (ver RollConsumption). En las
+   * demás estaciones escanear un insumo lo consume completo, como siempre.
+   * Si mañana Impresión trabaja igual, alcanza con prenderlo acá. */
+  consumesSourceByWeight?: boolean;
 }
 
 export const STATION_LABELS: Record<OpStation, string> = {
@@ -232,6 +238,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
     // (kilos/bultos/desperd. de esta misma OP) NO son texto libre — salen
     // solas de los rollos ya cargados (ver ordenReferencia en la hoja y el
     // PDF). Unid. es el único campo manual de esa caja, va acá.
+    consumesSourceByWeight: true,
     ordenReferencia: true,
     ordenReferenciaUnidField: { key: "unidadesSellado", label: "Unid." },
     rollColumns: [
@@ -251,6 +258,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
   precorte: {
     title: "ORDEN DE PRODUCCION PRECORTE",
     cod: "COD F-SE-01",
+    consumesSourceByWeight: true,
     sections: [
       {
         title: "TIPO DE MATERIAL",

@@ -332,6 +332,9 @@ export const api = {
       details?: Record<string, unknown>;
       notes?: string;
       sourceRollId?: number;
+      /** Rollos madre escaneados EN ORDEN (Sellado/Precorte): el servidor
+       * reparte `weightKg` agotando el primero antes de tocar el siguiente. */
+      sourceRollIds?: number[];
       bultoLabelCode?: string;
     }
   ) => request<any>(`/production-orders/${productionOrderId}/rolls`, { method: "POST", body: JSON.stringify(data) }),

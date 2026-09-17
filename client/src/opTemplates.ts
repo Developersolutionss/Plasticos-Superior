@@ -68,6 +68,12 @@ export interface OpTemplate {
    * Precorte esa misma columna es el rollo de ORIGEN que se toma como
    * insumo, así que sigue siendo manual/editable. */
   labelIsOwnRoll?: boolean;
+  /** true en Sellado/Precorte: el rollo madre que se escanea no se consume
+   * entero de una — se monta en la máquina y se le van sacando rollos chicos
+   * que le descuentan kilos del saldo. El operario carga cuántos kilos salió
+   * el rollo chico y, si se pasa del saldo, escanea el siguiente madre y el
+   * excedente sale de ahí (ver POST /production-orders/:id/rolls). */
+  consumesSourceByWeight?: boolean;
 }
 
 export const STATION_LABELS: Record<OpStation, string> = {
@@ -232,6 +238,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
       },
       MEDIDAS_FINALES,
     ],
+    consumesSourceByWeight: true,
     ordenReferencia: true,
     ordenReferenciaUnidField: { key: "unidadesSellado", label: "Unid." },
     rollColumns: [
@@ -251,6 +258,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
   precorte: {
     title: "ORDEN DE PRODUCCION PRECORTE",
     cod: "COD F-SE-01",
+    consumesSourceByWeight: true,
     sections: [
       {
         title: "TIPO DE MATERIAL",
