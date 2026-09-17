@@ -83,6 +83,9 @@ export const ROLL_CODE_PREFIX: Record<OpStation, string> = {
 const FORMA_MATERIAL = ["Tubular", "Semitubular", "Lám. PH", "Lám. Indiv.", "Fuelles"];
 const SI_NO = ["SI", "NO"];
 const DENSIDAD = ["ALTA", "BAJA"];
+// El material solo se trata/imprime por una cara o por las dos -- nunca es
+// otro valor, así que se restringe a opción fija en vez de texto libre.
+const CARAS = ["1", "2"];
 export const COLORES = ["Negro", "Transparente", "Blanco", "Rojo", "Verde", "Verde claro"];
 
 const MEDIDAS_FINALES: OpSpecSection = {
@@ -126,7 +129,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "densidad", label: "Densidad", kind: "options", options: DENSIDAD },
           { key: "color", label: "Color", kind: "options", options: COLORES },
           { key: "tratado", label: "Tratado", kind: "options", options: SI_NO },
-          { key: "tratadoCaras", label: "Caras tratadas", kind: "text" },
+          { key: "tratadoCaras", label: "Caras tratadas", kind: "options", options: CARAS },
           { key: "grafilado", label: "Grafilado", kind: "options", options: SI_NO },
         ],
       },
@@ -161,7 +164,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
           { key: "color", label: "Color", kind: "options", options: COLORES },
           { key: "tratado", label: "Tratado", kind: "options", options: SI_NO },
-          { key: "caras", label: "Caras", kind: "text" },
+          { key: "caras", label: "Caras", kind: "options", options: CARAS },
           { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "ancho", label: "Ancho", kind: "text" },
@@ -210,7 +213,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
           { key: "color", label: "Color", kind: "options", options: COLORES },
           { key: "impreso", label: "Impreso", kind: "options", options: SI_NO },
-          { key: "caras", label: "Caras", kind: "text" },
+          { key: "caras", label: "Caras", kind: "options", options: CARAS },
           { key: "rollos", label: "Rollos", kind: "number" },
           { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
@@ -252,7 +255,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
           { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
           { key: "color", label: "Color", kind: "options", options: COLORES },
           { key: "impreso", label: "Impreso", kind: "options", options: SI_NO },
-          { key: "caras", label: "Caras", kind: "text" },
+          { key: "caras", label: "Caras", kind: "options", options: CARAS },
           { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
           { key: "calibre", label: "Calibre", kind: "text" },
           { key: "ancho", label: "Ancho", kind: "text" },
