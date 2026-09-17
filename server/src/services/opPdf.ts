@@ -1,6 +1,6 @@
 import PDFDocument from "pdfkit";
 import { COMPANY, LOGO_PATH } from "./pdfDocument";
-import { OP_TEMPLATES, OpStation, OpRollColumn, STATION_LABELS } from "./opTemplates";
+import { OP_TEMPLATES, OpStation, OpRollColumn, STATION_LABELS, ROLL_CODE_PREFIX } from "./opTemplates";
 
 const BRAND = "#1e293b";
 const MUTED = "#64748b";
@@ -101,7 +101,7 @@ function fmtTime(d: Date | string) {
 /** `cumulative` es la suma de kg hasta esta fila inclusive (columna TOTAL
  * del papel de Extrusión) — la calcula el caller recorriendo las filas en
  * orden, ver el `reduce` en buildOpPdf. */
-function rollCellValue(roll: RollLike, col: OpRollColumn, labelIsOwnRoll: boolean, cumulative?: number): string {
+function rollCellValue(roll: RollLike, col: OpRollColumn, labelIsOwnRoll: boolean, station: OpStation, cumulative?: number): string {
   switch (col.source) {
     case "date":
       return fmtDate(roll.date);
@@ -115,10 +115,11 @@ function rollCellValue(roll: RollLike, col: OpRollColumn, labelIsOwnRoll: boolea
       return str(roll.machine);
     case "label":
       // En Extrusión/Impresión la etiqueta no se tipea, se genera sola
-      // (mismo código RL-<id> de la etiqueta QR impresa) — mismo fallback
-      // que la pantalla (OrdenProduccionDetalle.tsx), para que el PDF no
-      // salga con la columna vacía cuando en pantalla sí se ve un código.
-      return roll.label ?? (labelIsOwnRoll ? `RL-${roll.id}` : "—");
+      // (mismo código <prefijo>-<id> de la etiqueta QR impresa, con el
+      // prefijo del proceso que la generó) — mismo fallback que la pantalla
+      // (OrdenProduccionDetalle.tsx), para que el PDF no salga con la
+      // columna vacía cuando en pantalla sí se ve un código.
+      return roll.label ?? (labelIsOwnRoll ? `${ROLL_CODE_PREFIX[station]}-${roll.id}` : "—");
     case "weight":
       return String(num(roll.weightKg));
     case "waste":
@@ -341,7 +342,7 @@ export function buildOpPdf(data: OpPdfData): PDFKit.PDFDocument {
       widths,
       data.rolls.map((roll) => {
         cumulative += rollKg(data.station, roll);
-        return cols.map((c) => rollCellValue(roll, c, !!template.labelIsOwnRoll, cumulative));
+        return cols.map((c) => rollCellValue(roll, c, !!template.labelIsOwnRoll, data.station, cumulative));
       })
     );
   }

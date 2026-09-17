@@ -1160,6 +1160,38 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
+  it("el código QR del rollo lleva el prefijo del proceso que lo generó (EXT/IMP/SELL/PRE)", async () => {
+    const extOrder = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10 },
+    });
+    const rollRes = await fetch(`${baseUrl}/api/production-orders/${extOrder.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("operario_extrusion"),
+      body: JSON.stringify({ weightKg: 5 }),
+    });
+    const roll = (await rollRes.json()) as { id: number };
+
+    const label = await fetch(`${baseUrl}/api/production-orders/${extOrder.id}/rolls/${roll.id}/label`, {
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(label.status, 200);
+    const labelBody = (await label.json()) as { code: string };
+    assert.equal(labelBody.code, `EXT-${roll.id}`, "un rollo de Extrusión lleva el prefijo EXT, no el genérico RL");
+
+    const byCode = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/${labelBody.code}`, {
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(byCode.status, 200, "el código con el nuevo prefijo debe resolver el rollo");
+
+    const oldFormat = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/RL-${roll.id}`, {
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(oldFormat.status, 400, "el prefijo genérico viejo ya no es un formato válido");
+
+    await prisma.productionRoll.delete({ where: { id: roll.id } });
+    await prisma.productionOrder.delete({ where: { id: extOrder.id } });
+  });
+
   it("la meta (peso+desperdicio) bloquea cargar más rollos al completarse, y notifica a Gestión al cruzar el 90%", async () => {
     const order = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 100 },

@@ -18,6 +18,7 @@ import {
   OpRollColumn,
   OpStation,
   STATION_LABELS,
+  ROLL_CODE_PREFIX,
 } from "../opTemplates";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -505,8 +506,8 @@ export default function OrdenProduccionDetalle() {
         machine: rollDraft.machine || undefined,
         // ETIQUETA: en Extrusión e Impresión es la identidad del rollo que
         // se está creando ahora mismo — no tiene sentido pedirla a mano, se
-        // genera sola (código RL-<id>, ver rollCellDisplay) apenas se guarda
-        // la fila. En Sellado/Precorte sigue siendo el rollo de ORIGEN que
+        // genera sola (código <prefijo>-<id>, ver rollCellDisplay) apenas se
+        // guarda la fila. En Sellado/Precorte sigue siendo el rollo de ORIGEN que
         // se está tomando como insumo, así que ahí se mantiene manual/editable.
         label: template.labelIsOwnRoll ? undefined : rollDraft.label || undefined,
         weightKg: Number(rollDraft.weight),
@@ -606,7 +607,7 @@ export default function OrdenProduccionDetalle() {
           return next;
         });
       })
-      .catch(() => setError('No se encontró ningún rollo con ese código. ¿Es un QR de rollo válido ("RL-...")?'));
+      .catch(() => setError('No se encontró ningún rollo con ese código. ¿Es un QR de rollo válido ("EXT-...", "IMP-...", "SELL-..." o "PRE-...")?'));
   }
 
   function handleScannedBultoLabel(code: string) {
@@ -757,9 +758,10 @@ export default function OrdenProduccionDetalle() {
         return roll.machine ?? "—";
       case "label":
         // En Extrusión/Impresión la etiqueta no se tipea, se genera sola
-        // (mismo código RL-<id> de la etiqueta QR impresa) — así igual queda
-        // algo identificable en la tabla en vez de un "—" vacío.
-        return roll.label ?? (template.labelIsOwnRoll ? `RL-${roll.id}` : "—");
+        // (mismo código <prefijo>-<id> de la etiqueta QR impresa, con el
+        // prefijo del proceso que la generó) — así igual queda algo
+        // identificable en la tabla en vez de un "—" vacío.
+        return roll.label ?? (template.labelIsOwnRoll ? `${ROLL_CODE_PREFIX[station]}-${roll.id}` : "—");
       case "weight":
         return String(Number(roll.weightKg));
       case "waste":

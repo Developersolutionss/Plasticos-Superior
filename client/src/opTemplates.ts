@@ -70,6 +70,16 @@ export const STATION_LABELS: Record<OpStation, string> = {
   precorte: "Precorte",
 };
 
+/** Prefijo del código de QR de un rollo (`EXT-<id>`, `IMP-<id>`, `SELL-<id>`,
+ * `PRE-<id>`) según de qué proceso salió -- ver mismo mapa en el server,
+ * server/src/services/opTemplates.ts. */
+export const ROLL_CODE_PREFIX: Record<OpStation, string> = {
+  extrusion: "EXT",
+  impresion: "IMP",
+  sellado: "SELL",
+  precorte: "PRE",
+};
+
 const FORMA_MATERIAL = ["Tubular", "Semitubular", "Lám. PH", "Lám. Indiv.", "Fuelles"];
 const SI_NO = ["SI", "NO"];
 const DENSIDAD = ["ALTA", "BAJA"];
