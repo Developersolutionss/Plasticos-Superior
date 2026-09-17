@@ -60,7 +60,11 @@ describe("App", () => {
 
   it("renderiza la página de login con los campos vacíos", () => {
     renderApp("/login");
-    expect(screen.getByAltText("Plásticos Superior San Judas S.A.S.")).toBeInTheDocument();
+    // El logo aparece dos veces en el DOM (panel de marca de escritorio +
+    // versión mobile arriba del form) -- cuál se ve depende de un breakpoint
+    // CSS que jsdom no evalúa, así que las dos están "presentes" para
+    // testing-library aunque en un navegador real solo se vea una.
+    expect(screen.getAllByAltText("Plásticos Superior San Judas S.A.S.").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Email")).toHaveValue("");
     expect(screen.getByLabelText("Contraseña")).toHaveValue("");
   });
