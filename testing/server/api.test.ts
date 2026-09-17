@@ -2023,6 +2023,21 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await limpiar(parent.id, child.id);
   });
 
+  it("no se puede borrar un rollo madre del que ya se sacó material", async () => {
+    const { parent, child, madres } = await setupRolloMadre("sellado", [45]);
+    const madre = madres[0];
+    assert.equal((await cargarFila(child.id, 15, [madre.id])).status, 201);
+
+    const del = await fetch(`${baseUrl}/api/production-orders/${parent.id}/rolls/${madre.id}`, {
+      method: "DELETE",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(del.status, 400, "borrarlo dejaría la fila que salió de él apuntando a un rollo inexistente");
+    assert.match(((await del.json()) as { error: string }).error, /ya se sacó material/);
+
+    await limpiar(parent.id, child.id);
+  });
+
   it("borrar una fila le devuelve los kilos al rollo madre", async () => {
     const { parent, child, madres } = await setupRolloMadre("sellado", [45]);
     const madre = madres[0];

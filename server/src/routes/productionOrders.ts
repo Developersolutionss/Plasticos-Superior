@@ -1360,8 +1360,26 @@ productionOrdersRouter.delete("/:id/rolls/:rollId", requireProduccionGestion, as
   if (!OPEN_STATUSES.includes(roll.productionOrder.status)) {
     return res.status(400).json({ error: "La OP ya no está abierta" });
   }
+  // Si a este rollo ya le sacaron material en otra estación, borrarlo
+  // rompería la cadena: las filas que salieron de él quedarían apuntando a
+  // un rollo que no existe. Hay que deshacer primero esas filas (la FK del
+  // ledger también lo frena, pero como un 500 crudo en vez de un aviso).
+  const consumido = await prisma.rollConsumption.findFirst({
+    where: { sourceRollId: rollId },
+    select: { roll: { select: { productionOrder: { select: { orderNumber: true, station: true } } } } },
+  });
+  if (consumido) {
+    const destino = consumido.roll.productionOrder;
+    return res.status(400).json({
+      error: `No se puede borrar: de este rollo ya se sacó material en ${
+        destino.station ? STATION_LABELS[destino.station as OpStation] : "otra OP"
+      } (OP ${destino.orderNumber}). Borrá primero esas filas.`,
+    });
+  }
 
   await prisma.$transaction(async (tx) => {
+    // Los consumos DE este rollo (lo que él le sacó a sus madres) se borran
+    // en cascada, así que el saldo de los madres se libera solo.
     await tx.productionRoll.delete({ where: { id: rollId } });
     await syncQuantityPlannedToChildren(tx, productionOrderId);
   });
