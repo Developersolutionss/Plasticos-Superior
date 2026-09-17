@@ -115,7 +115,12 @@ export default function Login() {
       {/* Panel del formulario */}
       <div className="flex-1 flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm">
-          <div className="lg:hidden bg-white dark:bg-slate-900 rounded-xl p-3 w-fit mx-auto mb-8 shadow-sm">
+          {/* Siempre fondo claro, sin importar el tema -- el logo trae texto
+              oscuro "quemado" en el PNG (no es un SVG que se adapte con
+              currentColor), así que en modo oscuro con `dark:bg-slate-900`
+              ese texto quedaba casi invisible contra un fondo casi del
+              mismo tono. */}
+          <div className="lg:hidden bg-white rounded-xl p-3 w-fit mx-auto mb-8 shadow-md ring-1 ring-black/5">
             <img src="/logo-full.png" alt="Plásticos Superior San Judas S.A.S." className="h-11 w-auto" />
           </div>
 
