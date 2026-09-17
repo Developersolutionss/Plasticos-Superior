@@ -28,6 +28,13 @@ export interface OpRollColumn {
   source: "date" | "time" | "shift" | "operator" | "machine" | "label" | "weight" | "waste" | "cumulativeWeight" | "detail";
   detailKey?: string;
   kind?: "text" | "number" | "siNo";
+  /** Clave de las Especificaciones de esta misma OP (`specsDraft`) de la que
+   * se precarga el valor inicial de este campo de detalle — ej. Color/
+   * Densidad en Precorte ya vienen heredados de Extrusión en el encabezado,
+   * así que no tiene sentido pedírselos de nuevo al operario fila por fila;
+   * se los completa solos, pero siguen siendo editables por si esa fila en
+   * particular es distinta. */
+  specDefaultKey?: string;
   /** true en la columna E. BULTO de Sellado: la etiqueta es un recurso
    * físico pre-impreso (ver BultoLabel) que reparte Gestión, no un dato que
    * el operario tipee — se llena solo al escanear su QR y queda de solo
@@ -277,8 +284,8 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
       { label: "PESO R (KG)", source: "weight", kind: "number" },
       { label: "ETIQUETA R", source: "detail", detailKey: "etiquetaR2" },
       { label: "PESO R (KG)", source: "detail", detailKey: "pesoR2", kind: "number" },
-      { label: "COLOR", source: "detail", detailKey: "color" },
-      { label: "DENSIDAD", source: "detail", detailKey: "densidad" },
+      { label: "COLOR", source: "detail", detailKey: "color", specDefaultKey: "color" },
+      { label: "DENSIDAD", source: "detail", detailKey: "densidad", specDefaultKey: "materialDensidad" },
       { label: "DESPERDICIO", source: "waste", kind: "number" },
     ],
   },

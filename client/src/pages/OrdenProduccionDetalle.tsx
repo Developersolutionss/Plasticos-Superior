@@ -263,10 +263,25 @@ export default function OrdenProduccionDetalle() {
       }
     }
     setSpecsDraft(specs);
+    if (order.station === null) return;
+    // Color/Densidad (Precorte) ya vienen heredados de Extrusión en estas
+    // mismas Especificaciones (`specDefaultKey`, ver opTemplates.ts) — se
+    // precargan acá para que el operario no tenga que retipearlos fila por
+    // fila. Solo completa lo que esté vacío: nunca pisa una fila que ya se
+    // esté cargando con un valor distinto.
+    const stationTemplate = OP_TEMPLATES[order.station as OpStation];
+    setRollDraft((d) => {
+      const next = { ...d };
+      for (const col of stationTemplate.rollColumns) {
+        if (col.source === "detail" && col.specDefaultKey && !next[`detail:${col.detailKey}`] && specs[col.specDefaultKey]) {
+          next[`detail:${col.detailKey}`] = String(specs[col.specDefaultKey]);
+        }
+      }
+      return next;
+    });
     // Las filas de materia prima son fijas (las mismas 10 refs impresas en
     // el papel, en su mismo orden) — no una lista donde se van agregando;
     // se guardan solo las que tengan % o kg cargado (ver handleSaveSpecs).
-    if (order.station === null) return;
     const savedRows = (specs.materiaPrima as any[]) ?? [];
     const refs = OP_TEMPLATES[order.station as OpStation].materiaPrimaRefs ?? [];
     setMateriaPrima(
@@ -516,7 +531,17 @@ export default function OrdenProduccionDetalle() {
         sourceRollId: sourceRoll?.id,
         bultoLabelCode: bultoLabel?.code,
       });
-      setRollDraft({});
+      // No se limpia del todo -- Color/Densidad (Precorte) heredados de
+      // Extrusión se vuelven a precargar en la fila nueva (ver el useEffect
+      // de sincronización más arriba), en vez de dejarlos vacíos hasta el
+      // próximo refetch de la OP.
+      const defaults: Record<string, string> = {};
+      for (const col of template.rollColumns) {
+        if (col.source === "detail" && col.specDefaultKey && specsDraft[col.specDefaultKey]) {
+          defaults[`detail:${col.detailKey}`] = String(specsDraft[col.specDefaultKey]);
+        }
+      }
+      setRollDraft(defaults);
       setSourceRoll(null);
       setBultoLabel(null);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
