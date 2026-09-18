@@ -692,6 +692,16 @@ model ProductionRoll {
   id                Int             @id @default(autoincrement())
   productionOrderId Int             @map("production_order_id")
   productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  /// Estación de la OP al momento de crear este rollo (copia -- no se
+  /// puede leer de `productionOrder.station` porque junto con
+  /// `stationSequence` arma el código del QR: EXT-1, EXT-2... PRE-1, PRE-2...
+  /// cada estación numerando aparte desde 1, en vez de compartir el
+  /// autoincrement `id` de toda la tabla. Antes sacar un rollo de Extrusión
+  /// después de uno de Precorte podía saltar de EXT-70 a PRE-71 en vez de
+  /// arrancar en 1 -- las cuatro estaciones se veían intercaladas en un
+  /// mismo conteo global, en vez de cuatro numeraciones independientes.
+  station           ProductionStation
+  stationSequence   Int             @map("station_sequence")
   date              DateTime        @default(now())
   shift             String?
   operatorName      String          @map("operator_name")
@@ -721,6 +731,7 @@ model ProductionRoll {
 
   bultoLabel        BultoLabel?
 
+  @@unique([station, stationSequence])
   @@map("production_rolls")
 }
 

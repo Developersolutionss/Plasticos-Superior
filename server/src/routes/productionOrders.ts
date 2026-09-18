@@ -92,18 +92,25 @@ const OPEN_STATUSES: ProductionOrderStatus[] = ["pendiente", "en_proceso"];
  * referencia — no hay una segunda relación `sourceRollId` para trazabilidad.
  */
 interface SourceRollInfo {
-  id: number;
-  label: string | null;
-  station: OpStation | null;
+  station: OpStation;
+  stationSequence: number;
 }
 
 /** Cómo se identifica un rollo madre en el papel: el código de su QR
- * (EXT-12, IMP-30...), o la etiqueta que tenga cargada si por algún motivo
- * no se le puede armar el código. */
+ * (EXT-12, IMP-30...), numerado dentro de SU estación. */
 function sourceRollCode(info: SourceRollInfo | undefined): string {
   if (!info) return "";
-  if (info.station) return `${ROLL_CODE_PREFIX[info.station]}-${info.id}`;
-  return info.label ?? String(info.id);
+  return `${ROLL_CODE_PREFIX[info.station]}-${info.stationSequence}`;
+}
+
+/** Próximo número dentro de la numeración PROPIA de esta estación (EXT-1,
+ * EXT-2... PRE-1, PRE-2... cada una arrancando en 1 y sin mezclarse con las
+ * demás) — se calcula del máximo ya usado, no de un `count()`, por si algún
+ * rollo de prueba no numérico entrara a la tabla (mismo criterio que
+ * nextBultoLabelCode en bultoLabels.ts). */
+async function nextStationSequence(tx: TxClient, station: OpStation): Promise<number> {
+  const max = await tx.productionRoll.aggregate({ where: { station }, _max: { stationSequence: true } });
+  return (max._max.stationSequence ?? 0) + 1;
 }
 
 function rollProducedKg(station: OpStation | null, roll: { weightKg: unknown; details?: unknown }): number {
@@ -246,24 +253,24 @@ productionOrdersRouter.get("/reports/por-operario", requireProduccionGestion, as
   res.json(result);
 });
 
-// Acepta cualquiera de los 4 prefijos de proceso (EXT/IMP/SELL/PRE, ver
-// ROLL_CODE_PREFIX en opTemplates.ts) — el id sigue siendo lo único que
-// hace falta para resolver el rollo (Roll.id ya es único en toda la tabla
-// sin importar la estación), el prefijo es solo para que la persona que
-// mira el QR sepa de qué proceso salió sin tener que escanearlo.
-const ROLL_CODE_RE = /^(?:EXT|IMP|SELL|PRE)-(\d+)$/;
+// Cada estación numera aparte, arrancando en 1 (ver ProductionRoll.station/
+// stationSequence en el schema) — el código captura el prefijo Y el número
+// para poder resolver por ambos, no solo por el número.
+const ROLL_CODE_RE = /^(EXT|IMP|SELL|PRE)-(\d+)$/;
+const PREFIX_TO_STATION: Record<string, OpStation> = { EXT: "extrusion", IMP: "impresion", SELL: "sellado", PRE: "precorte" };
 
 /**
- * Resuelve un rollo por el código de su etiqueta QR (`<prefijo>-<id>`, ver
+ * Resuelve un rollo por el código de su etiqueta QR (`<prefijo>-<n>`, ver
  * GET /:id/rolls/:rollId/label). La usa el escáner al cargar un rollo en la
  * OP derivada: quien escanea confirma qué rollo físico tomó como insumo.
  */
 productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
   const match = ROLL_CODE_RE.exec(req.params.code);
   if (!match) return res.status(400).json({ error: "Código de rollo inválido" });
+  const station = PREFIX_TO_STATION[match[1]];
 
   const roll = await prisma.productionRoll.findUnique({
-    where: { id: Number(match[1]) },
+    where: { station_stationSequence: { station, stationSequence: Number(match[2]) } },
     include: {
       createdBy: { select: { name: true } },
       productionOrder: { select: { id: true, orderNumber: true, station: true, product: { select: { name: true, sku: true } } } },
@@ -296,7 +303,7 @@ productionOrdersRouter.get("/:id", async (req, res) => {
         orderBy: [{ date: "asc" }, { id: "asc" }],
         include: {
           createdBy: { select: { name: true } },
-          sourceRoll: { select: { id: true, label: true, weightKg: true, createdBy: { select: { name: true } } } },
+          sourceRoll: { select: { id: true, label: true, station: true, stationSequence: true, weightKg: true, createdBy: { select: { name: true } } } },
         },
       },
       attachments: { orderBy: { createdAt: "asc" } },
@@ -1147,6 +1154,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
 
   const order = await prisma.productionOrder.findUnique({ where: { id: productionOrderId } });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  if (!order.station) return res.status(400).json({ error: "Esta OP todavía no tiene proceso asignado" });
   if (!OPEN_STATUSES.includes(order.status)) {
     return res.status(400).json({ error: "Esta OP ya no está abierta" });
   }
@@ -1166,10 +1174,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
   const template = OP_TEMPLATES[order.station as OpStation];
   const sourceRollById = new Map<number, SourceRollInfo>();
   for (const sourceRollId of sourceRollIds) {
-    const source = await prisma.productionRoll.findUnique({
-      where: { id: sourceRollId },
-      include: { productionOrder: { select: { station: true } } },
-    });
+    const source = await prisma.productionRoll.findUnique({ where: { id: sourceRollId } });
     if (!source) return res.status(404).json({ error: "El rollo de origen escaneado no existe" });
     // El insumo escaneado tiene que salir de la OP padre real (la cadena de
     // derivación), no de cualquier rollo del sistema — si no, el QR deja de
@@ -1177,7 +1182,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     if (source.productionOrderId !== order.parentOrderId) {
       return res.status(400).json({ error: "El rollo escaneado no pertenece a la OP de la que deriva esta orden" });
     }
-    sourceRollById.set(sourceRollId, { id: source.id, label: source.label, station: source.productionOrder.station });
+    sourceRollById.set(sourceRollId, { station: source.station as OpStation, stationSequence: source.stationSequence });
   }
 
   // La meta de la OP (quantityPlanned) se completa con PESO + DESPERDICIO,
@@ -1216,7 +1221,8 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
 
   let roll;
   try {
-    roll = await prisma.$transaction(async (tx) => {
+    roll = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
       // Se reclama la etiqueta ANTES de crear el rollo, con un update
       // condicional atómico (no un find + create separados) — así dos
       // escaneos casi simultáneos del mismo QR no pueden consumir la misma
@@ -1259,9 +1265,13 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
         }
       }
 
+      const stationSequence = await nextStationSequence(tx, order.station as OpStation);
+
       const created = await tx.productionRoll.create({
         data: {
           productionOrderId,
+          station: order.station as OpStation,
+          stationSequence,
           date: parsed.data.date ? new Date(parsed.data.date) : undefined,
           shift: autoShift(),
           // El operario SIEMPRE sale del JWT, nunca del body — si no, cualquiera
@@ -1300,7 +1310,8 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
       await syncQuantityPlannedToChildren(tx, productionOrderId);
 
       return created;
-    });
+    })
+    );
   } catch (err) {
     if (err instanceof BultoLabelUnavailableError) {
       return res.status(400).json({ error: "Esa etiqueta de bulto no existe o ya fue usada" });
@@ -1653,10 +1664,11 @@ productionOrdersRouter.delete("/:id/attachments/:attachmentId", requireProduccio
 });
 
 /**
- * Etiqueta térmica imprimible de un rollo: QR con el código
- * `<prefijo>-<id>` (EXT/IMP/SELL/PRE según de qué proceso salió, mismo
- * formato que la etiqueta de productos), para pegar en el rollo físico. Al
- * escanearla en la OP derivada se resuelve con GET /rolls/by-code/:code.
+ * Etiqueta térmica imprimible de un rollo: QR con el código `<prefijo>-<n>`
+ * (EXT/IMP/SELL/PRE según de qué proceso salió, numerado dentro de esa
+ * estación, mismo formato que la etiqueta de productos), para pegar en el
+ * rollo físico. Al escanearla en la OP derivada se resuelve con GET
+ * /rolls/by-code/:code.
  */
 productionOrdersRouter.get("/:id/rolls/:rollId/label", async (req, res) => {
   const productionOrderId = Number(req.params.id);
@@ -1670,9 +1682,8 @@ productionOrdersRouter.get("/:id/rolls/:rollId/label", async (req, res) => {
     include: { productionOrder: { select: { orderNumber: true, station: true, product: { select: { name: true } } } } },
   });
   if (!roll) return res.status(404).json({ error: "Rollo no encontrado" });
-  if (!roll.productionOrder.station) return res.status(400).json({ error: "Esta OP todavía no tiene proceso asignado" });
 
-  const code = `${ROLL_CODE_PREFIX[roll.productionOrder.station as OpStation]}-${roll.id}`;
+  const code = sourceRollCode(roll);
   const qrDataUrl = await QRCode.toDataURL(code);
   res.json({
     code,

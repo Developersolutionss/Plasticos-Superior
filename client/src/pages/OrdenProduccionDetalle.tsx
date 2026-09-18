@@ -193,6 +193,15 @@ function previewAllocation(rolls: SourceRollChip[], quantityKg: number) {
   return { allocations, missingKg: pending > 0.005 ? pending : 0 };
 }
 
+/** Cómo mostrar el rollo madre de un rollo ya guardado (campo "Insumo: rollo
+ * X" bajo cada fila): su etiqueta manual si la tiene, o si no el código de
+ * QR numerado dentro de SU estación (EXT-3, PRE-1...) — antes caía a "#<id>
+ * global>", que no es el código real que tiene pegado en el rollo físico. */
+function sourceRollLabel(sourceRoll: { label: string | null; station: OpStation; stationSequence: number } | null | undefined): string {
+  if (!sourceRoll) return "—";
+  return sourceRoll.label ?? `${ROLL_CODE_PREFIX[sourceRoll.station]}-${sourceRoll.stationSequence}`;
+}
+
 /** Cómo van a quedar repartidos los kilos de la fila entre los rollos madre
  * escaneados, o cuánto falta todavía por cubrir. Se muestra mientras el
  * operario tipea el peso, para que no se entere recién al guardar. */
@@ -885,10 +894,10 @@ export default function OrdenProduccionDetalle() {
         return roll.machine ?? "—";
       case "label":
         // En Extrusión/Impresión la etiqueta no se tipea, se genera sola
-        // (mismo código <prefijo>-<id> de la etiqueta QR impresa, con el
-        // prefijo del proceso que la generó) — así igual queda algo
-        // identificable en la tabla en vez de un "—" vacío.
-        return roll.label ?? (template.labelIsOwnRoll ? `${ROLL_CODE_PREFIX[station]}-${roll.id}` : "—");
+        // (mismo código <prefijo>-<n> de la etiqueta QR impresa, numerado
+        // dentro de esta estación) — así igual queda algo identificable en
+        // la tabla en vez de un "—" vacío.
+        return roll.label ?? (template.labelIsOwnRoll ? `${ROLL_CODE_PREFIX[station]}-${roll.stationSequence}` : "—");
       case "weight":
         return String(Number(roll.weightKg));
       case "waste":
@@ -1683,7 +1692,7 @@ export default function OrdenProduccionDetalle() {
                       colSpan={template.rollColumns.length + (canOperate ? 1 : 0)}
                       className={`${cellBorder} px-1.5 py-0.5 text-[10px] text-slate-500 dark:text-slate-400`}
                     >
-                      Insumo: rollo {roll.sourceRoll.label ?? `#${roll.sourceRoll.id}`} ({Number(roll.sourceRoll.weightKg)} kg) — escaneado por{" "}
+                      Insumo: rollo {sourceRollLabel(roll.sourceRoll)} ({Number(roll.sourceRoll.weightKg)} kg) — escaneado por{" "}
                       {roll.createdBy?.name ?? roll.operatorName}
                     </td>
                   </tr>
@@ -1780,7 +1789,7 @@ export default function OrdenProduccionDetalle() {
               </div>
               {roll.sourceRoll && (
                 <div className="bg-slate-50 dark:bg-slate-800/60 px-3 py-1.5 text-[10px] text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700">
-                  Insumo: rollo {roll.sourceRoll.label ?? `#${roll.sourceRoll.id}`} ({Number(roll.sourceRoll.weightKg)} kg) — escaneado por{" "}
+                  Insumo: rollo {sourceRollLabel(roll.sourceRoll)} ({Number(roll.sourceRoll.weightKg)} kg) — escaneado por{" "}
                   {roll.createdBy?.name ?? roll.operatorName}
                 </div>
               )}

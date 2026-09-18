@@ -12,6 +12,7 @@ const W = 515; // ancho útil A4 con margen 40
 
 interface RollLike {
   id: number;
+  stationSequence: number;
   date: Date | string;
   shift: string | null;
   operatorName: string;
@@ -119,7 +120,7 @@ function rollCellValue(roll: RollLike, col: OpRollColumn, labelIsOwnRoll: boolea
       // prefijo del proceso que la generó) — mismo fallback que la pantalla
       // (OrdenProduccionDetalle.tsx), para que el PDF no salga con la
       // columna vacía cuando en pantalla sí se ve un código.
-      return roll.label ?? (labelIsOwnRoll ? `${ROLL_CODE_PREFIX[station]}-${roll.id}` : "—");
+      return roll.label ?? (labelIsOwnRoll ? `${ROLL_CODE_PREFIX[station]}-${roll.stationSequence}` : "—");
     case "weight":
       return String(num(roll.weightKg));
     case "waste":
