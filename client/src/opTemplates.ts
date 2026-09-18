@@ -107,11 +107,6 @@ const MEDIDAS_FINALES: OpSpecSection = {
     { key: "medidasUnidad", label: "Unidad", kind: "options", options: ["Pulgadas", "Cms."] },
     { key: "medAncho", label: "Ancho", kind: "text" },
     { key: "medLargo", label: "Largo", kind: "text" },
-    { key: "medLateral", label: "Lateral", kind: "text" },
-    { key: "medFuelleFondo", label: "Fuelle fondo", kind: "text" },
-    { key: "medPestana", label: "Pestaña", kind: "text" },
-    { key: "medFondo", label: "Fondo", kind: "text" },
-    { key: "solapaVolada", label: "Solapa volada", kind: "options", options: ["Interna", "Externa"] },
   ],
 };
 
