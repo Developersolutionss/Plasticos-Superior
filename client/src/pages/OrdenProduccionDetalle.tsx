@@ -974,6 +974,34 @@ export default function OrdenProduccionDetalle() {
         title: bultoLabel ? undefined : "Solo se completa si escaneás la etiqueta física de una mercadería comprada afuera",
       };
     }
+    // COLOR/DENSIDAD (Precorte) ya vienen heredados de Extrusión en las
+    // Especificaciones de esta misma OP -- se dejó de pedir a mano fila por
+    // fila para que no se pueda escribir un valor distinto al del
+    // encabezado por error. Si el encabezado todavía no tiene ese dato
+    // cargado (OP vieja, o Gestión no lo completó), se cae al input
+    // editable de siempre en vez de mostrar una celda bloqueada en blanco.
+    if (col.source === "detail" && col.specDefaultKey && specsDraft[col.specDefaultKey]) {
+      return {
+        content: String(specsDraft[col.specDefaultKey]),
+        className: "text-slate-800 dark:text-slate-100 text-center",
+        title: "Viene de las Especificaciones de esta OP (heredado de Extrusión) — se edita ahí arriba, no acá",
+      };
+    }
+    // Segundo par ETIQUETA R / PESO R (Precorte): es el excedente que sale
+    // del SIGUIENTE rollo madre cuando el actual no alcanza (ver reparto en
+    // el chip de arriba) -- se calcula solo del escaneo, no se tipea.
+    if (col.source === "detail" && (col.detailKey === "etiquetaR2" || col.detailKey === "pesoR2") && template.consumesSourceByWeight) {
+      const { allocations } = previewAllocation(sourceRolls, Number(rollDraft.weight) || 0);
+      const spill = allocations[1];
+      if (!spill) {
+        return { content: "—", className: "text-slate-400 dark:text-slate-500 text-center italic", title: "Se completa solo si el rollo madre actual no alcanza" };
+      }
+      return {
+        content: col.detailKey === "etiquetaR2" ? spill.roll.code : String(spill.quantityKg),
+        className: "text-slate-800 dark:text-slate-100 text-center font-medium",
+        title: "Excedente que salió del siguiente rollo madre escaneado",
+      };
+    }
     return {
       className: "",
       content:
