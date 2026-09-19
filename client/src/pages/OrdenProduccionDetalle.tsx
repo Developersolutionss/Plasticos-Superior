@@ -964,7 +964,7 @@ export default function OrdenProduccionDetalle() {
     // Con el rollo madre ya escaneado, la ETIQUETA es ese rollo (no se tipea)
     // y el PESO pasa a ser lo único que carga el operario: cuántos kilos
     // salió el rollo chico que acaba de sacar.
-    if (col.source === "label" && template.consumesSourceByWeight) {
+    if (col.source === "label" && template.consumesSourceByWeight && sourceRolls.length > 0) {
       return {
         content: sourceRolls[0].code,
         className: "text-slate-800 dark:text-slate-100 text-center font-medium",
@@ -1001,12 +1001,18 @@ export default function OrdenProduccionDetalle() {
     // el chip de arriba) -- se calcula solo del escaneo, no se tipea.
     if (col.source === "detail" && (col.detailKey === "etiquetaR2" || col.detailKey === "pesoR2") && template.consumesSourceByWeight) {
       const { allocations } = previewAllocation(sourceRolls, Number(rollDraft.weight) || 0);
-      const spill = allocations[1];
-      if (!spill) {
+      // El excedente puede venir de MÁS de un rollo madre siguiente (si
+      // escanearon un tercero, un cuarto...) — el server suma todo lo que no
+      // sea el primer reparto en un solo PESO R2 (ver weightKg/spillKg en
+      // POST /:id/rolls), así que la vista previa tiene que sumar igual, no
+      // mostrar solo el segundo.
+      const spill = allocations.slice(1);
+      if (spill.length === 0) {
         return { content: "—", className: "text-slate-400 dark:text-slate-500 text-center italic", title: "Se completa solo si el rollo madre actual no alcanza" };
       }
+      const spillKg = Math.round(spill.reduce((acc, a) => acc + a.quantityKg, 0) * 100) / 100;
       return {
-        content: col.detailKey === "etiquetaR2" ? spill.roll.code : String(spill.quantityKg),
+        content: col.detailKey === "etiquetaR2" ? spill[0].roll.code : String(spillKg),
         className: "text-slate-800 dark:text-slate-100 text-center font-medium",
         title: "Excedente que salió del siguiente rollo madre escaneado",
       };

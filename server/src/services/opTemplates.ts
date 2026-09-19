@@ -32,6 +32,12 @@ export interface OpRollColumn {
   /** true en E. BULTO de Sellado — etiqueta física pre-impresa (BultoLabel),
    * se completa al escanear, no se tipea. Ver opTemplates.ts del cliente. */
   scanBultoLabel?: boolean;
+  /** Clave de las Especificaciones de la OP de la que el cliente precarga el
+   * valor inicial de este campo (ej. Color/Densidad en Precorte). El server
+   * no lee este campo hoy -- vive acá solo para que las dos plantillas
+   * (server/client) sigan siendo un espejo exacto. Ver opTemplates.ts del
+   * cliente para el uso real. */
+  specDefaultKey?: string;
 }
 
 export interface OpTemplate {
@@ -303,8 +309,8 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
       { label: "PESO R (KG)", source: "weight", kind: "number" },
       { label: "ETIQUETA R", source: "detail", detailKey: "etiquetaR2" },
       { label: "PESO R (KG)", source: "detail", detailKey: "pesoR2", kind: "number" },
-      { label: "COLOR", source: "detail", detailKey: "color" },
-      { label: "DENSIDAD", source: "detail", detailKey: "densidad" },
+      { label: "COLOR", source: "detail", detailKey: "color", specDefaultKey: "color" },
+      { label: "DENSIDAD", source: "detail", detailKey: "densidad", specDefaultKey: "materialDensidad" },
       { label: "DESPERDICIO", source: "waste", kind: "number" },
     ],
   },

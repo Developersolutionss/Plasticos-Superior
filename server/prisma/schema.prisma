@@ -750,7 +750,11 @@ model RollConsumption {
   roll         ProductionRoll @relation("RollConsumed", fields: [rollId], references: [id], onDelete: Cascade)
   /// Rollo madre del que salieron estos kilos.
   sourceRollId Int            @map("source_roll_id")
-  sourceRoll   ProductionRoll @relation("RollSourceOf", fields: [sourceRollId], references: [id])
+  /// `onDelete: Restrict` explícito (ya era el default de Prisma para una
+  /// relación obligatoria, esto no cambia nada en la DB) -- documenta que es
+  /// justamente esta FK la que dispara el P2003 que DELETE
+  /// /:id/rolls/:rollId traduce a un 400 amigable en la ventana de carrera.
+  sourceRoll   ProductionRoll @relation("RollSourceOf", fields: [sourceRollId], references: [id], onDelete: Restrict)
   quantityKg   Decimal        @map("quantity_kg") @db.Decimal(12, 2)
   createdAt    DateTime       @default(now()) @map("created_at")
 

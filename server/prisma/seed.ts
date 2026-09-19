@@ -8,6 +8,15 @@ import { prisma } from "../src/prisma";
 import { applyMovement, incrementLocationStock } from "../src/services/stockService";
 import { applyRawMaterialMovement } from "../src/services/rawMaterialStockService";
 
+/** `station`/`stationSequence` son NOT NULL en ProductionRoll (numeración
+ * propia por estación, ver migración roll_per_station_numbering) -- el seed
+ * los arma a mano igual que el endpoint real (máximo ya usado + 1), para no
+ * pisar una fila real si el seed corre sobre una base que ya tiene datos. */
+async function nextSeedStationSequence(station: string): Promise<number> {
+  const max = await prisma.productionRoll.aggregate({ where: { station: station as any }, _max: { stationSequence: true } });
+  return (max._max.stationSequence ?? 0) + 1;
+}
+
 async function main() {
   const passwordHash = await bcrypt.hash("password123", 10);
 
@@ -204,6 +213,7 @@ async function main() {
       where: { orderNumber: "OP-SEED-EXTRUSION" },
     });
     if (!existingSeedExtrusion) {
+      const extrusionSeq = await nextSeedStationSequence("extrusion");
       const extrusionOp = await prisma.productionOrder.create({
         data: {
           orderNumber: "OP-SEED-EXTRUSION",
@@ -234,6 +244,8 @@ async function main() {
           rolls: {
             create: [
               {
+                station: "extrusion",
+                stationSequence: extrusionSeq,
                 shift: "Turno 1",
                 operatorName: "Operario Demo",
                 machine: "1",
@@ -243,6 +255,8 @@ async function main() {
                 details: { pResistencia: "SI", pTratado: "NO" },
               },
               {
+                station: "extrusion",
+                stationSequence: extrusionSeq + 1,
                 shift: "Turno 2",
                 operatorName: "Operaria Demo 2",
                 machine: "1",
@@ -256,6 +270,7 @@ async function main() {
         },
       });
 
+      const selladoSeq = await nextSeedStationSequence("sellado");
       await prisma.productionOrder.create({
         data: {
           orderNumber: "OP-SEED-CALIDAD",
@@ -270,6 +285,8 @@ async function main() {
           rolls: {
             create: [
               {
+                station: "sellado",
+                stationSequence: selladoSeq,
                 shift: "Turno 1",
                 operatorName: "Operario Demo",
                 machine: "Selladora 1",
@@ -283,6 +300,7 @@ async function main() {
         },
       });
 
+      const impresionSeq = await nextSeedStationSequence("impresion");
       await prisma.productionOrder.create({
         data: {
           orderNumber: "OP-SEED-IMPRESION",
@@ -304,6 +322,8 @@ async function main() {
           rolls: {
             create: [
               {
+                station: "impresion",
+                stationSequence: impresionSeq,
                 shift: "Turno 1",
                 operatorName: "Operario Demo",
                 machine: "Flexo 1",
@@ -493,6 +513,7 @@ async function main() {
       const existing = await prisma.productionOrder.findFirst({ where: { orderNumber: seedOp.orderNumber } });
       if (existing) continue;
 
+      const precorteSeq = await nextSeedStationSequence("precorte");
       const op = await prisma.productionOrder.create({
         data: {
           orderNumber: seedOp.orderNumber,
@@ -503,6 +524,8 @@ async function main() {
           status: seedOp.result === "aprobado" ? "finalizada" : "detenida",
           rolls: {
             create: {
+              station: "precorte",
+              stationSequence: precorteSeq,
               date: new Date(Date.now() - 2 * 60 * 60 * 1000),
               machine: "Cortadora 1",
               operatorName: "Operario Demo",

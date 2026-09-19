@@ -9,13 +9,21 @@ import { useAuth } from "../auth/AuthContext";
  * login al dashboard no se sienta instantáneo/brusco). */
 const WELCOME_STEPS = ["Verificando tus credenciales...", "Configurando tu experiencia personalizada...", "Ya casi..."];
 
-function WelcomeTransition({ name }: { name?: string }) {
+function WelcomeTransition({ name, onDone }: { name?: string; onDone: () => void }) {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => setStep((s) => Math.min(s + 1, WELCOME_STEPS.length - 1)), 500);
-    return () => clearInterval(interval);
-  }, []);
+    // El timeout vive acá (no en un setTimeout suelto en handleSubmit) para
+    // poder limpiarlo si el componente se desmonta antes de dispararse --
+    // si el operario cierra la pestaña o navega a mano durante estos 1.6s,
+    // no queda un navigate() pendiente sobre un componente que ya no existe.
+    const timeout = setTimeout(onDone, 1600);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [onDone]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-5 bg-gradient-to-br from-slate-900 via-slate-900 to-sky-950 text-white px-6">
@@ -60,7 +68,6 @@ export default function Login() {
         // se sienta como un salto brusco. `name` es opcional porque no
         // todos los roles lo traen en el payload del token.
         setWelcomeUser({ name: (res.user as any)?.name });
-        setTimeout(() => navigate("/"), 1600);
       }
     } catch (err: any) {
       setError(err.message?.includes("bloqueada") ? err.message : needs2fa ? "Código inválido" : "Credenciales inválidas");
@@ -70,7 +77,7 @@ export default function Login() {
   }
 
   if (welcomeUser) {
-    return <WelcomeTransition name={welcomeUser.name} />;
+    return <WelcomeTransition name={welcomeUser.name} onDone={() => navigate("/")} />;
   }
 
   return (

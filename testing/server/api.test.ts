@@ -1221,10 +1221,39 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     });
     assert.equal(byCode.status, 200, "el código con el nuevo prefijo debe resolver el rollo");
 
-    const oldFormat = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/RL-${roll.id}`, {
+    // Etiquetas físicas ya impresas ANTES de tener prefijo por estación
+    // (formato "RL-<id global>") siguen circulando en planta -- tienen que
+    // seguir resolviendo por el id real, no dar "código inválido" de la nada.
+    const legacyFormat = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/RL-${roll.id}`, {
       headers: headersFor("operario_extrusion"),
     });
-    assert.equal(oldFormat.status, 400, "el prefijo genérico viejo ya no es un formato válido");
+    assert.equal(legacyFormat.status, 200, "el formato viejo RL-<id> sigue resolviendo, por las etiquetas físicas ya impresas");
+    const legacyBody = (await legacyFormat.json()) as { id: number };
+    assert.equal(legacyBody.id, roll.id);
+
+    const bogusFormat = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/ZZZ-1`, {
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(bogusFormat.status, 400, "un prefijo que no es ninguno de los 4 reales (ni el legado RL-) se rechaza");
+
+    // Un QR mal leído por el escáner (o alguien tipeando cualquier cosa a
+    // mano) puede traer un número que ni entra en una columna `integer` de
+    // Postgres -- antes esto llegaba crudo a Prisma y explotaba como 500 en
+    // vez de un 400 prolijo.
+    const numeroEnorme = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/EXT-99999999999999`, {
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(numeroEnorme.status, 400, "un número que se pasa de un integer de Postgres se rechaza en vez de romper con un 500");
+
+    const numeroEnormeLegado = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/RL-99999999999999`, {
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(numeroEnormeLegado.status, 400, "mismo chequeo para el formato legado RL-<id>");
+
+    const inexistente = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/RL-999999999`, {
+      headers: headersFor("operario_extrusion"),
+    });
+    assert.equal(inexistente.status, 404, "un id legado que sí entra en un integer pero no existe da 404, no 400 ni 500");
 
     await prisma.productionRoll.delete({ where: { id: roll.id } });
     await prisma.productionOrder.delete({ where: { id: extOrder.id } });
@@ -2096,6 +2125,62 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     assert.equal(Number(fila.weightKg), 10, "el primer par lleva lo que salió del primer rollo madre");
     assert.equal(Number(fila.details.pesoR2), 5, "el segundo par lleva el excedente que salió del siguiente");
     assert.equal(fila.details.etiquetaR2, `EXT-${madreB.stationSequence}`);
+
+    await limpiar(parent.id, child.id);
+  });
+
+  it("un pesoR2/etiquetaR2 tipeado a mano (PWA con caché vieja) no infla la producción -- el server manda", async () => {
+    // La UI ya no tiene ningún input para estos dos campos (son de solo
+    // lectura, se calculan solos), pero un cliente con la PWA cacheada de
+    // antes de ese cambio todavía podría mandarlos en el body. El server
+    // tiene que descartarlos siempre, no solo cuando de verdad hay
+    // excedente entre rollos madre.
+    const { parent, child, madres } = await setupRolloMadre("precorte", [20]);
+    const madre = madres[0];
+
+    // Un solo rollo madre con saldo de sobra: no hay excedente real, pero el
+    // body manda pesoR2/etiquetaR2 como si el operario los hubiera tipeado.
+    const res = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({
+        weightKg: 10,
+        sourceRollIds: [madre.id],
+        details: { etiquetaR2: "EXT-999", pesoR2: 5 },
+      }),
+    });
+    assert.equal(res.status, 201);
+    const fila = (await res.json()) as { weightKg: string; details: Record<string, unknown> };
+
+    assert.equal(Number(fila.weightKg), 10);
+    assert.equal(fila.details.pesoR2, undefined, "sin excedente real, pesoR2 no debe quedar con lo que mandó el cliente");
+    assert.equal(fila.details.etiquetaR2, undefined, "sin excedente real, etiquetaR2 no debe quedar con lo que mandó el cliente");
+    assert.equal(await saldoDe(madre.stationSequence), 10, "el saldo del madre refleja los 10 kg reales, no 15 (10 + el pesoR2 inventado)");
+
+    await limpiar(parent.id, child.id);
+  });
+
+  it("un pesoR2 inventado del cliente viejo no cuenta contra la meta -- una fila que entra justo no debe rechazarse", async () => {
+    // Mismo escenario que el test de arriba, pero con una meta AJUSTADA
+    // (no 500kg de sobra) para que el chequeo de "¿esto se pasa de lo
+    // planificado?" entre en juego -- el bug real que encontró el QA era que
+    // ese chequeo corría ANTES de descartar el pesoR2 falso, así que una
+    // fila que en los hechos entraba justo (10kg contra una meta de 10kg)
+    // se rechazaba como si fueran 15 (10 + los 5 inventados).
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 20 },
+    });
+    const madre = await createTestRoll(parent.id, { weightKg: 20 });
+    const child = await prisma.productionOrder.create({
+      data: { orderNumber: parent.orderNumber, station: "precorte", productId, quantityPlanned: 10, parentOrderId: parent.id },
+    });
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ weightKg: 10, sourceRollIds: [madre.id], details: { pesoR2: 5 } }),
+    });
+    assert.equal(res.status, 201, "10kg reales contra una meta de 10kg debe entrar, aunque el cliente haya mandado un pesoR2 de más");
 
     await limpiar(parent.id, child.id);
   });

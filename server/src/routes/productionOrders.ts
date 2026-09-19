@@ -257,6 +257,12 @@ productionOrdersRouter.get("/reports/por-operario", requireProduccionGestion, as
 // stationSequence en el schema) — el código captura el prefijo Y el número
 // para poder resolver por ambos, no solo por el número.
 const ROLL_CODE_RE = /^(EXT|IMP|SELL|PRE)-(\d+)$/;
+// Formato viejo, de ANTES de tener prefijo por estación (ver 51fc5ed): el
+// número era el id global de la tabla. Las etiquetas físicas ya impresas con
+// este formato (pegadas en rollos que todavía pueden estar circulando en
+// planta) tienen que seguir resolviendo — si no, un operario que escanea un
+// rollo viejo se encuentra con "código inválido" de la nada.
+const LEGACY_ROLL_CODE_RE = /^RL-(\d+)$/;
 const PREFIX_TO_STATION: Record<string, OpStation> = { EXT: "extrusion", IMP: "impresion", SELL: "sellado", PRE: "precorte" };
 
 /**
@@ -266,11 +272,22 @@ const PREFIX_TO_STATION: Record<string, OpStation> = { EXT: "extrusion", IMP: "i
  */
 productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
   const match = ROLL_CODE_RE.exec(req.params.code);
-  if (!match) return res.status(400).json({ error: "Código de rollo inválido" });
-  const station = PREFIX_TO_STATION[match[1]];
+  const legacyMatch = LEGACY_ROLL_CODE_RE.exec(req.params.code);
+  if (!match && !legacyMatch) return res.status(400).json({ error: "Código de rollo inválido" });
+  // Un QR mal leído por el escáner puede traer un número absurdamente
+  // grande — sin este chequeo llega tal cual a Postgres como `id` o
+  // `stationSequence` (columnas `integer`) y explota como 500 en vez de un
+  // 400 prolijo ("value out of range for type integer").
+  const codeNumber = Number(match ? match[2] : legacyMatch![1]);
+  if (!Number.isSafeInteger(codeNumber) || codeNumber > 2147483647) {
+    return res.status(400).json({ error: "Código de rollo inválido" });
+  }
 
+  const rollWhere: Prisma.ProductionRollWhereUniqueInput = match
+    ? { station_stationSequence: { station: PREFIX_TO_STATION[match[1]], stationSequence: codeNumber } }
+    : { id: codeNumber };
   const roll = await prisma.productionRoll.findUnique({
-    where: { station_stationSequence: { station, stationSequence: Number(match[2]) } },
+    where: rollWhere,
     include: {
       createdBy: { select: { name: true } },
       productionOrder: { select: { id: true, orderNumber: true, station: true, product: { select: { name: true, sku: true } } } },
@@ -977,6 +994,7 @@ const REOPENABLE_STATUSES: ProductionOrderStatus[] = ["finalizada", "pendiente_c
  */
 class StatusRaceError extends Error {}
 class BultoLabelUnavailableError extends Error {}
+class RollAlreadyConsumedError extends Error {}
 
 productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
@@ -1185,6 +1203,24 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     sourceRollById.set(sourceRollId, { station: source.station as OpStation, stationSequence: source.stationSequence });
   }
 
+  // etiquetaR2/pesoR2 (Precorte) los calcula el server solo del reparto
+  // entre rollos madre (más abajo) CUANDO la fila viene de un escaneo
+  // (sourceRollIds) — la UI ya no tiene ningún input que los escriba en ese
+  // caso, pero un cliente con la PWA en caché vieja todavía podría mandarlos
+  // tipeados a mano junto con el escaneo. Se descartan ACÁ, antes del
+  // chequeo de meta de abajo (no solo dentro de la transacción) — si no, un
+  // pesoR2 inventado por un cliente viejo hace que una fila que en realidad
+  // entra justo se rechace como "se pasa de la cantidad planificada", con un
+  // mensaje que ni siquiera tiene sentido para quien lo lee. Fuera del flujo
+  // de escaneo (sin sourceRollIds) pesoR2/etiquetaR2 siguen siendo el
+  // segundo rollo tipeado a mano de siempre — no hay ningún reparto que los
+  // vaya a pisar, así que no se tocan.
+  let sanitizedDetails = parsed.data.details as Record<string, unknown> | undefined;
+  if (template.consumesSourceByWeight && sourceRollIds.length > 0 && sanitizedDetails) {
+    const { etiquetaR2, pesoR2, ...rest } = sanitizedDetails;
+    sanitizedDetails = rest;
+  }
+
   // La meta de la OP (quantityPlanned) se completa con PESO + DESPERDICIO,
   // no solo peso — así lo pidió el cliente ("si son 200kg se tiene que
   // descontar el desperdicio"). Una vez alcanzada, no se puede seguir
@@ -1202,7 +1238,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
   // real igual que weightKg — cuenta contra la meta igual que el primero.
   const thisRollKg = rollProducedKg(order.station as OpStation, {
     weightKg: parsed.data.weightKg,
-    details: parsed.data.details,
+    details: sanitizedDetails,
   });
   // No alcanza con chequear "¿ya se completó antes de este rollo?" — un
   // rollo grande podía colarse entero y pasarse de largo de la meta en un
@@ -1223,11 +1259,20 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
   try {
     roll = await withSequentialNumberRetry(() =>
     prisma.$transaction(async (tx) => {
+      // Se reinicia en cada intento del reintento de arriba, en vez de
+      // reusar la variable de afuera directamente: las mutaciones de abajo
+      // (eBulto, etiquetaR2/pesoR2) van todas por spread (`{ ...details,
+      // ... }`), así que nunca tocan `sanitizedDetails` en el lugar -- si un
+      // intento anterior falló, el siguiente arranca de la misma base
+      // limpia, no de una versión ya mutada. `sanitizedDetails` en sí ya
+      // viene libre de un eventual etiquetaR2/pesoR2 tipeado a mano por un
+      // cliente con la PWA en caché vieja (ver arriba, antes del chequeo de
+      // meta).
+      let details = sanitizedDetails;
       // Se reclama la etiqueta ANTES de crear el rollo, con un update
       // condicional atómico (no un find + create separados) — así dos
       // escaneos casi simultáneos del mismo QR no pueden consumir la misma
       // etiqueta dos veces.
-      let details = parsed.data.details as Record<string, unknown> | undefined;
       if (parsed.data.bultoLabelCode) {
         const claim = await tx.bultoLabel.updateMany({
           where: { code: parsed.data.bultoLabelCode, status: "disponible" },
@@ -1388,12 +1433,35 @@ productionOrdersRouter.delete("/:id/rolls/:rollId", requireProduccionGestion, as
     });
   }
 
-  await prisma.$transaction(async (tx) => {
-    // Los consumos DE este rollo (lo que él le sacó a sus madres) se borran
-    // en cascada, así que el saldo de los madres se libera solo.
-    await tx.productionRoll.delete({ where: { id: rollId } });
-    await syncQuantityPlannedToChildren(tx, productionOrderId);
-  });
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Se re-chequea DENTRO de la transacción, no solo en el pre-check de
+      // arriba: si alguien registra una fila contra este rollo justo en la
+      // ventana entre ese chequeo y acá, el pre-check ya no lo ve y el
+      // borrado volvería a chocar con la FK como un 500 crudo.
+      const consumidoEnCarrera = await tx.rollConsumption.findFirst({ where: { sourceRollId: rollId } });
+      if (consumidoEnCarrera) throw new RollAlreadyConsumedError();
+
+      // Los consumos DE este rollo (lo que él le sacó a sus madres) se borran
+      // en cascada, así que el saldo de los madres se libera solo.
+      await tx.productionRoll.delete({ where: { id: rollId } });
+      await syncQuantityPlannedToChildren(tx, productionOrderId);
+    });
+  } catch (err) {
+    if (err instanceof RollAlreadyConsumedError) {
+      return res.status(400).json({ error: "No se puede borrar: justo ahora se registró una fila que sacó material de este rollo. Recargá la página." });
+    }
+    // Ventana angosta que el re-chequeo de arriba no cubre: la otra
+    // transacción todavía no había comiteado cuando se leyó, pero comitea
+    // justo antes del DELETE — ahí el DELETE choca contra la FK
+    // (RollConsumption.sourceRoll es Restrict) y Prisma lo reporta como
+    // P2003, no como el error de arriba. Mismo mensaje amigable en vez del
+    // 500 crudo que esto reemplaza.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+      return res.status(400).json({ error: "No se puede borrar: justo ahora se registró una fila que sacó material de este rollo. Recargá la página." });
+    }
+    throw err;
+  }
   res.status(204).end();
 });
 
