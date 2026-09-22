@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, Check, FileDown, GitBranch, Lock, Paperclip, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, FileDown, GitBranch, Lock, Paperclip, Pencil, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, OP_PRECORTE, PRODUCCION_GESTION } from "../components/navConfig";
@@ -184,6 +184,19 @@ interface SourceRollChip {
   createdByName?: string | null;
 }
 
+/** Un rollo ya completado en el formulario pero todavía no mandado al
+ * servidor (ver `pendingRolls`). `body` es el payload listo para
+ * `api.createProductionRoll`; `rollDraft`/`sourceRolls`/`bultoLabel` son una
+ * copia de cómo estaba el formulario al agregarlo, para poder recargarlo si
+ * la persona lo quiere editar antes de confirmar el lote. */
+interface PendingRoll {
+  localId: string;
+  body: Parameters<typeof api.createProductionRoll>[1];
+  rollDraft: Record<string, string>;
+  sourceRolls: SourceRollChip[];
+  bultoLabel: { id: number; code: string } | null;
+}
+
 /** Reparte los kilos de la fila entre los rollos madre escaneados, agotando
  * cada uno antes de pasar al siguiente — la misma cuenta que hace el server
  * al guardar (allocateFromSourceRolls). Acá es solo para mostrarle al
@@ -253,6 +266,16 @@ export default function OrdenProduccionDetalle() {
   const [scanningSource, setScanningSource] = useState(false);
   const [bultoLabel, setBultoLabel] = useState<{ id: number; code: string } | null>(null);
   const [scanningBultoLabel, setScanningBultoLabel] = useState(false);
+  // Rollos ya completados en el formulario pero todavía SIN mandar al
+  // servidor -- "Añadir rollo" los agrega acá (se pueden seguir editando o
+  // borrando de la lista); "Confirmar rollos" recién ahí los manda todos en
+  // orden. Una vez confirmado cada uno se comporta como cualquier fila ya
+  // guardada de siempre: solo se puede borrar, no editar (ver
+  // handleDeleteRoll) -- lo que cambia es que ahora ese "punto sin vuelta
+  // atrás" es una acción explícita sobre todo el lote, no automática en cada
+  // fila.
+  const [pendingRolls, setPendingRolls] = useState<PendingRoll[]>([]);
+  const [confirmingPending, setConfirmingPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reopening, setReopening] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -457,12 +480,19 @@ export default function OrdenProduccionDetalle() {
 
   const totalKg = order.rolls.reduce((acc: number, r: any) => acc + rollTotalWeightKg(r), 0);
   const totalWaste = order.rolls.reduce((acc: number, r: any) => acc + Number(r.wasteKg), 0);
+  // Los que están en la lista "por confirmar" todavía no son filas reales de
+  // la OP (no llegaron al servidor), pero ya van a pesar en la meta apenas se
+  // confirmen -- sin esto, alguien podría seguir agregando a la lista más
+  // allá de lo planificado sin darse cuenta hasta que "Confirmar rollos"
+  // reciente lo rechace fila por fila.
+  const pendingKg = pendingRolls.reduce((acc, p) => acc + Number(p.body.weightKg) + Number((p.body.details as any)?.pesoR2 ?? 0), 0);
+  const pendingWaste = pendingRolls.reduce((acc, p) => acc + Number(p.body.wasteKg ?? 0), 0);
   // La meta se completa con PESO + DESPERDICIO, no solo peso producido (así
   // lo pidió el cliente) — una vez alcanzada, se oculta la fila de carga
   // (el server además la rechaza si alguien la manda igual, ver
   // POST /:id/rolls).
   const plannedKg = Number(order.quantityPlanned);
-  const producedPlusWaste = totalKg + totalWaste;
+  const producedPlusWaste = totalKg + totalWaste + pendingKg + pendingWaste;
   const remainingKg = plannedKg > 0 ? Math.max(0, Math.round((plannedKg - producedPlusWaste) * 100) / 100) : 0;
   const isQuantityComplete = plannedKg > 0 && producedPlusWaste >= plannedKg;
   // Acumulado hasta cada fila (columna TOTAL del papel) — order.rolls ya
@@ -557,12 +587,13 @@ export default function OrdenProduccionDetalle() {
     }
   }
 
-  async function handleAddRoll(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
+  /** Valida el formulario actual y arma el payload que se mandaría a
+   * POST /:id/rolls -- lo comparten `handleQueueRoll` (que lo guarda en
+   * `pendingRolls` en vez de mandarlo) y `handleConfirmPendingRolls` en el
+   * fondo usa el mismo shape ya armado. */
+  function validateAndBuildRollBody(): { body: PendingRoll["body"] } | { error: string } {
     if (!rollDraft.weight || Number(rollDraft.weight) <= 0) {
-      setError("El peso tiene que ser mayor a 0");
-      return;
+      return { error: "El peso tiene que ser mayor a 0" };
     }
     // En Sellado/Precorte, ETIQUETA/PESO son el rollo de origen escaneado
     // (ver handleScannedSource) — sin un escaneo vigente no hay forma de que
@@ -570,8 +601,7 @@ export default function OrdenProduccionDetalle() {
     // se quitó con "Quitar" sin volver a escanear), así que se bloquea acá
     // además de en la UI.
     if (!template.labelIsOwnRoll && !template.originRollFields && sourceRolls.length === 0) {
-      setError("Escaneá el rollo de origen antes de registrar la fila");
-      return;
+      return { error: "Escaneá el rollo de origen antes de registrar la fila" };
     }
     // El rollo chico no puede salir de la nada: si pesa más de lo que queda
     // entre todos los rollos madre escaneados, falta montar el siguiente. El
@@ -580,8 +610,7 @@ export default function OrdenProduccionDetalle() {
     if (template.consumesSourceByWeight) {
       const { missingKg } = previewAllocation(sourceRolls, Number(rollDraft.weight));
       if (missingKg > 0) {
-        setError(`Faltan ${missingKg} kg para cubrir esta fila — escaneá el siguiente rollo madre`);
-        return;
+        return { error: `Faltan ${missingKg} kg para cubrir esta fila — escaneá el siguiente rollo madre` };
       }
     }
     // E. BULTO no se tipea a mano — o se escanea la etiqueta física (se
@@ -594,8 +623,8 @@ export default function OrdenProduccionDetalle() {
         details[col.detailKey!] = rollDraft[`detail:${col.detailKey}`];
       }
     }
-    try {
-      await api.createProductionRoll(orderId, {
+    return {
+      body: {
         // FECHA/HORA/TURNO ya no se tipean — se omiten acá para que el
         // server los deje en el momento real de guardado (igual que
         // `date DateTime @default(now())`), más confiable que lo que el
@@ -617,53 +646,112 @@ export default function OrdenProduccionDetalle() {
         details: Object.keys(details).length ? details : undefined,
         sourceRollIds: sourceRolls.length > 0 ? sourceRolls.map((r) => r.id) : undefined,
         bultoLabelCode: bultoLabel?.code,
-      });
-      // No se limpia del todo -- Color/Densidad (Precorte) heredados de
-      // Extrusión se vuelven a precargar en la fila nueva (ver el useEffect
-      // de sincronización más arriba), en vez de dejarlos vacíos hasta el
-      // próximo refetch de la OP.
-      const defaults: Record<string, string> = {};
-      for (const col of template.rollColumns) {
-        if (col.source === "detail" && col.specDefaultKey && specsDraft[col.specDefaultKey]) {
-          defaults[`detail:${col.detailKey}`] = String(specsDraft[col.specDefaultKey]);
-        }
-      }
-      // El rollo madre SIGUE montado en la máquina después de sacarle un
-      // rollo chico: se le descuenta lo que se acaba de llevar y queda listo
-      // para la fila siguiente. Solo se suelta cuando se agota — ahí el
-      // operario tiene que escanear el que monte a continuación. Obligarlo a
-      // re-escanear el mismo rollo en cada fila sería pelearse con el proceso
-      // real de planta.
-      let nextSourceRolls: SourceRollChip[] = [];
-      if (template.consumesSourceByWeight) {
-        const { allocations } = previewAllocation(sourceRolls, Number(rollDraft.weight));
-        const takenById = new Map(allocations.map((a) => [a.roll.id, a.quantityKg]));
-        nextSourceRolls = sourceRolls
-          .map((r) => ({ ...r, remainingKg: Math.round((r.remainingKg - (takenById.get(r.id) ?? 0)) * 100) / 100 }))
-          .filter((r) => r.remainingKg > 0.005);
-      }
-      if (nextSourceRolls.length > 0) defaults.label = nextSourceRolls[0].code;
-      setSourceRolls(nextSourceRolls);
-      setRollDraft(defaults);
-      setBultoLabel(null);
-      queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
-      queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
-      // La etiqueta con QR queda disponible con el botón de impresora en la
-      // fila del rollo — ya NO se imprime sola acá. Abrir una pestaña nueva
-      // y disparar window.print() automáticamente en cada rollo cargado le
-      // robaba el foco a la pestaña principal (sobre todo en la PWA
-      // instalada en tablets de planta), dejando los inputs sin responder
-      // hasta recargar la página.
-    } catch (err: any) {
-      if (err?.message?.includes("403")) {
-        setError("Tu rol no puede registrar rollos en esta estación");
-      } else {
-        // El server manda mensajes específicos (ej. "quedan X kg
-        // disponibles") que vale la pena mostrar tal cual en vez del
-        // genérico — api/client.ts ya lo deja legible, sin comillas.
-        setError(err?.message || "No se pudo registrar el rollo");
+      },
+    };
+  }
+
+  /** "Añadir rollo": agrega la fila completada a la lista de pendientes, SIN
+   * mandarla al servidor todavía. Mientras esté en esa lista se puede editar
+   * (handleEditPendingRoll) o borrar (handleDeletePendingRoll) libremente. */
+  function handleQueueRoll(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const result = validateAndBuildRollBody();
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    setPendingRolls((prev) => [...prev, { localId: crypto.randomUUID(), body: result.body, rollDraft, sourceRolls, bultoLabel }]);
+    // No se limpia del todo -- Color/Densidad (Precorte) heredados de
+    // Extrusión se vuelven a precargar en la fila nueva (ver el useEffect
+    // de sincronización más arriba), en vez de dejarlos vacíos hasta el
+    // próximo refetch de la OP.
+    const defaults: Record<string, string> = {};
+    for (const col of template.rollColumns) {
+      if (col.source === "detail" && col.specDefaultKey && specsDraft[col.specDefaultKey]) {
+        defaults[`detail:${col.detailKey}`] = String(specsDraft[col.specDefaultKey]);
       }
     }
+    // El rollo madre SIGUE montado en la máquina después de sacarle un
+    // rollo chico: se le descuenta lo que se acaba de llevar y queda listo
+    // para la fila siguiente. Solo se suelta cuando se agota — ahí el
+    // operario tiene que escanear el que monte a continuación. Obligarlo a
+    // re-escanear el mismo rollo en cada fila sería pelearse con el proceso
+    // real de planta. Este saldo es una cuenta LOCAL (ninguna fila pendiente
+    // tocó el servidor todavía) — se recalcula solo con lo que hay en
+    // pantalla, el servidor vuelve a validar todo esto recién al confirmar.
+    let nextSourceRolls: SourceRollChip[] = [];
+    if (template.consumesSourceByWeight) {
+      const { allocations } = previewAllocation(sourceRolls, Number(rollDraft.weight));
+      const takenById = new Map(allocations.map((a) => [a.roll.id, a.quantityKg]));
+      nextSourceRolls = sourceRolls
+        .map((r) => ({ ...r, remainingKg: Math.round((r.remainingKg - (takenById.get(r.id) ?? 0)) * 100) / 100 }))
+        .filter((r) => r.remainingKg > 0.005);
+    }
+    if (nextSourceRolls.length > 0) defaults.label = nextSourceRolls[0].code;
+    setSourceRolls(nextSourceRolls);
+    setRollDraft(defaults);
+    setBultoLabel(null);
+  }
+
+  /** "Confirmar rollos": manda todo el lote pendiente al servidor, una fila
+   * a la vez y en el orden en que se agregaron (mismo orden en que se
+   * escanearon los rollos madre, importa para que el reparto por saldo dé el
+   * mismo resultado que el operario vio en pantalla). Si una fila falla a
+   * mitad del lote, se para ahí: las que ya se confirmaron se sacan de la
+   * lista (ya son filas reales, no hace falta reintentarlas) y las que
+   * quedan -- incluida la que falló -- se quedan pendientes para corregir y
+   * reintentar. Una vez que una fila se confirma queda igual que cualquier
+   * fila cargada de siempre: ya no se puede editar, solo borrar (ver
+   * handleDeleteRoll). */
+  async function handleConfirmPendingRolls() {
+    if (pendingRolls.length === 0 || confirmingPending) return;
+    setError(null);
+    setConfirmingPending(true);
+    let confirmedCount = 0;
+    try {
+      for (const pending of pendingRolls) {
+        await api.createProductionRoll(orderId, pending.body);
+        confirmedCount++;
+      }
+      setPendingRolls([]);
+      setMessage(`Se confirmaron ${confirmedCount} rollo${confirmedCount === 1 ? "" : "s"}.`);
+      queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
+    } catch (err: any) {
+      setPendingRolls((prev) => prev.slice(confirmedCount));
+      const detail = err?.message?.includes("403") ? "Tu rol no puede registrar rollos en esta estación" : err?.message || "No se pudo registrar el rollo";
+      setError(
+        confirmedCount > 0
+          ? `Se confirmaron ${confirmedCount} de ${pendingRolls.length} rollos. La fila ${confirmedCount + 1} no se pudo guardar: ${detail}`
+          : `No se pudo guardar la fila 1: ${detail}`
+      );
+      if (confirmedCount > 0) {
+        queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+        queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
+      }
+    } finally {
+      setConfirmingPending(false);
+    }
+  }
+
+  /** Vuelve a cargar una fila pendiente en el formulario para corregirla —
+   * la saca de la lista mientras tanto, "Añadir rollo" la vuelve a poner
+   * (al final de la lista; el orden entre pendientes no afecta el reparto de
+   * saldo de las demás, cada una ya tiene sus propios rollos madre y
+   * cantidades resueltos independientemente). */
+  function handleEditPendingRoll(localId: string) {
+    const pending = pendingRolls.find((p) => p.localId === localId);
+    if (!pending) return;
+    setPendingRolls((prev) => prev.filter((p) => p.localId !== localId));
+    setRollDraft(pending.rollDraft);
+    setSourceRolls(pending.sourceRolls);
+    setBultoLabel(pending.bultoLabel);
+    setError(null);
+  }
+
+  function handleDeletePendingRoll(localId: string) {
+    setPendingRolls((prev) => prev.filter((p) => p.localId !== localId));
   }
 
   async function handlePrintLabel(rollId: number) {
@@ -1732,6 +1820,29 @@ export default function OrdenProduccionDetalle() {
                 </td>
               </tr>
             )}
+            {/* Rollos ya completados en el formulario pero sin confirmar
+                todavía (ver pendingRolls) — se pueden editar (recargan el
+                formulario) o borrar de la lista libremente, todavía no
+                tocaron el servidor. */}
+            {pendingRolls.map((pending, i) => (
+              <tr key={pending.localId} className="bg-amber-50 dark:bg-amber-950/40">
+                <td className={`${cellBorder} px-1.5 py-1 text-amber-800 dark:text-amber-300 font-medium`} colSpan={Math.max(1, template.rollColumns.length - 2)}>
+                  Fila {i + 1} por confirmar · Peso {Number(pending.body.weightKg)} kg
+                  {pending.body.wasteKg ? ` · Desp. ${Number(pending.body.wasteKg)} kg` : ""}
+                </td>
+                <td className={`${cellBorder} px-1.5 py-1 text-amber-700 dark:text-amber-400`} colSpan={2}>
+                  Sin confirmar
+                </td>
+                <td className={`${cellBorder} px-1 py-1 text-center whitespace-nowrap`}>
+                  <button type="button" onClick={() => handleEditPendingRoll(pending.localId)} title="Editar" className="text-slate-600 dark:text-slate-300">
+                    <Pencil size={13} aria-hidden="true" />
+                  </button>
+                  <button type="button" onClick={() => handleDeletePendingRoll(pending.localId)} title="Quitar de la lista" className="text-red-600 dark:text-red-400 ml-1.5">
+                    <Trash2 size={13} aria-hidden="true" />
+                  </button>
+                </td>
+              </tr>
+            ))}
             {/* Fila de carga inline */}
             {canOperate && isOpen && !isQuantityComplete && (
               <tr className="bg-sky-50 dark:bg-slate-800">
@@ -1748,8 +1859,22 @@ export default function OrdenProduccionDetalle() {
                   );
                 })}
                 <td className={`${cellBorder} px-1 py-1`}>
-                  <button type="button" onClick={handleAddRoll} className="bg-slate-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                  <button type="button" onClick={handleQueueRoll} title="Añadir rollo a la lista" className="bg-slate-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
                     +
+                  </button>
+                </td>
+              </tr>
+            )}
+            {canOperate && pendingRolls.length > 0 && (
+              <tr>
+                <td className={`${cellBorder} px-1.5 py-1`} colSpan={template.rollColumns.length + 1}>
+                  <button
+                    type="button"
+                    onClick={handleConfirmPendingRolls}
+                    disabled={confirmingPending}
+                    className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 rounded disabled:opacity-60"
+                  >
+                    <Check size={13} aria-hidden="true" /> {confirmingPending ? "Confirmando..." : `Confirmar ${pendingRolls.length} rollo${pendingRolls.length === 1 ? "" : "s"}`}
                   </button>
                 </td>
               </tr>
@@ -1826,10 +1951,31 @@ export default function OrdenProduccionDetalle() {
             <p className="text-center text-slate-500 dark:text-slate-400 text-sm py-3">Sin rollos registrados todavía.</p>
           )}
 
+          {/* Rollos completados en el formulario pero todavía sin confirmar
+              (ver pendingRolls) — editables/borrables libres de la lista. */}
+          {pendingRolls.map((pending, i) => (
+            <div key={pending.localId} className="border-2 border-amber-300 dark:border-amber-700 rounded-lg overflow-hidden bg-amber-50 dark:bg-amber-950/40">
+              <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                <span className="text-amber-800 dark:text-amber-300 font-medium">
+                  Fila {i + 1} por confirmar · Peso {Number(pending.body.weightKg)} kg
+                  {pending.body.wasteKg ? ` · Desp. ${Number(pending.body.wasteKg)} kg` : ""}
+                </span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <button type="button" onClick={() => handleEditPendingRoll(pending.localId)} title="Editar">
+                    <Pencil size={15} className="text-slate-600 dark:text-slate-300" aria-hidden="true" />
+                  </button>
+                  <button type="button" onClick={() => handleDeletePendingRoll(pending.localId)} title="Quitar de la lista">
+                    <Trash2 size={15} className="text-red-600 dark:text-red-400" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
           {canOperate && isOpen && !isQuantityComplete && (
             <div className="border-2 border-sky-300 dark:border-sky-700 rounded-lg overflow-hidden bg-sky-50 dark:bg-slate-800">
               <p className="px-3 py-1.5 text-[11px] text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-950 border-b border-sky-200 dark:border-sky-800">
-                Completá los campos resaltados y confirmá. Antes de confirmar podés corregir lo que quieras; después la fila queda guardada (para corregirla hay que borrarla y volver a cargarla).
+                Completá los campos resaltados y tocá "Añadir rollo". Podés seguir corrigiendo o borrando cualquier fila de la lista de abajo hasta que toques "Confirmar" — recién ahí quedan guardadas (para corregir una fila ya confirmada hay que borrarla y volver a cargarla).
               </p>
               <div className="divide-y divide-sky-200 dark:divide-slate-700">
                 {template.rollColumns.map((col) => {
@@ -1861,12 +2007,23 @@ export default function OrdenProduccionDetalle() {
               </div>
               <button
                 type="button"
-                onClick={handleAddRoll}
-                className="w-full inline-flex items-center justify-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2.5"
+                onClick={handleQueueRoll}
+                className="w-full inline-flex items-center justify-center gap-1.5 bg-slate-800 text-white text-sm font-medium px-3 py-2.5"
               >
-                <Check size={15} aria-hidden="true" /> Confirmar rollo
+                + Añadir rollo
               </button>
             </div>
+          )}
+
+          {canOperate && pendingRolls.length > 0 && (
+            <button
+              type="button"
+              onClick={handleConfirmPendingRolls}
+              disabled={confirmingPending}
+              className="w-full inline-flex items-center justify-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2.5 rounded-lg disabled:opacity-60"
+            >
+              <Check size={15} aria-hidden="true" /> {confirmingPending ? "Confirmando..." : `Confirmar ${pendingRolls.length} rollo${pendingRolls.length === 1 ? "" : "s"}`}
+            </button>
           )}
 
           {canOperate && isOpen && isQuantityComplete && (
