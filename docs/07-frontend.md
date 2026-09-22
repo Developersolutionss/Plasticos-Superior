@@ -24,7 +24,7 @@ client/
     ├── api/
     │   └── client.ts     → objeto `api` (único helper fetch, tipado)
     ├── auth/
-    │   └── AuthContext.tsx → sesión (localStorage) y tipo UserRole (11 valores)
+    │   └── AuthContext.tsx → sesión (localStorage) y tipo UserRole (12 valores)
     ├── theme/
     │   └── ThemeContext.tsx → preferencia de tema (claro/oscuro/sistema), persistida por usuario
     ├── lib/
@@ -52,9 +52,14 @@ client/
         ├── ResetPassword.tsx
         ├── InventoryDashboard.tsx
         ├── Dispatches.tsx
+        ├── DespachosPorCliente.tsx → historial de despachos agrupado por cliente y producto (rol de ventas y almacén)
         ├── ProductionUpload.tsx
-        ├── OrdenesProduccion.tsx
-        ├── EstacionProduccion.tsx
+        ├── OrdenesProduccion.tsx → lista de OPs y alta de una OP nueva (nace sin proceso, ver "Destino")
+        ├── OrdenProduccionDetalle.tsx → **la hoja de trabajo de una OP** (ruta `/produccion/ordenes/:id`): acá pasa todo el trabajo real de estación
+        ├── EstacionProduccion.tsx → solo la cola de una estación + escáner, ya no carga rollos (ver más abajo)
+        ├── ProduccionPorOperario.tsx → reporte por operario/turno/estación en un rango de fechas
+        ├── EtiquetasBulto.tsx → genera e imprime etiquetas de bulto (`E. BULTO-*`) para mercancía comprada afuera
+        ├── MateriaPrima.tsx → catálogo, stock y ajustes manuales de insumos de Extrusión
         ├── Planeacion.tsx    → cola de Planeación: ítems de pedidos sin OP + generar OP
         ├── Calidad.tsx       → cola de OPs `pendiente_calidad`: aprobar o rechazar el lote
         ├── Trazabilidad.tsx  → historial completo de una OP (estaciones, calidad, origen)
@@ -77,6 +82,8 @@ client/
         ├── Notificaciones.tsx    → lista completa de notificaciones del usuario
         └── Exportaciones.tsx     → descarga de Excel (inventario/pedidos/facturas/clientes)
 ```
+
+`components/` también suma: `AsyncState.tsx` (estado de carga/error reutilizable para una query), `Skeleton.tsx` (`SkeletonRows`, placeholders de carga para tablas), `ConfirmDialog.tsx` (`useConfirm`, diálogo de confirmación sin `window.confirm`), `ErrorBoundary.tsx` y `ErrorToast.tsx` (captura y aviso de errores no controlados).
 
 ## `main.tsx` — composición de proveedores
 
@@ -110,9 +117,14 @@ client/
   <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
     <Route index element={<InventoryDashboard />} />
     <Route path="despachos" element={<RequireRole roles={ALMACEN}><Dispatches /></RequireRole>} />
+    <Route path="despachos/por-cliente" element={<RequireRole roles={DESPACHOS_LECTURA}><DespachosPorCliente /></RequireRole>} />
     <Route path="produccion" element={<RequireRole roles={[...ALMACEN, ...PRODUCCION_GESTION]}><ProductionUpload /></RequireRole>} />
     <Route path="produccion/ordenes" element={<RequireRole roles={PRODUCCION_GESTION}><OrdenesProduccion /></RequireRole>} />
+    <Route path="produccion/ordenes/:id" element={<RequireRole roles={OP_DETALLE}><OrdenProduccionDetalle /></RequireRole>} />
     <Route path="produccion/estacion/:station" element={<RequireStationRole><EstacionProduccion /></RequireStationRole>} />
+    <Route path="produccion/por-operario" element={<RequireRole roles={PRODUCCION_GESTION}><ProduccionPorOperario /></RequireRole>} />
+    <Route path="produccion/etiquetas-bulto" element={<RequireRole roles={PRODUCCION_GESTION}><EtiquetasBulto /></RequireRole>} />
+    <Route path="inventario/materia-prima" element={<RequireRole roles={CATALOGO_GESTION}><MateriaPrima /></RequireRole>} />
     <Route path="calidad" element={<RequireRole roles={CALIDAD}><Calidad /></RequireRole>} />
     <Route path="trazabilidad" element={<RequireRole roles={[...PRODUCCION_GESTION, ...CALIDAD, ...AUDITORIA]}><Trazabilidad /></RequireRole>} />
     <Route path="auditoria" element={<RequireRole roles={AUDITORIA}><Auditoria /></RequireRole>} />
@@ -139,7 +151,8 @@ client/
 
 - `RequireAuth` redirige a `/login` si no hay usuario en sesión.
 - `RequireRole` muestra un mensaje de acceso denegado si el rol no pertenece al grupo. Los grupos (`VENTAS`, `ALMACEN`, `PRODUCCION_GESTION`, `OPERARIOS`, `CALIDAD`, `AUDITORIA`, `ADMIN`, …) vienen de `navConfig.ts`.
-- `RequireStationRole` mapea la estación de la URL al grupo de operarios adecuado (`extrusion`→ extrusión, `impresion`→ impresión, `sellado`/`precorte`→ sellado-precorte), usando los subgrupos `OP_EXTRUSION`, `OP_IMPRESION` y `OP_SELLADO` (cada uno un subconjunto de `OPERARIOS` con un solo rol de operario) definidos también en `navConfig.ts`.
+- `RequireStationRole` mapea la estación de la URL al grupo de operarios adecuado (`extrusion`→ extrusión, `impresion`→ impresión, `sellado`→ sellado, `precorte`→ precorte), usando los subgrupos `OP_EXTRUSION`, `OP_IMPRESION`, `OP_SELLADO` y `OP_PRECORTE` (cada uno un subconjunto de `OPERARIOS` con un solo rol de operario) definidos también en `navConfig.ts`.
+- `OP_DETALLE` (`App.tsx`) es la unión de `OPERARIOS`, `CALIDAD` y `AUDITORIA` — protege `/produccion/ordenes/:id`, la hoja de trabajo completa de una OP, para que cualquiera de esos roles pueda entrar (cada uno ve/edita según su propio permiso dentro de la página). `DESPACHOS_LECTURA` y `CATALOGO_GESTION` (`navConfig.ts`) son grupos análogos para despachos de solo lectura y gestión de catálogo/materia prima.
 - `/qr/:token` es la **única ruta pública fuera de `Layout`**: la abre el QR físico impreso de una ubicación de bodega. No pasa por `RequireAuth` — el token de la URL es la credencial (ver [05 — API](05-api.md), `publicLocation.ts`).
 
 ## Menú lateral
@@ -148,7 +161,7 @@ client/
 
 La función `filterNavSections(role)` filtra secciones y entradas según el rol del usuario. `Sidebar.tsx` llama a `filterNavSections(user.role)` y dibuja solo lo que el rol puede ver. Los atajos (`useShortcuts`, `ShortcutsConfig`) aplican el mismo filtro con `buildChoices(role)`: un operario no puede marcar como atajo un módulo sin acceso.
 
-Grupos de roles nuevos en `navConfig.ts`: `TODOS` (los 11 roles — usado por la entrada "Notificaciones" y por la sección "Configuración", que ahora es visible para cualquier rol; sus dos ítems internos, "Autenticación" y "Usuarios", siguen restringidos a `ADMIN` — solo el ítem "Apariencia" hereda `TODOS`) e `INVENTARIO` (`ADMIN` + `almacen_despachos` + `gerente_produccion` + `planeacion` + `ventas_pedidos`, uso interno del archivo).
+Grupos de roles nuevos en `navConfig.ts`: `TODOS` (los 12 roles — usado por la entrada "Notificaciones" y por la sección "Configuración", que ahora es visible para cualquier rol; sus dos ítems internos, "Autenticación" y "Usuarios", siguen restringidos a `ADMIN` — solo el ítem "Apariencia" hereda `TODOS`) e `INVENTARIO` (`ADMIN` + `almacen_despachos` + `gerente_produccion` + `planeacion` + `ventas_pedidos`, uso interno del archivo).
 
 ## `api/client.ts` — el helper HTTP
 
@@ -187,10 +200,12 @@ Métodos expuestos (`api.*`), agrupados por dominio:
 |---|---|
 | Auth | `login(email, password, totpToken?)`, `getMe()`, `forgotPassword(email)`, `resetPassword(token, newPassword)`, `setup2fa()`, `verify2fa(token)`, `disable2fa(token)` |
 | Inventario | `getInventory(category?)`, `getAlerts()`, `getProducts()` |
-| Clientes (CRM) | `getClients()`, `createClient(name)`, `updateClient(id, data)`, `uploadClientAvatar(id, file)`, `recordClientVisit(id)`, `deleteClient(id)`, `getAllContacts()`, `recordContactVisit(contactId)`, `updateClientContact(id, contactId, data)`, `updateCreditLimit(id, creditLimit)`, `getClientContacts(id)`, `createClientContact(id, data)`, `deleteClientContact(id, contactId)`, `getClientAddresses(id)`, `createClientAddress(id, data)`, `deleteClientAddress(id, addressId)`, `getClientInteractions(id)`, `createClientInteraction(id, data)`, `getClientCartera(id)` |
-| Producción | `createProductionEntry(data)`, `previewImport(file)`, `confirmImport(filename, rows)`, `getProductionOrders(params?: { status?, station? })`, `getProductionOrder(id)`, `createProductionOrder(data)` (con `station`, `clientId?`, `specs?`), `deriveProductionOrder(id, data)`, `updateProductionOrder(id, data)`, `updateProductionOrderStatus(id, status)`, `closeProductionOrder(id)`, `createProductionRoll(id, data)` (acepta `sourceRollId?`), `deleteProductionRoll(id, rollId)`, `getProductionRollLabel(id, rollId)` (etiqueta QR imprimible del rollo), `getProductionRollByCode(code)` (resuelve un rollo por su QR, para el escaneo de rollo de origen), `downloadProductionOrderPdf(id, filename)` (descarga como blob), `getProductionOrderAttachments(id)`, `uploadProductionOrderAttachment(id, file)`, `downloadProductionOrderAttachment(id, attachmentId, filename)`, `getPendingPlanning()`, `createProductionOrderFromPedidoItem(pedidoVersionItemId)` |
+| Clientes (CRM) | `getClients()`, `createClient(name)`, `updateClient(id, data)`, `uploadClientAvatar(id, file)`, `recordClientVisit(id)`, `deleteClient(id)`, `getAllContacts()`, `recordContactVisit(contactId)`, `updateClientContact(id, contactId, data)`, `updateCreditLimit(id, creditLimit)`, `getClientContacts(id)`, `createClientContact(id, data)`, `deleteClientContact(id, contactId)`, `getClientAddresses(id)`, `createClientAddress(id, data)`, `deleteClientAddress(id, addressId)`, `getClientInteractions(id)`, `createClientInteraction(id, data)`, `getClientCartera(id)`, `getClientTopProducts(id, limit?)`, `getClientManualProducts(id)`, `addClientManualProduct(id, data)`, `deleteClientManualProduct(id, manualProductId)` |
+| Producción | `createProductionEntry(data)`, `previewImport(file)`, `confirmImport(filename, rows)`, `getProductionOrders(params?: { status?, station? })`, `getProductionOrder(id)`, `createProductionOrder(data)` (nace **sin** `station`; se deriva después), `deriveProductionOrder(id, data)`, `updateProductionOrder(id, data)` (incluye `clientId` para editar el Destino), `updateProductionOrderStatus(id, status)`, `updateMaterialPara(id, materialPara)`, `closeProductionOrder(id)`, `reopenProductionOrder(id)`, `releaseProductionOrder(id)`, `createProductionRoll(id, data)` (acepta `sourceRollId?`), `deleteProductionRoll(id, rollId)`, `getProductionRollLabel(id, rollId)` (etiqueta QR imprimible del rollo, con el código por-estación `EXT-1`/`PRE-1`/…), `getProductionRollByCode(code)` (resuelve un rollo por su QR, para el escaneo de rollo madre), `downloadProductionOrderPdf(id, filename)` (descarga como blob), `getProductionOrderAttachments(id)`, `uploadProductionOrderAttachment(id, file)`, `downloadProductionOrderAttachment(id, attachmentId, filename)`, `getPendingPlanning()`, `createProductionOrderFromPedidoItem(pedidoVersionItemId)`, `getProduccionPorOperario(params?: { from?, to?, station? })` |
+| Materia prima | `getRawMaterials()`, `getRawMaterialStock()`, `getRawMaterialAlerts()`, `getRawMaterialMovements(params?)`, `createRawMaterial(data)`, `updateRawMaterial(id, data)`, `deactivateRawMaterial(id)`, `reactivateRawMaterial(id)`, `adjustRawMaterialStock(id, quantity, type, notes?)` |
+| Etiquetas de bulto | `getBultoLabels(status?)`, `generateBultoLabels(count)`, `getBultoLabelQr(id)`, `getBultoLabelByCode(code)` |
 | Calidad | `submitQualityCheck(id, { result, observations? })` |
-| Despachos | `getDispatches(params?)`, `createDispatch(clientId, items)`, `markItemDispatched(dispatchId, itemId, qty)` |
+| Despachos | `getDispatches(params?)`, `createDispatch(clientId, items)`, `markItemDispatched(dispatchId, itemId, qty)`, `cancelDispatch(dispatchId)` (revierte el stock ya despachado, transaccional) |
 | Comercial | `getCotizaciones(clientId?)`, `createCotizacion(data)`, `updateCotizacionStatus(id, status)`, `convertCotizacionToPedido(id)`, `downloadCotizacionPdf(id, filename)` (descarga como blob), `getPedidos(params?)`, `createPedido(data)`, `getPedidoVersions(id)`, `updatePedido(id, data)`, `duplicatePedido(id)`, `getPedidoAttachments(id)`, `uploadPedidoAttachment(id, file)`, `downloadPedidoAttachment(pedidoId, attachmentId, filename)` (descarga como blob), `getFacturas(params?)`, `createFactura(data)` (acepta `dueDate?`), `createFacturaFromPedido(pedidoId)`, `anularFactura(id)`, `getFacturaPayments(id)`, `createPayment(id, data)`, `downloadFacturaPdf(id, filename)` (descarga como blob) |
 | Auditoría | `getAuditLog(params?: { tableName?, recordId?, page?, pageSize? })` |
 | Productos | `getAllProducts()`, `createProduct(data)`, `updateProduct(id, data)`, `deactivateProduct(id)`, `reactivateProduct(id)`, `getProductLabel(id)` (QR + SKU para la etiqueta) |
@@ -206,7 +221,7 @@ Métodos expuestos (`api.*`), agrupados por dominio:
 - Guarda `token` y `user` en `localStorage`.
 - `login(token, user)` los persiste y actualiza el estado. `logout()` los limpia.
 - `useAuth()` expone `{ user, login, logout }`. Lanza error si se usa fuera del proveedor.
-- El tipo `UserRole` tiene **11 valores** (matriz completa).
+- El tipo `UserRole` tiene **12 valores** (matriz completa).
 
 > El frontend replica el control del servidor: el menú se filtra con `filterNavSections(user.role)` y cada ruta valida su grupo con `RequireRole`. Un rol sin permiso no ve el ítem y no puede abrir la URL. El servidor sigue siendo la autoridad final (`requireRole`). Ver [06 — Backend](06-backend.md).
 
@@ -246,8 +261,10 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 ## Páginas
 
 ### `Login.tsx`
-- Email + contraseña + paso TOTP si `api.login` devuelve `requires2fa`. Valores por defecto `despacho@empresa.com` / `password123`.
-- Al autenticar: `api.login(...)` → `login(token, user)` → `navigate("/")`.
+- Pantalla partida: panel de marca (logo, frase de bienvenida) a la izquierda, solo en pantallas grandes (`lg:`); en celular se oculta y el formulario ocupa toda la pantalla, para no desperdiciar espacio.
+- El logo (`logo-full.png`) siempre va sobre una tarjeta de **fondo blanco fijo**, sin importar el tema: el PNG trae texto oscuro "quemado" (no es un SVG que se adapte con `currentColor`), así que en modo oscuro quedaba casi invisible.
+- Email + contraseña + paso TOTP si `api.login` devuelve `requires2fa`.
+- Al autenticar con éxito, no navega de una: muestra una **pantalla de transición** (`WelcomeTransition`, 1.6 s) con 3 frases rotando y el nombre del usuario, y solo entonces navega a `/`. Es puramente cosmético — la sesión ya quedó armada antes de mostrarla — para que el salto del formulario al dashboard no se sienta brusco.
 
 ### `ForgotPassword.tsx` / `ResetPassword.tsx`
 - Formulario de recuperación y de nueva contraseña (lee `?token=` de la URL).
@@ -263,18 +280,47 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - Escaneo de producto por cámara con `BarcodeScanner`.
 
 ### `OrdenesProduccion.tsx`
-- Lista OPs con indicador de etapas completadas (íconos de lucide por estación). Crea OPs y cambia estado.
+- Lista OPs con indicador de etapas completadas (íconos de lucide por estación).
+- El alta crea una OP **sin proceso asignado** (nace "en blanco"): el formulario solo pide producto, cantidad y el campo **Destino**.
+- **Destino** es un radio: **Estantería** (stock general, sin cliente — el valor por defecto) o **Cliente** (elige un cliente puntual, `ClientePicker`). Se guarda como `clientId` en la OP; internamente no hay un campo "destino", es la UI la que traduce `clientId` presente/ausente a estas dos etiquetas. Cambia el resultado de Calidad: si la OP tiene cliente y se aprueba, el sistema genera un despacho automático a ese cliente (ver [08 — Reglas de negocio](08-workflow.md)).
+- Cada fila lleva a `OrdenProduccionDetalle.tsx` (`/produccion/ordenes/:id`) — ahí pasa el resto del trabajo.
+
+### `OrdenProduccionDetalle.tsx`
+Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía repartido entre la lista y la pantalla de estación. Desde acá:
+- Se **deriva** la OP al siguiente proceso (`GitBranch`, grafo extrusión→impresión/sellado/precorte, impresión→sellado/precorte), solo gestión de producción.
+- Se edita el encabezado/specs de la plantilla (`OP_TEMPLATES`, por estación) mientras la OP esté abierta, incluido el campo **Destino** (select: "Estantería (stock general)" o el nombre del cliente).
+- Se cargan **rollos**: formulario con los campos de la plantilla de la estación (`OP_TEMPLATES`), escaneo de un rollo madre por cámara (`BarcodeScanner`) para completar `sourceRollId`, y vista previa del reparto de kilos entre rollos madre escaneados (`previewAllocation`, misma cuenta que hace el servidor) antes de guardar.
+- **Rollo madre con saldo vivo** (Sellado/Precorte): cada rollo madre escaneado se muestra como una ficha (`SourceRollChip`) con su **saldo restante** (`remainingKg`, lo calcula el servidor). Un rollo chico puede agotar un madre y seguir tomando kilos del siguiente escaneado — el reparto real vive en `RollConsumption` (ver [04 — Base de datos](04-database.md)).
+- El código de un rollo (etiqueta, QR, "insumo: rollo X") se muestra con el **prefijo de su estación y su numeración propia** (`EXT-1`, `EXT-2`… `PRE-1`, `PRE-2`…, `ROLL_CODE_PREFIX` + `stationSequence`), no un id global — así coincide con lo que el operario ve pegado en el rollo físico.
+- Se **cierra** la OP (requiere ≥1 rollo) y, si gestión lo necesita, se **reabre** (`reopenProductionOrder`) o se **libera** (`releaseProductionOrder`) una OP bloqueada.
+- Adjuntos (subir/descargar) y descarga del **reporte PDF** consolidado.
+- Reglas de UI por rol: cada estación solo la operan los grupos `OP_EXTRUSION` / `OP_IMPRESION` / `OP_SELLADO` / `OP_PRECORTE` (espejo de `OPERARIO_STATIONS` del backend) más gestión de producción.
 
 ### `EstacionProduccion.tsx`
-- Pantalla por `:station`. El operario registra su etapa (kilos, merma, tiempos, etc.).
-- Escaneo de la OP por cámara con `BarcodeScanner`.
+- Ya **no** carga rollos ni cierra OPs — eso se mudó por completo a `OrdenProduccionDetalle.tsx`.
+- Hoy es solo la **cola de la estación**: lista las OPs de ese proceso (abiertas primero) y da un acceso rápido por **escaneo QR** (`BarcodeScanner`) para saltar directo a la hoja de la OP escaneada.
+
+### `ProduccionPorOperario.tsx`
+- Reporte por operario: filas de rollos agrupadas por operario/día/estación en un rango de fechas, con conteo de rollos, kilos y desperdicio (`api.getProduccionPorOperario`). Rol de gestión de producción.
+
+### `EtiquetasBulto.tsx`
+- Genera lotes de etiquetas de bulto (`E. BULTO-*`, `BultoLabel`) e imprime stickers térmicos 40×30 mm con QR (mismo patrón de ventana nueva que `Productos.tsx`).
+- Es solo para mercancía **comprada afuera** que entra como bulto — no para rollos que el sistema ya etiqueta solo al cargarlos. El operario escanea la etiqueta usada al cargar el rollo en vez de tipear el número a mano; una etiqueta usada no se puede volver a escanear.
+
+### `MateriaPrima.tsx`
+- CRUD del catálogo de insumos de Extrusión (`RawMaterial`) y su stock (`RawMaterialStock`): crear/editar/desactivar/reactivar, ver alertas de mínimo y el historial de movimientos, y hacer ajustes manuales de entrada/salida.
+- El descuento automático (al cerrar una OP de Extrusión) no pasa por acá — es lógica de servidor. Ver [08 — Reglas de negocio](08-workflow.md).
+
+### `DespachosPorCliente.tsx`
+- Historial de despachos agrupado por cliente y producto: cantidad total despachada, número de despachos y fecha del último, para responder "¿qué le hemos despachado a este cliente?" sin recorrer despacho por despacho.
 
 ### `Clients.tsx`
 - Layout maestro–detalle en dos columnas: listado (izquierda) y ficha (derecha).
 - Filtros de orden: **ABC**, **Antigüedad** (`createdAt`) y **Frecuentes** (orden por defecto). El orden Frecuentes usa `byFrequency(viewCount, lastViewedAt)` de `client/src/lib/frequency.ts`.
 - Vistas: **lista** o **cajas** (avatar con `ClienteAvatar`, fallback de iniciales). Preselección opcional con `location.state.selectedClientId`.
 - Al abrir la ficha se registra la visita (`api.recordClientVisit`) con actualización optimista (`nextInteraction`).
-- La ficha tiene **5 pestañas**: contactos, direcciones, historial, cartera y editar/eliminar.
+- La ficha tiene **6 pestañas**: contactos, direcciones, historial, cartera, **productos** y editar/eliminar.
+- Pestaña "Productos" (`ClientManualProduct`): productos que el cliente pide, cargados **a mano** (cantidad y notas opcionales). Es una lista aparte de los "top productos" que el sistema calcula solo del historial real de pedidos — nunca se mezclan, se muestran como dos secciones separadas. Sirve para un cliente nuevo sin pedidos todavía, o para dejar registrado lo que pedía antes de este sistema. Cargar el mismo producto dos veces actualiza la fila existente en vez de duplicarla.
 - Pestaña "Editar/Eliminar": botón "Editar" abre `ClienteForm` en modal; zona de peligro para **eliminar** (`api.deleteClient`, soft delete: `active: false`).
 
 ### `NuevoCliente.tsx`
@@ -310,6 +356,7 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 
 ### `Cotizaciones.tsx` / `Pedidos.tsx` / `Facturas.tsx`
 - Crear y listar cotizaciones con estado; pedidos versionados con adjuntos; facturas con abonos y anulación.
+- **Pedidos**: un clic en un pedido de la lista abre su **detalle completo** (antes solo se veía en la lista). El detalle de un pedido `pendiente` tiene un botón **"Aprobar y enviar a Planeación"** (`handleAprobar`): pasa el pedido a `aprobado` sin abrir un formulario aparte, para no obligar a editar el pedido solo para aprobarlo. Una vez aprobado, sus ítems entran a la cola de Planeación (ver [08 — Reglas de negocio](08-workflow.md)).
 - El formulario de cotización usa **`ClientePicker.tsx`**: con el campo **vacío** sugiere **4 clientes por frecuencia** (`byFrequency(viewCount, lastViewedAt)`); a partir del 1.º carácter filtra por coincidencia; muestra la foto del seleccionado (`ClienteAvatar`); `×` limpia y `Esc`/clic afuera cierran el listado.
 - **Pendiente**: reutilizar `ClientePicker` en otros módulos de selección de cliente (Pedidos, Facturas, Despachos).
 - El botón **"Cotizar"** de la ficha del cliente navega a `/clientes/cotizaciones` con el cliente preseleccionado (`location.state.clientId`).
@@ -372,6 +419,10 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - `components/ThemeToggle.tsx` es el ícono sol/luna del header (alterna claro/oscuro); `pages/Apariencia.tsx` da las 3 opciones completas (Claro/Oscuro/Sistema).
 - **Gráficos de Recharts** (`DashboardEjecutivo.tsx`, `DashboardIndicadores.tsx`): el color de barras y ejes es un prop JS, no una clase CSS — `dark:` no aplica ahí. Se resuelve leyendo `resolved` de `useTheme()` y eligiendo el color a mano (p. ej. `fill={resolved === "dark" ? "#38bdf8" : "#1e293b"}`).
 - Los colores de modo oscuro se validaron contra WCAG AA (contraste mínimo 4.5:1 texto normal, 3:1 texto grande/UI), no solo a ojo.
+
+## Convención: páginas con ancho máximo
+
+Una página con `max-w-*` (p. ej. `max-w-4xl`) siempre lleva `mx-auto` junto al `max-w-*`. Sin `mx-auto`, el contenido queda pegado a la izquierda en pantallas anchas en vez de centrado. Al crear una página nueva con ancho limitado, agregue las dos clases juntas.
 
 ## PWA (`vite.config.ts`)
 
