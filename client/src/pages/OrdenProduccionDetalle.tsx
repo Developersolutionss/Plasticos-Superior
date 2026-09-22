@@ -535,7 +535,14 @@ export default function OrdenProduccionDetalle() {
     setError(null);
     try {
       await api.updateMaterialPara(orderId, value || null);
-      queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+      // OJO: no se invalida ["productionOrder", orderId] acá. Ese refetch
+      // dispara de nuevo el useEffect que sincroniza specsDraft con
+      // order.specs (línea ~267) y, como el servidor solo guardó
+      // materialPara, pisaba con eso cualquier otro campo de ESPECIFICACIONES
+      // que el usuario ya hubiera escrito pero no hubiera guardado todavía
+      // (ese guardado es aparte, con el botón "Guardar" de handleSaveSpecs).
+      // materialPara ya quedó reflejado arriba a mano; no hace falta releer
+      // toda la OP para este campo puntual.
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
     } catch {
       setError('No se pudo guardar "Material para"');
