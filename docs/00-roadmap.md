@@ -84,6 +84,19 @@ El avance real frente al plan se detalla a continuación.
 | 🟡 Parcial | 0 |
 | ❌ Pendiente | 1 |
 
+## Backlog sin planificar
+
+Ideas recibidas para el sistema, todavía sin diseño ni fase asignada. El texto original (más crudo,
+antes de traducirlo a una descripción técnica) queda en [notas-pendientes-raw.md](notas-pendientes-raw.md)
+para cuando la interpretación de abajo no alcance a cubrir el detalle pedido.
+
+| Idea | Interpretación |
+|---|---|
+| Bodegas por estación con registro de recepción | Hoy Almacén/WMS tiene ubicaciones genéricas (estante/rack/zona), sin distinguir una bodega física por estación. La idea pide una bodega propia para Sellado, Precorte e Impresión, con un registro de **qué operario entrega y qué camionero recibe** el material al transportarlo entre estaciones — hoy ese traspaso no queda registrado en el sistema |
+| Flujo de transporte automatizado con QR | Ligado a lo anterior: que escanear el QR del rollo al recibirlo en la bodega de destino registre solo el traspaso (quién lo entregó, quién lo recibió, cuándo), en vez de anotarlo aparte. Nota de ambigüedad: el texto original menciona "QRs" en plural sin más detalle — falta confirmar si es un QR por rollo (el que ya existe) o un QR distinto por bodega/traspaso |
+| Vista de trazabilidad de un rollo individual | Hoy `Trazabilidad.tsx` muestra el historial completo de una **OP** (todas sus estaciones). Falta una vista que, dado el código de un rollo puntual (`EXT-12`, `PRE-30`...), muestre su información y su historial propio — de dónde salió, qué rollos hijos generó, en qué OP quedó — sin tener que abrir toda la OP |
+| Rollos hijos de un rollo madre | El sistema ya guarda de qué rollo(s) madre salió un rollo chico (`sourceRollId`, `RollConsumption` — ver [04 — Base de datos](04-database.md)), pero no hay una vista que haga el camino inverso: dado un rollo madre, listar todos los rollos hijos que salieron de él. Es la mitad que falta de la trazabilidad de rollo madre/hijo |
+
 ## Stack
 
 El stack tecnológico completo (backend, base de datos, frontend, PWA) está detallado en [01 — Visión general](01-overview.md).
