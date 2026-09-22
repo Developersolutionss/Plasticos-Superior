@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, FileDown, GitBranch, Lock, Paperclip, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, FileDown, GitBranch, Lock, Paperclip, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, OP_PRECORTE, PRODUCCION_GESTION } from "../components/navConfig";
@@ -55,6 +55,14 @@ const cellBorder = "border border-slate-300 dark:border-slate-600";
 const cellLabel = "block text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400";
 const sheetInput =
   "w-full bg-transparent text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:bg-sky-50 dark:focus:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-400";
+/** Mismo campo que `sheetInput`, pero SOLO para la fila de carga de un rollo
+ * nuevo (Registro de rollos): ahí el fondo transparente sin borde de
+ * `sheetInput` (pensado para que la hoja se vea como papel impreso) hace que
+ * en celular no se note cuáles campos son de verdad tocables/editables hasta
+ * que ya se tocaron — acá el input necesita parecer un input de formulario
+ * de verdad (fondo sólido, borde visible), no una celda de hoja de cálculo. */
+const draftInput =
+  "w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-sm text-slate-800 dark:text-slate-100 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500";
 
 /** El dueño pidió que "Medidas" (ej. "12x18") precargue Ancho (primer
  * número, casilla ANCHO de Especificaciones/Material) y, cuando el formato
@@ -935,7 +943,7 @@ export default function OrdenProduccionDetalle() {
    * alineación levemente distinto (ej. el operario no iba centrado ni en
    * cursiva, a diferencia de los demás "se completa sola"), no son todos
    * iguales aunque varios compartan el estado "bloqueado". */
-  function draftCellContent(col: OpRollColumn): { content: ReactNode; className: string; title?: string } {
+  function draftCellContent(col: OpRollColumn): { content: ReactNode; className: string; title?: string; editable?: boolean } {
     const key = rollDraftKey(col);
     if (col.source === "operator") {
       return { content: user!.name, className: "text-slate-500 dark:text-slate-400", title: "El operario es siempre la cuenta con la que iniciaste sesión" };
@@ -1025,17 +1033,22 @@ export default function OrdenProduccionDetalle() {
       };
     }
     return {
+      // "editable: true" es lo que la tarjeta de celular usa para resaltar
+      // esta fila como un campo tocable de verdad (ver más abajo, sección
+      // "Fila de carga" del md:hidden) — no es una clase CSS, es la señal de
+      // "este campo sí lo llena la persona".
       className: "",
+      editable: true,
       content:
         col.kind === "siNo" ? (
-          <select className={sheetInput} value={rollDraft[key] ?? ""} onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}>
+          <select className={draftInput} value={rollDraft[key] ?? ""} onChange={(e) => setRollDraft((d) => ({ ...d, [key]: e.target.value }))}>
             <option value="">—</option>
             <option value="SI">SI</option>
             <option value="NO">NO</option>
           </select>
         ) : (
           <input
-            className={sheetInput}
+            className={draftInput}
             type={col.kind === "number" ? "number" : "text"}
             step={col.kind === "number" ? "0.01" : undefined}
             value={rollDraft[key] ?? ""}
@@ -1815,26 +1828,43 @@ export default function OrdenProduccionDetalle() {
 
           {canOperate && isOpen && !isQuantityComplete && (
             <div className="border-2 border-sky-300 dark:border-sky-700 rounded-lg overflow-hidden bg-sky-50 dark:bg-slate-800">
+              <p className="px-3 py-1.5 text-[11px] text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-950 border-b border-sky-200 dark:border-sky-800">
+                Completá los campos resaltados y confirmá. Antes de confirmar podés corregir lo que quieras; después la fila queda guardada (para corregirla hay que borrarla y volver a cargarla).
+              </p>
               <div className="divide-y divide-sky-200 dark:divide-slate-700">
                 {template.rollColumns.map((col) => {
-                  const { content, className, title } = draftCellContent(col);
+                  const { content, className, title, editable } = draftCellContent(col);
                   return (
-                    <div key={col.detailKey ?? col.source} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs" title={title}>
-                      <span className="uppercase tracking-wide text-slate-500 dark:text-slate-400 shrink-0">{col.label}</span>
-                      {className ? (
-                        <span className={className}>{content}</span>
-                      ) : (
-                        // Sin estilo "bloqueado" = es un input/select real
-                        // editable — un div en vez de span para que el
-                        // flex-1/justify-end lo estire bien.
+                    <div
+                      key={col.detailKey ?? col.source}
+                      className={`flex items-center justify-between gap-3 px-3 py-2 text-xs ${editable ? "bg-white dark:bg-slate-900" : ""}`}
+                      title={title}
+                    >
+                      <span className="uppercase tracking-wide text-slate-500 dark:text-slate-400 shrink-0 inline-flex items-center gap-1">
+                        {!editable && <Lock size={10} aria-hidden="true" className="text-slate-400 dark:text-slate-500" />}
+                        {col.label}
+                      </span>
+                      {editable ? (
+                        // Campo de verdad tocable: fondo blanco + borde
+                        // visible (ver `draftInput`) para que se note sin
+                        // tener que tocarlo primero — antes usaba el mismo
+                        // estilo "hoja de papel" transparente que el resto de
+                        // la pantalla, y en celular no se distinguía de una
+                        // celda de solo lectura.
                         <div className="flex-1 flex justify-end">{content}</div>
+                      ) : (
+                        <span className={className}>{content}</span>
                       )}
                     </div>
                   );
                 })}
               </div>
-              <button type="button" onClick={handleAddRoll} className="w-full bg-slate-800 text-white text-sm px-3 py-2">
-                + Agregar fila
+              <button
+                type="button"
+                onClick={handleAddRoll}
+                className="w-full inline-flex items-center justify-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2.5"
+              >
+                <Check size={15} aria-hidden="true" /> Confirmar rollo
               </button>
             </div>
           )}
