@@ -1872,6 +1872,7 @@ export default function OrdenProduccionDetalle() {
                     type="button"
                     onClick={handleConfirmPendingRolls}
                     disabled={confirmingPending}
+                    title="Después de confirmar ya no vas a poder editar los rollos, solo borrarlos"
                     className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 rounded disabled:opacity-60"
                   >
                     <Check size={13} aria-hidden="true" /> {confirmingPending ? "Confirmando..." : `Confirmar ${pendingRolls.length} rollo${pendingRolls.length === 1 ? "" : "s"}`}
@@ -1974,9 +1975,6 @@ export default function OrdenProduccionDetalle() {
 
           {canOperate && isOpen && !isQuantityComplete && (
             <div className="border-2 border-sky-300 dark:border-sky-700 rounded-lg overflow-hidden bg-sky-50 dark:bg-slate-800">
-              <p className="px-3 py-1.5 text-[11px] text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-950 border-b border-sky-200 dark:border-sky-800">
-                Completá los campos resaltados y tocá "Añadir rollo". Podés seguir corrigiendo o borrando cualquier fila de la lista de abajo hasta que toques "Confirmar" — recién ahí quedan guardadas (para corregir una fila ya confirmada hay que borrarla y volver a cargarla).
-              </p>
               <div className="divide-y divide-sky-200 dark:divide-slate-700">
                 {template.rollColumns.map((col) => {
                   const { content, className, title, editable } = draftCellContent(col);
@@ -2020,6 +2018,7 @@ export default function OrdenProduccionDetalle() {
               type="button"
               onClick={handleConfirmPendingRolls}
               disabled={confirmingPending}
+              title="Después de confirmar ya no vas a poder editar los rollos, solo borrarlos"
               className="w-full inline-flex items-center justify-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2.5 rounded-lg disabled:opacity-60"
             >
               <Check size={15} aria-hidden="true" /> {confirmingPending ? "Confirmando..." : `Confirmar ${pendingRolls.length} rollo${pendingRolls.length === 1 ? "" : "s"}`}
