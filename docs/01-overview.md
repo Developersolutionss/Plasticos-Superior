@@ -41,17 +41,17 @@ El sistema digitaliza este flujo:
 
 | Módulo | Estado | Descripción |
 |---|---|---|
-| Autenticación | ✅ Implementado | Login JWT con matriz de **11 roles**, bloqueo por intentos fallidos (5), 2FA/TOTP opcional y recuperación de contraseña |
+| Autenticación | ✅ Implementado | Login JWT con matriz de **12 roles**, bloqueo por intentos fallidos (5), 2FA/TOTP opcional y recuperación de contraseña |
 | CRM de clientes | ✅ Implementado | Clientes con avatar y ranking "Frecuentes" en vivo, contactos, direcciones, historial de interacciones, límite de crédito y cartera |
 | Comercial | ✅ Implementado | Cotizaciones (con estado, PDF descargable), pedidos **versionados** con adjuntos, facturación con vencimiento/alerta de vencidas, abonos y PDF descargable |
 | Planeación | ✅ Implementado | Cola de ítems de pedidos aprobados/en producción sin OP. Genera la OP de cada ítem |
 | Órdenes de producción | ✅ Implementado | OP con numeración consecutiva y paso por las 4 estaciones |
-| Estaciones de planta | ✅ Implementado | Registro de etapa con kilos, merma y tiempos. El precorte deja la OP `pendiente_calidad`; la entrada de inventario la genera Calidad al aprobar |
+| Estaciones de planta | ✅ Implementado | Registro de rollos con kilos, merma y tiempos, numerados aparte por cada estación (EXT-1, PRE-1...). Sellado/Precorte toman como insumo un rollo madre de Extrusión con saldo vivo. El precorte deja la OP `pendiente_calidad`; la entrada de inventario la genera Calidad al aprobar |
 | Calidad | ✅ Implementado | Cola de OPs `pendiente_calidad`. Aprueba el lote (genera la entrada y finaliza la OP) o lo rechaza (la OP queda `detenida` sin tocar stock) |
 | Trazabilidad | ✅ Implementado | Historial completo de una OP: pasos por estación, resultado de Calidad y pedido/cliente de origen |
 | Inventario | ✅ Implementado | Stock por producto, stock mínimo, alertas, categorías. Movimientos como bitácora |
 | Producción | ✅ Implementado | Alta manual + importación Excel/CSV con preview y confirmación |
-| Despachos | ✅ Implementado | Crear despacho y marcar ítems como despachados (descuenta stock). Escaneo de producto por cámara. Al completarse, intenta notificar por WhatsApp al cliente |
+| Despachos | ✅ Implementado | Crear despacho y marcar ítems como despachados (descuenta stock), o cancelarlo (revierte el stock movido). Puede nacer automático al aprobar en Calidad una OP con cliente asignado. Escaneo de producto por cámara. Al completarse, intenta notificar por WhatsApp al cliente |
 | Almacén / WMS | ✅ Implementado | Ubicaciones de bodega con stock por ubicación. Complementa (no reemplaza) el stock total de Inventario: la suma por ubicación puede quedar por debajo del stock total ("sin ubicar"). QR imprimible por ubicación, con página pública de consulta sin login |
 | Productos | ✅ Implementado | CRUD del catálogo (crear, editar, desactivar/reactivar) e impresión de etiquetas QR por producto |
 | Usuarios y permisos | ✅ Implementado | CRUD de usuarios: crear, editar, cambiar rol, desactivar (bloquea el login) y reactivar. Un admin no puede autodesactivarse |
@@ -68,7 +68,7 @@ La matriz completa tiene **12 roles** (`server/src/middleware/auth.ts` los agrup
 | Rol | Qué puede hacer |
 |---|---|
 | `super_admin` / `admin` | Todo |
-| `gerente_produccion` | Crear OPs, cambiar su estado, cargar producción, registrar etapas de cualquier estación — no gestiona Productos/Materia prima (a pedido del cliente), aunque sigue eligiendo un producto ya cargado al armar una OP |
+| `gerente_produccion` | Crear OPs, derivarlas, cambiar su estado, cargar producción, registrar rollos de cualquier estación — no gestiona Productos/Materia prima ni ve el stock real de Inventario (a pedido del cliente), aunque sigue eligiendo un producto ya cargado al armar una OP |
 | `planeacion` | Gestiona la cola de Planeación: ve los ítems de pedidos sin OP y genera sus OPs. También puede crear/cambiar OPs, registrar etapas y gestionar Productos/Materia prima |
 | `operario_extrusion` | Registrar etapas de **Extrusión** |
 | `operario_impresion` | Registrar etapas de **Impresión** |
@@ -81,7 +81,7 @@ La matriz completa tiene **12 roles** (`server/src/middleware/auth.ts` los agrup
 
 `almacen_despachos` también gestiona Almacén/WMS (ubicaciones y asignación de stock). Solo `super_admin`/`admin` (grupo `ROLES.ADMIN`) acceden al dashboard, las exportaciones y el CRUD de usuarios. Todos los roles ven sus propias notificaciones.
 
-Los grupos reutilizables (`ROLES.VENTAS`, `ROLES.ALMACEN`, `ROLES.PRODUCCION_GESTION`, `ROLES.OPERARIOS`, `ROLES.CALIDAD`, `ROLES.AUDITORIA`, `ROLES.ADMIN`) restringen las rutas con `requireRole`. `super_admin` y `admin` siempre tienen acceso. Ver [06 — Backend](06-backend.md).
+Los grupos reutilizables (`ROLES.VENTAS`, `ROLES.ALMACEN`, `ROLES.PRODUCCION_GESTION`, `ROLES.OPERARIOS`, `ROLES.CALIDAD`, `ROLES.AUDITORIA`, `ROLES.ADMIN`, `ROLES.CIERRE_OP`, `ROLES.INVENTARIO`, `ROLES.EXISTENCIAS`, `ROLES.CATALOGO_GESTION`, `ROLES.DESPACHOS_LECTURA`) restringen las rutas con `requireRole`. `super_admin` y `admin` siempre tienen acceso. Ver [06 — Backend](06-backend.md).
 
 El **frontend replica este control**: el menú lateral y las rutas de la SPA se filtran por rol (`filterNavSections` + `RequireRole`). Un rol solo ve y accede a sus módulos. Ver [07 — Frontend](07-frontend.md).
 

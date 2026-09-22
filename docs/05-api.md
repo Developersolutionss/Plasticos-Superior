@@ -39,17 +39,21 @@ Respuesta (sin 2FA):
 
 Además de `requireAuth`, varios routers aplican el rol **a nivel de router** (protegen también los `GET`). Reglas por módulo:
 
-- **Clientes (CRM)** — todo el módulo: rol de ventas (`super_admin`, `admin`, `ventas_pedidos`).
+- **Clientes (CRM)** — `GET /clients` acepta también almacén y gestión de producción (para elegir cliente al armar una OP o un despacho); el resto del módulo (crear, editar, contactos, direcciones, interacciones, cartera, productos manuales) exige rol de ventas (`super_admin`, `admin`, `ventas_pedidos`).
 - **Cotizaciones, Pedidos y Facturas** — todo el módulo: rol de ventas.
-- **Despachos** — todo el módulo: rol de almacén (`super_admin`, `admin`, `almacen_despachos`).
-- **Órdenes de producción** — todo el módulo: rol de OPERARIOS. Crear, cambiar estado y Planeación exigen además gestión de producción (`gerente_produccion`, `planeacion`). Registrar una etapa: operarios o gestión (un operario solo en **su** estación).
+- **Despachos** — la lectura (`GET /`, `GET /summary-by-client`) admite también Ventas (`ROLES.DESPACHOS_LECTURA`), para que puedan confirmarle a un cliente si ya se despachó. Crear, marcar ítems y cancelar siguen siendo solo de rol de almacén (`super_admin`, `admin`, `almacen_despachos`).
+- **Órdenes de producción** — todo el módulo: rol de OPERARIOS (`ROLES.OPERARIOS`, que incluye gestión de producción). Crear, derivar, editar el encabezado, Planeación y borrar rollo/adjunto exigen además gestión de producción (`gerente_produccion`, `planeacion`). Cerrar una OP (`POST /:id/close`) es del **operario de esa estación** (`ROLES.CIERRE_OP`), no de gestión — gestión no cierra OPs directamente. `PATCH /:id/material-para` es de cualquier operario, pero solo puede tocar OPs de su propia estación. Registrar un rollo: operarios o gestión (un operario solo en **su** estación, `OPERARIO_STATIONS`). Calidad y Auditoría entran al router solo para las lecturas que necesitan (cola de Calidad, Trazabilidad); Calidad además tiene su propio endpoint de mutación (`POST /:id/quality-check`).
+- **Etiquetas de bulto** — todo el módulo: rol de OPERARIOS. Generar un lote (`POST /generate`) exige además gestión de producción.
 - **Producción** (alta manual/Excel) — almacén o gestión de producción.
-- **Inventario** — `requireAuth` (cualquier usuario autenticado), excepto `GET /movements` que exige rol de almacén.
+- **Inventario** — `GET /`, `GET /alerts` exigen `ROLES.EXISTENCIAS` (almacén, planeación, ventas — **no** `gerente_produccion`, a pedido del cliente); `GET /products` (el selector de producto que reutilizan Cotizaciones/Pedidos/Facturas/OP) exige `ROLES.INVENTARIO` (existencias + `gerente_produccion`); `GET /movements` exige rol de almacén.
+- **Materia prima** — todo el módulo: `ROLES.INVENTARIO`.
 - **Almacén / WMS** — todo el módulo: rol de almacén.
-- **Productos** — lectura con solo `requireAuth`; crear/editar/desactivar exige gestión de producción.
+- **Productos** — lectura y CRUD (crear/editar/desactivar/reactivar) exigen `ROLES.CATALOGO_GESTION` (`super_admin`, `admin`, `planeacion` — **no** `gerente_produccion`, a pedido del cliente: sigue pudiendo *elegir* un producto ya cargado con `ROLES.INVENTARIO`, pero no gestionar el catálogo).
 - **Usuarios** — todo el módulo: solo `super_admin`/`admin` (`ROLES.ADMIN`).
 - **Dashboard** y **Exportaciones** — todo el módulo: solo `ROLES.ADMIN`, excepto `GET /export/pedidos` y `GET /export/facturas` que además exigen rol de ventas.
 - **Notificaciones** — solo `requireAuth`; cada usuario ve y marca únicamente las suyas.
+
+> Los grupos de roles crecieron respecto de la versión inicial: además de `ADMIN`, `VENTAS`, `ALMACEN`, `PRODUCCION_GESTION`, `OPERARIOS`, `CALIDAD` y `AUDITORIA`, hoy existen `CIERRE_OP`, `INVENTARIO`, `EXISTENCIAS`, `CATALOGO_GESTION` y `DESPACHOS_LECTURA` (`server/src/middleware/auth.ts`, objeto `ROLES`). Cada uno separa un permiso que antes estaba mezclado con otro, a pedido del cliente (p. ej. "puede elegir un producto para una OP" ya no implica "puede ver cuánto stock hay" ni "puede editar el catálogo").
 
 `GET /api/auth/me` no exige rol, pero sí token. `super_admin` y `admin` siempre pasan.
 
@@ -111,6 +115,10 @@ curl -X POST http://localhost:4000/api/auth/forgot-password \
 | GET | `/api/clients/:id/interactions` | — | Historial de interacciones |
 | POST | `/api/clients/:id/interactions` | `{ type, description }` | Registra una interacción (`llamada` / `email` / `reunion` / `nota`) |
 | POST | `/api/clients/contacts/:contactId/visit` | — | Visita a un contacto (frecuencia **propia** del contacto, mismo motor que clientes) |
+| GET | `/api/clients/:id/top-products` | `?limit=` (máx 20, por defecto 5) | Top de productos **calculados** del historial real de pedidos del cliente (frecuencia y cantidad total, de la versión vigente de cada pedido) |
+| GET | `/api/clients/:id/manual-products` | — | Productos que el cliente pide, **cargados a mano** (aparte de los calculados arriba) — para un cliente nuevo sin pedidos todavía, o para dejar registrado lo que pedía antes de este sistema |
+| POST | `/api/clients/:id/manual-products` | `{ productId, quantity?, notes? }` | Crea o actualiza (upsert) un producto manual del cliente. Cargar el mismo producto dos veces actualiza cantidad/notas en vez de duplicar |
+| DELETE | `/api/clients/:id/manual-products/:manualProductId` | — | Borra un producto manual del cliente |
 
 ```bash
 curl http://localhost:4000/api/clients -H "Authorization: Bearer <token>"
@@ -165,58 +173,96 @@ curl -X POST http://localhost:4000/api/production/import/preview \
 
 ### Órdenes de producción (OP)
 
-Modelo (desde el rediseño de agosto 2026): **una OP por proceso** (Extrusión / Impresión / Sellado / Precorte), replicando los formatos en papel del cliente. Extrusión es el proceso base; de ella se **derivan** las OPs de los procesos siguientes (`parentOrderId`). Cada OP lleva sus specs de plantilla (`specs`, JSON — ver `services/opTemplates.ts`) y su **registro acumulativo de rollos** (`production_rolls`).
+Modelo: **una OP por proceso** (Extrusión / Impresión / Sellado / Precorte), replicando los formatos en papel del cliente. Extrusión es el proceso base; de ella se **derivan** las OPs de los procesos siguientes (`parentOrderId`). Toda la cadena derivada comparte el mismo `orderNumber` del padre raíz — es "una OP, un número", aunque cada estación siga siendo su propia fila con sus propios rollos/specs. Cada OP lleva sus specs de plantilla (`specs`, JSON — ver `services/opTemplates.ts`) y su **registro acumulativo de rollos** (`production_rolls`).
+
+**Una OP nace en `borrador`, sin proceso asignado** (`station: null`): Gestión todavía tiene que cargar materia prima, medidas, cliente y referencia. Un operario puro nunca ve una OP en `borrador` (ni en el listado ni en el detalle: le devuelve `404`). El ciclo:
+
+```
+POST / o POST /from-pedido-item/:id   →   status: borrador, station: null
+POST /:id/derive { station: "extrusion" }   →   asigna Extrusión (misma fila, no crea una nueva)
+POST /:id/release                            →   status: pendiente (ya visible/operable para planta)
+POST /:id/derive { station: "sellado" }, etc. →   crea la OP hija del siguiente proceso (nace en "pendiente")
+POST /:id/close                              →   finalizada (Extrusión) o pendiente_calidad (Impresión/Sellado/Precorte)
+POST /:id/quality-check                      →   finalizada + inventario, o detenida
+```
 
 | Método | Ruta | Cuerpo | Descripción |
 |---|---|---|---|
-| GET | `/api/production-orders` | `?status=` `?station=` (opcionales) | Lista OPs con producto, cliente, rollos (para sumar kg), OP padre y derivadas, por fecha desc |
-| POST | `/api/production-orders` | `{ station, productId, clientId?, quantityPlanned, measure?, specs?, notes? }` | Crea una OP del proceso indicado con numeración `OP-00001` (gestión de producción) |
-| POST | `/api/production-orders/:id/derive` | `{ station, quantityPlanned?, measure?, specs?, notes? }` | **Deriva** una OP hija. Grafo válido: extrusión → impresión/sellado/precorte; impresión → sellado/precorte. Hereda producto, cliente, medida y cantidad del padre. `400` si la derivación no es válida |
-| GET | `/api/production-orders/pending-planning` | — | **Cola de Planeación**: ítems de pedidos `aprobado`/`en_produccion` que aún no tienen OP. Devuelve `pedidoVersionItemId`, `pedidoId`, `pedidoOrderNumber`, `clientName`, `productId`, `productName`, `productSku`, `quantity`, `measure` |
-| POST | `/api/production-orders/from-pedido-item/:pedidoVersionItemId` | — | Genera la OP de un ítem de pedido. Nace como OP de **Extrusión** (el proceso base) con el cliente del pedido. `404` si el ítem no existe; `400` si ya tiene OP |
-| PATCH | `/api/production-orders/:id` | `{ specs?, measure?, quantityPlanned?, clientId?, notes? }` | Edita el encabezado/specs mientras la OP esté abierta (`pendiente`/`en_proceso`) |
-| PATCH | `/api/production-orders/:id/status` | `{ status }` | Cambio manual de estado (gestión): `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada` |
-| POST | `/api/production-orders/:id/close` | — | **Cierra** la OP (requiere ≥1 rollo). Extrusión/Impresión → `finalizada` directo (no mueven stock); Sellado/Precorte (procesos finales) → `pendiente_calidad` + notificación a Calidad |
-| GET | `/api/production-orders/:id` | — | **Detalle completo**: producto, cliente, rollos, adjuntos, OP padre y derivadas, resultado de Calidad y pedido de origen |
-| POST | `/api/production-orders/:id/rolls` | `{ date?, shift?, operatorName, machine?, label?, weightKg, wasteKg?, details?, notes?, sourceRollId? }` | Agrega una fila al **registro acumulativo de rollos**. Un operario solo carga en OPs de **su** estación (`OPERARIO_STATIONS`); `400` si la OP no está abierta. `sourceRollId` (opcional) es el rollo físico tomado como insumo, resuelto escaneando su QR — como `createdById` es siempre el usuario logueado, queda registrado quién lo tomó |
-| DELETE | `/api/production-orders/:id/rolls/:rollId` | — | Borra un rollo cargado por error (gestión, solo OP abierta) |
-| GET | `/api/production-orders/:id/rolls/:rollId/label` | — | **Etiqueta térmica imprimible del rollo**: QR con el código `RL-<id>` (mismo patrón que la etiqueta de productos), para pegar en el rollo físico |
-| GET | `/api/production-orders/rolls/by-code/:code` | — | Resuelve un rollo por el código de su QR (`RL-<id>`). La usa el escáner al cargar un rollo en la OP derivada, para completar el rollo de origen |
-| POST | `/api/production-orders/:id/quality-check` | `{ result: "aprobado" \| "rechazado", observations? }` | **Calidad**: aprueba o rechaza una OP final en `pendiente_calidad`. Si aprueba, genera la entrada de inventario con la **suma de kg de los rollos** y finaliza la OP; si rechaza, queda `detenida` sin tocar stock |
+| GET | `/api/production-orders` | `?status=` `?station=` (opcionales) | Lista OPs con producto, cliente, rollos (para sumar kg), OP padre y derivadas (en el orden real en que se derivaron), por fecha desc. A un operario puro nunca le muestra las OPs en `borrador` |
+| GET | `/api/production-orders/pending-planning` | — | **Cola de Planeación** (gestión de producción): ítems de pedidos `aprobado`/`en_produccion` que aún no tienen OP. Devuelve `pedidoVersionItemId`, `pedidoId`, `pedidoOrderNumber`, `clientName`, `productId`, `productName`, `productSku`, `quantity`, `measure` |
+| GET | `/api/production-orders/reports/por-operario` | `?from=&to=` (YYYY-MM-DD, por defecto últimos 7 días) `?station=` | (gestión de producción) Cuadre de kg cargados por operario y día: agrupa los rollos ya registrados (sin que nadie tipee nada nuevo) por operario + día calendario + estación, con conteo de rollos, kg producidos y kg de desperdicio |
+| GET | `/api/production-orders/rolls/by-code/:code` | — | Resuelve un rollo por el código de su etiqueta QR (`EXT-12`, `PRE-30`... — ver más abajo "Numeración de rollos"). Devuelve además `remainingKg`: el saldo que le queda al rollo como rollo madre. Sigue resolviendo el formato viejo `RL-<id>` de etiquetas ya impresas antes de la numeración por estación |
+| GET | `/api/production-orders/:id` | — | **Detalle completo**: producto, cliente, rollos (con su rollo madre), adjuntos, la **cadena completa** de derivación (`chain`, todas las etapas que comparten `orderNumber`), resultado de Calidad, pedido/cliente de origen, stock actual por ubicación del producto (`warehouseLocations`) y los últimos 5 ítems de despacho de ese producto (`recentDispatchItems`) — no es trazabilidad por lote, es la foto actual del producto (el stock es fungible, no queda atado a la OP que lo produjo) |
+| POST | `/api/production-orders` | `{ station?, productId, clientId?, quantityPlanned, measure?, specs?, notes? }` | Crea una OP en `borrador`, con numeración `OP-00001` (gestión de producción). `station` normalmente se omite: se asigna después con `POST /:id/derive` |
+| POST | `/api/production-orders/from-pedido-item/:pedidoVersionItemId` | — | Genera la OP de un ítem de pedido, en `borrador` y sin proceso, con el cliente del pedido. `404` si el ítem no existe; `400` si ya tiene OP, o si la versión del pedido ya no es la vigente, o si el pedido no está `aprobado`/`en_produccion` |
+| POST | `/api/production-orders/:id/release` | — | (gestión de producción) **Libera** una OP `borrador` a planta: pasa a `pendiente` y queda visible/operable para los operarios de su estación. `400` si ya fue liberada o si todavía no tiene proceso asignado (primero hay que derivarla a Extrusión) |
+| POST | `/api/production-orders/:id/derive` | `{ station, quantityPlanned?, measure?, specs?, notes? }` | (gestión de producción) **Deriva** la OP. Si la OP todavía no tiene proceso (`station: null`), este mismo endpoint se lo asigna (debe ser `"extrusion"`, y actualiza la fila existente, no crea una hija). Si ya tiene proceso, crea una OP **hija** en `pendiente`: grafo válido extrusión → impresión/sellado/precorte, impresión → sellado/precorte; `400` si la OP está en `borrador` (hay que liberarla primero), si ya fue derivada antes a esa misma estación, o si la derivación no es válida. La hija hereda producto, cliente, medida, specs heredables (color/ancho/fuelles/calibre/etc., ver `inheritSpecs`) y la **cantidad realmente producida** por el padre (no su meta planificada) |
+| PATCH | `/api/production-orders/:id` | `{ specs?, measure?, quantityPlanned?, clientId?, notes?, alertThresholdKg? }` | (gestión de producción) Edita el encabezado/specs mientras la OP esté `borrador` o abierta (`pendiente`/`en_proceso`). `400` si `quantityPlanned` baja de lo ya cargado (peso + desperdicio), o si `alertThresholdKg` es mayor a la meta. Editar `specs` **propaga** los campos heredables a toda la cadena de OPs derivadas ya existentes, no solo a las futuras |
+| PATCH | `/api/production-orders/:id/material-para` | `{ materialPara: string \| null }` | (cualquier operario, solo en OPs de **su** estación) Único campo del encabezado que también puede tocar un operario: a qué proceso va a derivar esta OP (`specs.materialPara`) — lo decide el operario de Extrusión al terminar, el resto del encabezado sigue siendo exclusivo de Gestión |
+| POST | `/api/production-orders/:id/close` | — | (operario de **esa** estación, `ROLES.CIERRE_OP` — no gestión) **Cierra** la OP (requiere ≥1 rollo). Extrusión → `finalizada` directo, sin mover stock de producto (pero sí descuenta su materia prima, ver abajo); **Impresión, Sellado y Precorte son procesos finales** → `pendiente_calidad` + notificación a Calidad (cerrar una OP y derivarla son decisiones independientes: Impresión puede cerrarse e ir a Calidad aunque también tenga OPs derivadas a Sellado o Precorte). Al cerrar Extrusión, descuenta del stock de materia prima el kg cargado en cada fila de `specs.materiaPrima`; si un `ref` no matchea ningún código del catálogo, se avisa en `skippedRawMaterialRefs` de la respuesta sin bloquear el cierre; si no alcanza el stock del insumo, `400` y no cierra |
+| POST | `/api/production-orders/:id/reopen` | — | (gestión de producción) **Reabre** una OP `finalizada`/`pendiente_calidad`/`detenida` a `en_proceso`, para corregir un error. Revierte todo efecto de inventario ya aplicado: si tenía calidad `aprobado`, revierte la entrada de producto terminado y borra el control; si tenía `rechazado`, solo borra el control; si es de Extrusión, revierte la materia prima descontada al cerrar. `400` si ya generó un Despacho **vivo** (no cancelado) para su cliente — hay que cancelar ese despacho primero (`POST /dispatches/:id/cancel`) |
+| POST | `/api/production-orders/:id/rolls` | `{ date?, machine?, label?, weightKg, wasteKg?, details?, notes?, sourceRollId?, sourceRollIds?, bultoLabelCode? }` | Agrega una fila al **registro acumulativo de rollos**. Un operario solo carga en OPs de **su** estación; `400` si la OP no está abierta o no tiene proceso asignado. El turno (`shift`) ya no se manda: se calcula solo de la hora del servidor (6:00–17:59 = "Día", resto = "Noche"). `sourceRollIds` (Sellado/Precorte, reemplaza al `sourceRollId` único de antes) son los rollos madre escaneados en orden — los kilos se reparten agotando el primero antes de tocar el siguiente. `bultoLabelCode` consume una etiqueta física de bulto pre-impresa (ver "Etiquetas de bulto" más abajo) en vez de tipear el número a mano |
+| DELETE | `/api/production-orders/:id/rolls/:rollId` | — | (gestión de producción) Borra un rollo cargado por error, solo si la OP sigue abierta. `400` si ya se le sacó material a este rollo en otra estación (hay que borrar primero esas filas) |
+| GET | `/api/production-orders/:id/rolls/:rollId/label` | — | **Etiqueta térmica imprimible del rollo**: QR con el código `<prefijo>-<n>` (`EXT-1`, `IMP-2`, `SELL-3`, `PRE-4`...), para pegar en el rollo físico |
+| POST | `/api/production-orders/:id/quality-check` | `{ result: "aprobado" \| "rechazado", observations? }` | **Calidad**: aprueba o rechaza una OP final en `pendiente_calidad` (una sola vez por OP). Si aprueba: genera la entrada de inventario con la **suma de kg de los rollos** y finaliza la OP; **si la OP tiene un cliente asignado** (el "destino" de la OP), además genera automáticamente un `Dispatch` en `pendiente` para ese cliente con el producto y la cantidad ya cargados (Almacén solo confirma la salida física) y notifica a `ROLES.ALMACEN`. Si rechaza: la OP queda `detenida` sin tocar stock y notifica a `ROLES.PRODUCCION_GESTION` |
 | GET | `/api/production-orders/:id/report.pdf` | — | **Reporte consolidado** en PDF con el layout del formato en papel (encabezado, materia prima con kg calculados, specs, rollos, totales, operarios por turno, adjuntos) |
 | GET | `/api/production-orders/:id/attachments` | — | Adjuntos de la OP |
 | POST | `/api/production-orders/:id/attachments` | multipart `file` | Sube un adjunto (máx 10 MB) |
 | GET | `/api/production-orders/:id/attachments/:attachmentId/download` | — | Descarga un adjunto |
+| DELETE | `/api/production-orders/:id/attachments/:attachmentId` | — | (gestión de producción) Borra un adjunto subido por error |
+
+**El "destino" de la OP** es simplemente su `clientId`: sin cliente, el producto aprobado por Calidad entra a inventario general (estantería); con cliente, entra a inventario **y** genera el despacho automático de arriba. `clientId` se edita con `PATCH /:id` mientras la OP esté abierta.
+
+**Rollo madre con saldo vivo (Sellado/Precorte)**: un rollo grande de Extrusión (45, 50, 70 kg) se monta en la máquina y de ahí salen varios rollos chicos hasta agotarlo, en vez de consumirse entero de una sola vez. Cada fila nueva descuenta del saldo del/los rollo(s) madre escaneados (`sourceRollIds`, en el orden en que se escanearon); si el rollo chico se pasa del saldo que quedaba, el excedente sale del siguiente rollo madre de la lista. `GET /rolls/by-code/:code` devuelve `remainingKg` para que el operario sepa cuánto le queda antes de tener que montar el próximo. El reparto real en kilos queda en la tabla `roll_consumptions` (ver [04 — Base de datos](04-database.md)).
+
+**Numeración de rollos por estación**: cada estación numera su propio código desde 1 (`EXT-1`, `EXT-2`... `PRE-1`, `PRE-2`...), en vez de compartir un contador global — antes sacar un rollo de Extrusión después de uno de Precorte podía saltar de `EXT-70` a `PRE-71`. Las etiquetas físicas viejas (formato `RL-<id>`) impresas antes de este cambio siguen resolviendo con `GET /rolls/by-code/:code`.
 
 ```bash
 curl -X POST http://localhost:4000/api/production-orders/1/rolls \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
-  -d '{"shift":"Turno 1","operatorName":"Juan","machine":"2","label":"R-100","weightKg":250,"details":{"pResistencia":"SI"}}'
+  -d '{"operatorName":"Juan","machine":"2","label":"R-100","weightKg":250,"details":{"pResistencia":"SI"}}'
 ```
+
+### Etiquetas de bulto (`/api/bulto-labels`)
+
+Etiqueta física de bulto **pre-impresa** con QR (Sellado): a diferencia del rollo (que el sistema crea como subproducto de cargar la fila), la etiqueta existe primero en el mundo real — Gestión genera un lote, se imprime, y se reparte a mano a cada operario antes de armar bultos. El operario escanea la que usó (`bultoLabelCode` en `POST /production-orders/:id/rolls`) en vez de tipear el número "E. BULTO"; una vez usada no se puede volver a escanear.
+
+| Método | Ruta | Cuerpo | Descripción |
+|---|---|---|---|
+| GET | `/api/bulto-labels` | `?status=disponible\|usada` (opcional) | Lista etiquetas, para armar la hoja de impresión de las disponibles |
+| POST | `/api/bulto-labels/generate` | `{ count }` (1–500) | (gestión de producción) Genera un lote de etiquetas nuevas en blanco, numeración `EXT-00001` consecutiva |
+| GET | `/api/bulto-labels/:id/qr` | — | QR imprimible de una etiqueta (`{ code, status, qrDataUrl }`) |
+| GET | `/api/bulto-labels/by-code/:code` | — | Resuelve el código escaneado a la etiqueta, para confirmar cuál se está tomando antes de cargar el rollo |
 
 ### Despachos
 
+Un despacho puede nacer manual (`POST /`, Almacén) o **automático**: al aprobar Calidad una OP con cliente asignado, se crea solo (ver "Órdenes de producción" arriba, `POST /production-orders/:id/quality-check`) — en ese caso queda enlazado a la OP (`Dispatch.productionOrderId`), lo que además bloquea reabrir esa OP mientras el despacho siga vivo.
+
 | Método | Ruta | Cuerpo/Query | Descripción |
 |---|---|---|---|
-| GET | `/api/dispatches` | `?clientId=1&status=pendiente` | Lista despachos (cliente + ítems con producto), por fecha desc |
-| POST | `/api/dispatches` | `{ clientId, items: [{ productId, quantityRequested, labelCode?, notes? }] }` | Crea un despacho con sus ítems (almacén) |
-| PATCH | `/api/dispatches/:dispatchId/items/:itemId` | `{ quantityDispatched }` | Marca un ítem despachado (almacén). Descuenta stock y actualiza el estado del despacho en una transacción |
+| GET | `/api/dispatches` | `?clientId=1&status=pendiente\|en_proceso\|despachado\|cancelada` | (almacén o ventas) Lista despachos (cliente + ítems con producto), por fecha desc |
+| GET | `/api/dispatches/summary-by-client` | — | (almacén o ventas) Histórico de cuánto se le ha despachado a cada cliente, agrupado por cliente + producto: cantidad total, número de despachos y fecha del último. Solo cuenta lo efectivamente despachado (no lo pendiente) y excluye despachos cancelados |
+| POST | `/api/dispatches` | `{ clientId, items: [{ productId, quantityRequested, labelCode?, notes? }] }` | Crea un despacho con sus ítems (almacén). `404` si el cliente o algún producto no existen; `400` si algún producto está desactivado |
+| PATCH | `/api/dispatches/:dispatchId/items/:itemId` | `{ quantityDispatched, locationId? }` | (almacén) Marca un ítem despachado. Descuenta stock (del total y, si se manda `locationId`, también de esa ubicación puntual) y actualiza el estado del despacho, en una transacción. `400` si se pide despachar más de lo solicitado, si el despacho está `cancelada`, o si la ubicación indicada no tiene suficiente cantidad |
+| POST | `/api/dispatches/:dispatchId/cancel` | — | (almacén) **Cancela** un despacho. Si ya tenía ítems marcados como despachados, revierte esos movimientos de stock (y de la ubicación de origen, si se había cargado una) dentro de la misma transacción. El histórico de `quantityDispatched` de cada ítem no se borra — solo cambia el estado del despacho. `400` si ya estaba cancelado |
 
-Cuando ese `PATCH` deja el despacho en `despachado` (recién en ese momento, no en reintentos posteriores), el sistema intenta avisar por WhatsApp al contacto principal del cliente (`services/whatsapp.ts`, `sendWhatsAppMessage`). Sin `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID` configuradas, el envío queda en modo no-op silencioso: solo lo imprime en la consola del servidor, igual que `email.ts` sin `RESEND_API_KEY`. Si el cliente no tiene un contacto con teléfono, simplemente no avisa.
+Cuando el `PATCH` de un ítem deja el despacho en `despachado` (recién en ese momento, no en reintentos posteriores), el sistema intenta avisar por WhatsApp al contacto principal del cliente (`services/whatsapp.ts`, `sendWhatsAppMessage`). El resultado del intento queda **guardado en el despacho**, no solo en un log de servidor: `notifiedAt` sin `notifyError` significa que se mandó bien; `notifyError` con un mensaje (p. ej. "El cliente no tiene teléfono de contacto cargado") significa que no se pudo avisar. Sin `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID` configuradas, el envío queda en modo no-op silencioso (igual que `email.ts` sin `RESEND_API_KEY`), pero igual queda su constancia en `notifyError`.
 
 ```bash
 curl -X PATCH http://localhost:4000/api/dispatches/1/items/2 \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
-  -d '{"quantityDispatched":25}'
+  -d '{"quantityDispatched":25,"locationId":3}'
+
+curl -X POST http://localhost:4000/api/dispatches/1/cancel -H "Authorization: Bearer <token>"
 ```
 
 ### Productos
 
 | Método | Ruta | Cuerpo | Descripción |
 |---|---|---|---|
-| GET | `/api/products` | — | Catálogo completo, incluidos los productos inactivos |
+| GET | `/api/products` | — | Catálogo completo, incluidos los productos inactivos (rol `CATALOGO_GESTION`: `super_admin`, `admin`, `planeacion`) |
 | GET | `/api/products/:id/label` | — | Etiqueta imprimible: `{ sku, name, category, measure, unit, qrDataUrl }` con QR generado en el servidor |
-| POST | `/api/products` | `{ sku, name, category, measure?, unit, minStock?, unitPrice? }` (gestión de producción) | Crea un producto. `409` si el SKU ya existe |
+| POST | `/api/products` | `{ name, category, measure?, measureUnit?, talla?, color?, densidad?, calibre?, unit, minStock, unitPrice }` (rol `CATALOGO_GESTION`) | Crea un producto (el SKU se genera solo por categoría, consecutivo). `measureUnit` (`Pulgadas`/`Cms.`) aclara en qué unidad viene `measure`; `talla`, `color` (enum de colores fijos), `densidad` (`ALTA`/`BAJA`) y `calibre` son atributos opcionales del producto. El viejo campo libre "Medida de referencia" (`medidaRef`) ya no está en el formulario de creación/edición |
 | PATCH | `/api/products/:id` | campos parciales de arriba | Edita un producto. `400` si el body viene vacío; `404`/`409` según corresponda |
 | DELETE | `/api/products/:id` | — | Soft delete (`active: false`) |
 | POST | `/api/products/:id/reactivate` | — | Reactiva un producto desactivado |

@@ -20,6 +20,9 @@ server/
     │   └── auth.ts        → requireAuth (JWT + contexto de auditoría) + requireRole + ROLES + OPERARIO_STATIONS
     ├── services/
     │   ├── stockService.ts   → applyMovement, getStockByCategory, getLowStockAlerts
+    │   ├── rawMaterialStockService.ts → applyRawMaterialMovement (espejo de stockService, para insumos de Extrusión)
+    │   ├── rollBalance.ts    → remainingSourceKg + InsufficientSourceRollError: saldo vivo de un rollo madre en Sellado/Precorte
+    │   ├── clientCredit.ts   → getClientSaldoPendiente: saldo pendiente real de un cliente (cartera + límite de crédito)
     │   ├── importExcel.ts    → parseProductionFile (ExcelJS)
     │   ├── email.ts          → sendPasswordResetEmail (Resend, fallback console)
     │   ├── emailTemplate.ts  → plantilla HTML inline del correo
@@ -31,15 +34,19 @@ server/
     │   ├── auditExtension.ts → withAudit: $extends que audita create/update/delete de tablas críticas
     │   ├── exportExcel.ts    → buildExcelBuffer: helper compartido de Excel con estilo de marca
     │   ├── notify.ts         → notifyRoles: crea notificaciones in-app para un grupo de roles
+    │   ├── opTemplates.ts    → plantilla de cada estación (specs, columnas de rollo, prefijo de código EXT/IMP/SELL/PRE)
+    │   ├── opPdf.ts          → reporte PDF consolidado de una OP (formato en papel) con pdfkit
     │   ├── pdfDocument.ts     → buildDocumentPdf/pdfToBuffer: PDF de cotización/factura con pdfkit
     │   └── whatsapp.ts        → sendWhatsAppMessage: mensaje saliente (no-op sin credenciales)
     ├── routes/
     │   ├── auth.ts            → login (rechaza usuarios inactivos), me, forgot/reset-password, 2FA
-    │   ├── clients.ts         → CRM: clientes, contactos, direcciones, interacciones, cartera (con vencidas), avatares, visitas
-    │   ├── inventory.ts       → GET /api/inventory[/alerts[/products][/movements]]
+    │   ├── clients.ts         → CRM: clientes, contactos, direcciones, interacciones, cartera (con vencidas), avatares, visitas, productos manuales
+    │   ├── inventory.ts       → GET /api/inventory[/alerts[/products][/movements]] (distingue rol INVENTARIO de EXISTENCIAS)
+    │   ├── rawMaterials.ts    → catálogo y stock de materia prima de Extrusión
     │   ├── production.ts      → alta manual + import Excel (preview/confirm)
-    │   ├── productionOrders.ts→ OPs + registro de etapa + cola de Planeación + control de calidad + dispara notificaciones
-    │   ├── dispatches.ts      → GET/POST despachos + marcar ítems + notifica por WhatsApp al completarse
+    │   ├── productionOrders.ts→ OPs (creación en blanco + derivar + cerrar + reabrir) + registro de rollos + cola de Planeación + control de calidad + dispara notificaciones
+    │   ├── bultoLabels.ts     → lotes de etiquetas de bulto pre-impresas (mercancía comprada afuera): generar, listar, resolver por código
+    │   ├── dispatches.ts      → GET/POST despachos + marcar ítems + cancelar (revierte stock) + notifica por WhatsApp al completarse
     │   ├── products.ts        → CRUD de catálogo + etiqueta QR imprimible
     │   ├── users.ts           → CRUD de usuarios y roles
     │   ├── warehouse.ts       → ubicaciones de bodega + stock por ubicación + QR
@@ -77,8 +84,10 @@ app.use("/api/uploads", express.static(path.join(__dirname, "..", "uploads")));
 app.use("/api/auth", authRouter);
 app.use("/api/clients", clientsRouter);
 app.use("/api/inventory", inventoryRouter);
+app.use("/api/raw-materials", rawMaterialsRouter);
 app.use("/api/production", productionRouter);
 app.use("/api/production-orders", productionOrdersRouter);
+app.use("/api/bulto-labels", bultoLabelsRouter);
 app.use("/api/dispatches", dispatchesRouter);
 app.use("/api/products", productsRouter);
 app.use("/api/users", usersRouter);
@@ -177,11 +186,15 @@ export function requireAuth(req, res, next) {
 | `ROLES.CALIDAD` | `calidad` |
 | `ROLES.AUDITORIA` | `auditor` |
 | `ROLES.ADMIN` | — (solo `super_admin`/`admin`) |
-| `ROLES.CATALOGO_GESTION` | `planeacion` (gestión de Productos/Materia prima — Gerente de Producción queda afuera a pedido del cliente, aunque sigue pudiendo elegir un producto ya cargado al armar una OP vía `ROLES.INVENTARIO`) |
+| `ROLES.CIERRE_OP` | `operario_extrusion`, `operario_impresion`, `operario_sellado`, `operario_precorte` (cerrar una OP, `POST /:id/close`, es del operario de esa estación, no de Gestión — a diferencia de `OPERARIOS`, Gerente de Producción y Planeación quedan afuera) |
+| `ROLES.INVENTARIO` | `almacen_despachos`, `gerente_produccion`, `planeacion`, `ventas_pedidos` (quién puede **elegir** un producto del catálogo — `GET /inventory/products`, usado por el selector de producto de Cotizaciones/Pedidos/Facturas/OP) |
+| `ROLES.EXISTENCIAS` | `almacen_despachos`, `planeacion`, `ventas_pedidos` (quién ve el **stock real** — `GET /inventory`, `/alerts` — a diferencia de `INVENTARIO`, Gerente de Producción queda afuera a pedido del cliente) |
+| `ROLES.CATALOGO_GESTION` | `planeacion` (gestión del catálogo: crear/editar/desactivar Productos y Materia prima — Gerente de Producción queda afuera a pedido del cliente, aunque sigue pudiendo elegir un producto ya cargado al armar una OP vía `ROLES.INVENTARIO`) |
+| `ROLES.DESPACHOS_LECTURA` | `almacen_despachos`, `ventas_pedidos` (Ventas puede **consultar** despachos para responderle a un cliente sin llamar a Almacén; marcar ítems o cancelar sigue siendo exclusivo de Almacén) |
 
-Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `dispatches` y `warehouse` usan `use(requireAlmacen)`; `production-orders` usa `use(requireRole(...OPERARIOS, ...CALIDAD, ...AUDITORIA))` y aplica `requireProduccionGestion` en crear/cambiar estado/Planeación; `users`, `dashboard` y `export` usan `use(requireRole(...ROLES.ADMIN))` (`export` suma rol de ventas en `/pedidos` y `/facturas`). El control de calidad (`POST /:id/quality-check`) exige `CALIDAD`; la bitácora (`/api/audit-log`) exige `AUDITORIA`. `publicLocation.ts` es la única ruta de negocio sin `requireAuth` además del webhook de WhatsApp: usa el `publicToken` de la ubicación como credencial.
+Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `warehouse` usa `use(requireAlmacen)`; `dispatches` usa `use(requireRole(...DESPACHOS_LECTURA))` a nivel de router y exige `ALMACEN` en las rutas que mutan (crear, marcar ítem, cancelar); `production-orders` usa `use(requireRole(...OPERARIOS, ...CALIDAD, ...AUDITORIA))`, aplica `requireProduccionGestion` en crear/cambiar estado/Planeación/derivar/reabrir y `requireRole(...CIERRE_OP)` en `POST /:id/close`; `users`, `dashboard` y `export` usan `use(requireRole(...ROLES.ADMIN))` (`export` suma rol de ventas en `/pedidos` y `/facturas`). El control de calidad (`POST /:id/quality-check`) exige `CALIDAD`; la bitácora (`/api/audit-log`) exige `AUDITORIA`. `inventory.ts` distingue `INVENTARIO` (elegir producto) de `EXISTENCIAS` (ver stock real). `publicLocation.ts` es la única ruta de negocio sin `requireAuth` además del webhook de WhatsApp: usa el `publicToken` de la ubicación como credencial.
 
-- `OPERARIO_STATIONS` mapea cada rol de operario a sus estaciones (`operario_extrusion → ["extrusion"]`, etc.). Se aplica en el POST de etapas: el operario solo registra su estación.
+- `OPERARIO_STATIONS` mapea cada rol de operario a su estación (`operario_extrusion → ["extrusion"]`, `operario_impresion → ["impresion"]`, `operario_sellado → ["sellado"]`, `operario_precorte → ["precorte"]`). Se aplica en el POST de rollos y en el cierre: el operario solo trabaja su estación. Sellado y Precorte son roles separados — antes un solo rol `operario_sellado_precorte` cubría ambas estaciones; el cliente pidió separarlos en dos roles reales.
 
 ## Servicios
 
@@ -209,6 +222,14 @@ export async function applyMovement(
 ```
 
 > `TxClient` se exporta desde `stockService.ts`. Se deriva de `prisma.$transaction` (no es el `Prisma.TransactionClient` genérico), porque `prisma` está envuelto en `$extends` y el tipo del cliente de transacción cambia. Los routers que necesitan el tipo lo importan de acá.
+
+### `services/rollBalance.ts` — saldo vivo del rollo madre
+
+**`remainingSourceKg(tx, sourceRollId)`** calcula cuántos kilos le quedan a un rollo madre: su peso menos todo lo que ya consumieron sus rollos hijos (tabla `RollConsumption`). Un rollo grande de Extrusión se monta en Sellado o Precorte y de ahí salen varios rollos chicos: cada uno descuenta del saldo del madre. Si un rollo pide más kilos de los que quedan, la función lanza `InsufficientSourceRollError`; el operario debe escanear el siguiente rollo madre para cubrir el faltante. Ver [08 — Reglas de negocio](08-workflow.md).
+
+### `services/clientCredit.ts`
+
+**`getClientSaldoPendiente(tx, clientId)`** calcula el saldo pendiente real de un cliente: total de las facturas no anuladas menos los pagos recibidos. Es el mismo cálculo de `GET /clients/:id/cartera`, reutilizado para bloquear un Pedido que excedería el límite de crédito (`PATCH /pedidos/:id`). Tolera residuos de menos de un centavo por redondeo de pagos parciales: una factura así de cerca de cero cuenta como pagada.
 
 ### `services/auditExtension.ts` — `withAudit`
 

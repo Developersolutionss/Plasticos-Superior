@@ -37,7 +37,7 @@ El avance real frente al plan se detalla a continuación.
 
 | # | Módulo | Estado |
 |---|---|---|
-| 1 | Autenticación | ✅ Implementado (matriz de 11 roles, bloqueo por intentos, 2FA/TOTP, recuperación de contraseña) |
+| 1 | Autenticación | ✅ Implementado (matriz de 12 roles, bloqueo por intentos, 2FA/TOTP, recuperación de contraseña) |
 | 2 | Auditoría | ✅ Implementado (bitácora forense de create/update/delete en tablas críticas con diff antes/después, usuario, IP y user-agent) |
 | 3 | CRM de clientes | ✅ Implementado (clientes con avatar y ranking "Frecuentes" en vivo, contactos y direcciones, historial de interacciones, cartera y límite de crédito; pantalla global de contactos; búsqueda y filtros por frecuencia) |
 | 4 | Pedidos | ✅ Implementado (pedidos versionados v1..vn, adjuntos, duplicar) |
@@ -49,11 +49,11 @@ El avance real frente al plan se detalla a continuación.
 | # | Módulo | Estado |
 |---|---|---|
 | 5 | Planeación | ✅ Implementado (cola de ítems de pedidos aprobados/en producción sin OP y generación de OP desde cada ítem) |
-| 6 | Órdenes de producción | ✅ Implementado (OP-00001; una OP por proceso con plantilla propia tipo formato en papel, derivación Extrusión → Impresión/Sellado/Precorte, registro acumulativo de rollos, reporte PDF consolidado y adjuntos) |
+| 6 | Órdenes de producción | ✅ Implementado (OP-00001, compartido por toda la cadena de derivación; nace en blanco y Gestión la deriva a Extrusión como primer paso, luego a Impresión/Sellado/Precorte; registro acumulativo de rollos con numeración propia por estación (EXT-1, PRE-1...), destino explícito estantería/cliente, reapertura de una OP cerrada, reporte PDF consolidado y adjuntos) |
 | 7 | Extrusión | ✅ Implementado (plantilla F-OP-01: materia prima con % y kg calculados, forma del material, registro de rollos) |
 | 8 | Impresión | ✅ Implementado (plantilla flexografía: montaje, colores cara 1/2, registro de rollos) |
-| 9 | Sellado | ✅ Implementado (plantilla con medidas finales; su cierre deja la OP `pendiente_calidad`) |
-| 10 | Precorte | ✅ Implementado (plantilla con medidas finales; su cierre deja la OP `pendiente_calidad` — la entrada de inventario la genera Calidad al aprobar, con la suma de kg de los rollos) |
+| 9 | Sellado | ✅ Implementado (plantilla con medidas finales; toma como insumo un rollo madre de Extrusión con saldo vivo — un mismo rollo alimenta varias filas hasta agotarse; su cierre deja la OP `pendiente_calidad`) |
+| 10 | Precorte | ✅ Implementado (plantilla con medidas finales; mismo rollo madre con saldo vivo que Sellado; su cierre deja la OP `pendiente_calidad` — la entrada de inventario la genera Calidad al aprobar, con la suma de kg de los rollos) |
 | 11 | Trazabilidad básica | ✅ Implementado (historial completo de la OP: pasos por estación, resultado de Calidad y pedido/cliente de origen) |
 
 ### Fase 3 (semanas 17-20)
@@ -62,7 +62,7 @@ El avance real frente al plan se detalla a continuación.
 |---|---|---|
 | 12 | Calidad | ✅ Implementado (control de calidad por lote: aprueba y genera la entrada de inventario, o rechaza y deja la OP `detenida`) |
 | 13 | Inventario | ✅ Implementado (stock por producto, categorías, alertas de mínimo) |
-| 14 | Despachos | ✅ Implementado (crear despacho y marcar ítems → descuenta stock) |
+| 14 | Despachos | ✅ Implementado (crear despacho y marcar ítems → descuenta stock; cancelación que revierte el stock movido; despacho automático al aprobar en Calidad una OP con cliente asignado) |
 | 15 | Almacén / WMS | ✅ Implementado (ubicaciones de bodega, stock por ubicación complementario a `InventoryStock`, asignación de cantidades, QR imprimible por ubicación con acceso público sin login) |
 | 16 | Dashboard | ✅ Implementado (dashboard ejecutivo: ventas 6 meses, comparativa mensual, cartera pendiente, top clientes; dashboard de indicadores: tasa de aprobación de calidad, tiempo promedio de producción, top productos despachados) |
 | 17 | Exportaciones | ✅ Implementado (Excel con estilo de marca para inventario, pedidos, facturas y clientes) |

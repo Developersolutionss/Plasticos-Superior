@@ -37,16 +37,19 @@ Conceptos esenciales:
 
 ```
 users 1───N production_entries / inventory_movements / dispatches / import_logs
-users 1───N notifications / stock_locations (updatedBy)
+users 1───N notifications / stock_locations (updatedBy) / bulto_labels (created/used)
 clients 1───N client_contacts / client_addresses / client_interactions / cotizaciones
-clients 1───N dispatches / production_entries / facturas / pedidos
+clients 1───N dispatches / production_entries / facturas / pedidos / client_manual_products
 products 1───1 inventory_stock
-products 1───N production_entries / dispatch_items / inventory_movements / stock_locations
-warehouse_locations 1───N stock_locations
-production_orders 1───N production_rolls / production_order_attachments
+products 1───N production_entries / dispatch_items / inventory_movements / stock_locations / client_manual_products
+warehouse_locations 1───N stock_locations / dispatch_items (location, opcional)
+production_orders 1───N production_rolls / production_order_attachments / dispatches (productionOrderId, opcional)
 production_orders 0..1───N production_orders (derivación: parent_order_id)
 clients 1───N production_orders (cliente asociado, opcional)
 pedido_version_items 0..1───0..1 production_orders (vínculo opcional, módulo Planeación)
+production_rolls 0..1───N production_rolls (rollo madre principal: source_roll_id)
+production_rolls 1───N roll_consumptions (como rollo chico: roll_id) y 1───N roll_consumptions (como rollo madre: source_roll_id)
+production_rolls 0..1───1 bulto_labels (used_by_roll_id)
 cotizaciones 1───N cotizacion_items · 1───0..N pedidos
 pedidos 1───N pedido_versions 1───N pedido_version_items
 pedidos 1───N pedido_attachments · 1───0..N facturas
@@ -65,7 +68,7 @@ app_meta 1 fila (clave/valor, sin FKs)
 | name | String | |
 | email | String | `@unique` |
 | passwordHash | String | `@map("password_hash")`, hash bcrypt |
-| role | `UserRole` | enum de **11 valores** (ver Enums) |
+| role | `UserRole` | enum de **12 valores** (ver Enums). Sellado y Precorte son roles separados (`operario_sellado`, `operario_precorte`) desde `20260909050155_split_sellado_precorte_role` |
 | failedLoginAttempts | Int | `@default(0)`. Se resetea en login exitoso |
 | lockedUntil | DateTime? | Bloqueo temporal por intentos fallidos |
 | twoFactorSecret | String? | Secret TOTP. `@map("two_factor_secret")` |
@@ -94,8 +97,10 @@ Notificación in-app. `type` es texto libre (p. ej. `op_pendiente_calidad`) para
 | id | Int | PK |
 | sku | String | `@unique` — p. ej. `BUL-001` |
 | name | String | |
-| category | `ProductCategory` | enum: `bultos` / `rollos_prec_lam` / `rollos_fuelle` / `mangueta` / `tiras` / `control_impresion` |
+| category | `ProductCategory` | enum: `bultos` / `rollos_prec_lam` / `rollos_fuelle` / `mangueta` / `tiras` / `control_impresion` / `tubular` / `semitubular` / `laminado` |
 | measure | String? | p. ej. `25kg`, `20x30` |
+| measureUnit | String? | `@map("measure_unit")`. Unidad de `measure` ("Pulgadas"/"Cms.") — para no asumir siempre cm |
+| talla / color / densidad / medidaRef / calibre | String? (todos) | `@map("medida_ref")` en `medidaRef`. Atributos opcionales de catálogo (no toda categoría los usa) |
 | unit | `ProductUnit` | enum: `kg` / `unidad` |
 | minStock | Decimal | `@default(0)`, umbral de alerta |
 | unitPrice | Decimal | `@default(0)`. Precio de catálogo usado por cotizaciones/pedidos/facturas |
@@ -131,6 +136,22 @@ Notificación in-app. `type` es texto libre (p. ej. `op_pendiente_calidad`) para
 | viewCount / lastViewedAt | Int / DateTime? | Frecuencia **propia del contacto**, independiente del cliente (mismo motor) |
 | cycleInteractions | Int | `@default(0)`. Igual que en el cliente, con umbral 5 |
 | createdAt | DateTime | `@map("created_at")` |
+
+### `client_manual_products`
+
+Productos que un cliente pide, cargados a mano por Ventas — aparte de los que ya salen solos en `GET /:id/top-products` (calculados del historial real de pedidos). Sirve para un cliente nuevo sin pedidos todavía, o para dejar registrado lo que pedía antes de este sistema. Nunca se mezcla con la lista calculada: la ficha del cliente los muestra en dos secciones separadas.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| clientId | Int | FK → clients |
+| productId | Int | FK → products |
+| quantity | Decimal? | Cantidad de referencia |
+| notes | String? | |
+| createdById | Int? | FK → users |
+| createdAt | DateTime | `@map("created_at")` |
+
+`@@unique([clientId, productId])`: cargar el mismo producto dos veces para el mismo cliente actualiza la fila existente en vez de duplicarla.
 
 ### `client_addresses`
 
@@ -222,13 +243,14 @@ Catálogo, stock desnormalizado (mismo patrón 1:1 que `inventory_stock`) y bit�
 **Orden de Producción (OP)**: una por proceso de planta (formatos en papel del cliente). Extrusión es el proceso base; las OPs de los procesos siguientes se derivan de ella (`parent_order_id`).
 
 | id | Int | PK |
-| orderNumber | String | `@unique`, formato `OP-00001` (numeración consecutiva en transacción) |
-| station | `ProductionStation` | `extrusion` / `impresion` / `sellado` / `precorte`. El proceso de esta OP |
+| orderNumber | String | **No es `@unique`**: identifica toda la cadena de derivación (Extrusión → Sellado → ...), no cada fila — todas las etapas derivadas comparten el mismo `OP-00001` de la OP raíz. Solo sube al crear una OP nueva, nunca al derivar |
+| station | `ProductionStation?` | `extrusion` / `impresion` / `sellado` / `precorte`, **opcional**. `NULL` mientras la OP está "en blanco" (recién creada, `status: borrador`), antes de que Gestión la derive a Extrusión como primer paso (`POST /:id/derive`) |
 | productId | Int | FK → products |
-| clientId | Int? | `@map("client_id")`. FK → clients. Cliente asociado (del pedido en Planeación, o manual) |
+| clientId | Int? | `@map("client_id")`. FK → clients. **Destino de la OP**: sin cliente entra a inventario general ("a estantería"); con cliente, al aprobarse en Calidad genera además un despacho automático para ese cliente |
 | quantityPlanned | Decimal | `@map("quantity_planned")` |
+| alertThresholdKg | Decimal? | `@map("alert_threshold_kg")`. A cuántos kg (peso+desperdicio) avisarle a Gestión que la OP está por completarse. `NULL` = usa el default (90 % de `quantityPlanned`) |
 | measure | String? | hereda del producto si no se indica |
-| status | `ProductionOrderStatus` | `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada` |
+| status | `ProductionOrderStatus` | `borrador` / `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada`. Nace en `borrador` (Gestión todavía la arma) y pasa a `pendiente` al liberarla a planta (`POST /:id/release`) |
 | specs | Json? | Encabezado de la plantilla de la estación (materia prima con %, medidas, montaje, colores, etc. — ver `services/opTemplates.ts`) |
 | parentOrderId | Int? | `@map("parent_order_id")`. Self-FK → production_orders. OP de la que se derivó (cadena Extrusión → …) |
 | pedidoVersionItemId | Int? | `@unique` `@map("pedido_version_item_id")`. FK → pedido_version_items. Vínculo opcional con el ítem del pedido que originó la OP (módulo Planeación). `NULL` en las OPs manuales |
@@ -236,6 +258,7 @@ Catálogo, stock desnormalizado (mismo patrón 1:1 que `inventory_stock`) y bit�
 | createdById | Int? | |
 | createdAt | DateTime | `@map("created_at")` |
 | qualityCheck | QualityCheck? | 1:1. Registra el control de calidad de una OP final (una sola vez, al cerrarse) |
+| dispatches | Dispatch[] | Despachos generados desde esta OP (normalmente uno, automático, al aprobarse en Calidad con cliente asignado) |
 
 ### `quality_checks`
 
@@ -273,6 +296,8 @@ Fila del **registro acumulativo de rollos/bultos** de una OP (la tabla inferior 
 |---|---|---|
 | id | Int | PK |
 | productionOrderId | Int | FK → production_orders |
+| station | `ProductionStation` | Estación de la OP al momento de crear este rollo (copia, no se lee de `productionOrder.station`). Junto con `stationSequence` arma el código del QR |
+| stationSequence | Int | `@map("station_sequence")`. Numeración **propia de cada estación**, arrancando en 1 (`EXT-1`, `EXT-2`... `PRE-1`, `PRE-2`...) — reemplaza el autoincrement global que antes intercalaba las cuatro estaciones en un mismo conteo. `@@unique([station, stationSequence])` |
 | date | DateTime | `@default(now())` |
 | shift | String? | Turno |
 | operatorName | String | `@map("operator_name")` |
@@ -282,7 +307,38 @@ Fila del **registro acumulativo de rollos/bultos** de una OP (la tabla inferior 
 | wasteKg | Decimal | `@default(0)` `@map("waste_kg")` (desperdicio) |
 | details | Json? | pruebas, color, densidad, etc. según la estación |
 | notes / createdById | String? / Int? | |
-| sourceRollId | Int? | `@map("source_roll_id")`. Self-FK → production_rolls. Rollo físico tomado como insumo, resuelto al escanear el QR pegado a ese rollo (etiqueta: `GET /:id/rolls/:rollId/label`, lookup: `GET /rolls/by-code/:code`). Como `createdById` es siempre quien está logueado al escanear, esto registra qué persona tomó el rollo sin tener que preguntar |
+| sourceRollId | Int? | `@map("source_roll_id")`. Self-FK → production_rolls. Rollo madre **principal** (el primero escaneado) del que salió este rollo — ya **no es `@unique`**: en Sellado/Precorte un mismo rollo de Extrusión alimenta muchas filas hasta agotarse. El reparto real en kilos vive en `roll_consumptions`; esto queda como atajo para mostrar "de dónde salió" sin tener que cargar el ledger completo |
+| createdAt | DateTime | `@map("created_at")` |
+
+Relaciones adicionales: `consumptions` (kilos que este rollo le sacó a cada rollo madre) y `consumedAsSource` (kilos que le sacaron a este rollo cuando actúa como rollo madre) — ver `roll_consumptions` abajo. `bultoLabel` (1:1 opcional) enlaza con la etiqueta física de bulto escaneada, si la hubo.
+
+### `roll_consumptions`
+
+Cuántos kilos le sacó un rollo chico a su rollo madre — el ledger del saldo vivo de Sellado/Precorte (ver [08 — Reglas de negocio](08-workflow.md)). Un rollo grande de Extrusión (45, 50, 70 kg) se monta en la máquina y de ahí salen varios rollos chicos: cada uno descuenta del saldo del madre, y si un rollo chico se pasa del saldo que quedaba, el excedente sale del rollo madre siguiente — por eso un rollo puede tener más de una fila acá. Antes de esto, `sourceRollId` era `@unique` y un rollo madre solo se podía consumir entero y de una sola vez.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| rollId | Int | `@map("roll_id")`. FK → production_rolls (`onDelete: Cascade`). Rollo chico que consumió el material |
+| sourceRollId | Int | `@map("source_roll_id")`. FK → production_rolls (`onDelete: Restrict`, explícito). Rollo madre del que salieron estos kilos — el `Restrict` es lo que dispara el error que `DELETE /:id/rolls/:rollId` traduce a un `400` amigable si se intenta borrar un rollo madre ya consumido |
+| quantityKg | Decimal | `@map("quantity_kg")` |
+| createdAt | DateTime | `@map("created_at")` |
+
+Índices en `rollId` y `sourceRollId`. El saldo disponible de un rollo madre es su `weightKg` menos la suma de sus filas como `sourceRollId` acá.
+
+### `bulto_labels`
+
+Etiqueta física de bulto pre-impresa con QR (Sellado). A diferencia del rollo, que el sistema crea como subproducto de la carga, la etiqueta existe primero en el mundo real: Gestión genera un lote, se imprimen, y se reparten a mano a cada operario. El operario escanea la que usó (en vez de tipear el número de "E. BULTO" a mano); una vez usada no se puede volver a escanear.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| code | String | `@unique` |
+| status | `BultoLabelStatus` | `disponible` / `usada` |
+| usedByRollId | Int? | `@unique` `@map("used_by_roll_id")`. FK → production_rolls, el rollo que la consumió |
+| usedById | Int? | `@map("used_by")`. FK → users, quién la escaneó |
+| usedAt | DateTime? | `@map("used_at")` |
+| createdById | Int? | `@map("created_by")`. FK → users, quién generó el lote |
 | createdAt | DateTime | `@map("created_at")` |
 
 ### `production_order_attachments`
@@ -303,9 +359,12 @@ Adjuntos de una OP (fotos, fichas técnicas, artes). Espejo del patrón de `pedi
 |---|---|---|
 | id | Int | PK |
 | clientId | Int | FK → clients |
-| status | `DispatchStatus` | `pendiente` / `en_proceso` / `despachado` |
+| status | `DispatchStatus` | `pendiente` / `en_proceso` / `despachado` / `cancelada` |
 | requestedDate | DateTime | `@default(now())` `@map("requested_date")` |
 | dispatchedDate | DateTime? | se fija cuando todos los ítems están despachados |
+| productionOrderId | Int? | `@map("production_order_id")`. FK → production_orders. Se completa **solo** cuando el despacho lo generó el sistema al aprobar en Calidad una OP con cliente asignado — permite bloquear la reapertura de esa OP mientras el despacho siga vivo |
+| cancelledAt / cancelledById | DateTime? / Int? | `@map("cancelled_at")` / `@map("cancelled_by")`. Quién y cuándo canceló el despacho (`POST /:id/cancel`) |
+| notifiedAt / notifyError | DateTime? / String? | `@map("notified_at")` / `@map("notify_error")`. Constancia del aviso de WhatsApp al completar el despacho: `notifiedAt` sin `notifyError` = se mandó bien; ninguno de los dos con el despacho ya completo = el cliente no tiene teléfono cargado |
 | createdById | Int? | |
 | createdAt | DateTime | `@map("created_at")` |
 
@@ -317,8 +376,9 @@ Adjuntos de una OP (fotos, fichas técnicas, artes). Espejo del patrón de `pedi
 | dispatchId | Int | FK → dispatches |
 | productId | Int | FK → products |
 | quantityRequested | Decimal | `@map("quantity_requested")` |
-| quantityDispatched | Decimal? | `NULL` hasta marcarlo despachado |
+| quantityDispatched | Decimal? | `NULL` hasta marcarlo despachado. No se borra al cancelar el despacho — queda como histórico de lo que se llegó a despachar |
 | labelCode | String? | `@map("label_code")` |
+| locationId | Int? | `@map("location_id")`. FK → warehouse_locations, opcional. De qué ubicación física salió (`POST /warehouse/assign` la asigna antes; si no hay ubicación cargada, el descuento sigue siendo solo contra el total agregado) |
 | notes | String? | |
 
 ### `import_logs`
@@ -393,16 +453,18 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | Enum | Valores |
 |---|---|
 | `UserRole` | `super_admin`, `admin`, `gerente_produccion`, `planeacion`, `ventas_pedidos`, `operario_extrusion`, `operario_impresion`, `operario_sellado`, `operario_precorte`, `calidad`, `almacen_despachos`, `auditor` |
-| `ProductCategory` | `bultos`, `rollos_prec_lam`, `rollos_fuelle`, `mangueta`, `tiras`, `control_impresion` |
+| `ProductCategory` | `bultos`, `rollos_prec_lam`, `rollos_fuelle`, `mangueta`, `tiras`, `control_impresion`, `tubular`, `semitubular`, `laminado` |
 | `ProductUnit` | `kg`, `unidad` |
 | `ProductionStatus` | `pendiente`, `en_transito`, `recibido`, `rechazado` |
 | `ProductionSource` | `manual`, `excel_import`, `whatsapp_bot` |
 | `MovementType` | `entrada_produccion`, `salida_despacho`, `ajuste`, `devolucion` |
 | `ReferenceType` | `production_entry`, `dispatch_item`, `manual_adjustment` |
-| `DispatchStatus` | `pendiente`, `en_proceso`, `despachado` |
+| `RawMaterialMovementType` | `compra`, `consumo_produccion`, `ajuste` |
+| `DispatchStatus` | `pendiente`, `en_proceso`, `despachado`, `cancelada` |
 | `ImportSource` | `manual_upload`, `whatsapp_bot` |
-| `ProductionOrderStatus` | `pendiente`, `en_proceso`, `pendiente_calidad`, `detenida`, `finalizada`, `cancelada` |
+| `ProductionOrderStatus` | `borrador`, `pendiente`, `en_proceso`, `pendiente_calidad`, `detenida`, `finalizada`, `cancelada` |
 | `ProductionStation` | `extrusion`, `impresion`, `sellado`, `precorte` |
+| `BultoLabelStatus` | `disponible`, `usada` |
 | `QualityResult` | `aprobado`, `rechazado` |
 | `AuditAction` | `create`, `update`, `delete` |
 | `InteractionType` | `llamada`, `email`, `reunion`, `nota` |
@@ -441,6 +503,20 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260819221741_add_roll_source` | `production_rolls`: `source_roll_id` (self-FK, custodia del rollo tomado como insumo vía escaneo QR) |
 | `20260820144956_add_raw_materials` | Nuevas `raw_materials`, `raw_material_stock`, `raw_material_movements` (catálogo + stock + bitácora de materia prima) |
 | `20260820151446_add_raw_material_movement_notes` | `raw_material_movements`: `notes` (motivo del ajuste manual) |
+| `20260827045258_add_borrador_status` | Estado `borrador` en `ProductionOrderStatus`: la OP nace así y Gestión la libera a planta con `POST /:id/release` |
+| `20260829051039_op_number_shared_across_chain` | Quita `@unique` de `production_orders.order_number`: toda la cadena de derivación comparte el mismo número |
+| `20260829051800_op_station_nullable` | `production_orders.station` pasa a aceptar `NULL` (OP creada "en blanco", sin proceso asignado) |
+| `20260830181940_add_bulto_labels` | Tabla `bulto_labels` y enum `BultoLabelStatus` (etiquetas de bulto pre-impresas) |
+| `20260901050112_add_alert_threshold_kg` | `production_orders`: `alert_threshold_kg` (umbral de aviso configurable, en kg) |
+| `20260908220202_product_attributes` | `products`: `measure_unit`, `talla`, `color`, `densidad`, `medida_ref`, `calibre`; `ProductCategory` suma `tubular`, `semitubular`, `laminado` |
+| `20260909050155_split_sellado_precorte_role` | Separa el rol `operario_sellado_precorte` en dos roles reales: `operario_sellado` y `operario_precorte` |
+| `20260909190205_add_client_manual_products` | Tabla `client_manual_products` (productos que un cliente pide, cargados a mano) |
+| `20260914022751_source_roll_unique` | `production_rolls.source_roll_id` pasa a `@unique` (paso intermedio, reemplazado por la migración siguiente) |
+| `20260914072151_dispatch_production_order_link` | `dispatches`: `production_order_id` (vínculo con la OP que generó el despacho automático) |
+| `20260915024649_dispatch_cancel_and_location` | Estado `cancelada` en `DispatchStatus`; `dispatches`: `cancelled_at`/`cancelled_by`; `dispatch_items`: `location_id` |
+| `20260915150135_pedidos_despachos_clientes_audit_fixes` | `dispatches`: `notified_at`/`notify_error` (constancia del aviso de WhatsApp); `pedidos.cotizacion_id` pasa a `@unique` (una cotización solo se convierte en pedido una vez) |
+| `20260917170714_roll_consumption_ledger` | Quita el `@unique` de `production_rolls.source_roll_id` (vuelve a admitir varias filas por rollo madre) y crea `roll_consumptions`: el ledger del saldo vivo de un rollo madre en Sellado/Precorte |
+| `20260917235750_roll_per_station_numbering` | `production_rolls`: `station` + `station_sequence` (`@@unique([station, station_sequence])`), con backfill de los rollos existentes — numeración del código QR independiente por estación |
 
 Para aplicar cambios nuevos:
 
@@ -454,11 +530,15 @@ npm run prisma:migrate    # crea una carpeta nueva con el SQL + regenera el clie
 
 `npm run prisma:seed` siembra datos iniciales (idempotente):
 
-- **11 usuarios** de prueba (contraseña `password123`): uno por rol (tabla en [02 — Puesta en marcha](02-setup.md)).
+- **12 usuarios** de prueba (contraseña `password123`): uno por rol, incluido `operario_precorte` (tabla en [02 — Puesta en marcha](02-setup.md)).
 - **6 productos** (SKUs `BUL-001`, `ROL-PL-001`, `ROL-F-001`, `MAN-001`, `TIR-001`, `CTL-001`) con precio de catálogo.
 - **2 clientes**: "Cliente ACME" (con límite de crédito `5.000.000`, bodega principal y 2 contactos) y "Distribuidora Norte".
+- **1 producto manual del cliente ACME**: `MAN-001` cargado a mano en `client_manual_products`, a propósito sin ningún pedido real detrás — para distinguir esta sección de la que sale sola de `GET /:id/top-products`.
 - **1 pedido de Planeación**: `PED-SEED-PLANEACION` (estado `aprobado`, 2 ítems de `BUL-001` y `ROL-PL-001`). Este pedido llena la cola de Planeación al entrar.
 - **1 OP demo de Calidad**: `OP-SEED-CALIDAD` (producto `BUL-001`, estado `pendiente_calidad`, con su paso de precorte cargado). Llena la cola de Calidad al entrar.
+- **1 OP demo en `borrador`**: `OP-SEED-BORRADOR` (con `station: extrusion` ya asignada pero sin rollos), para confirmar que no aparece en la cola del operario hasta liberarla.
+- **1 OP demo sin proceso**: `OP-SEED-SIN-PROCESO` (`station: null`), para ver el estado "recién creada, en blanco" sin tener que armarla a mano.
+- **3 etiquetas de bulto demo** (`EXT-00001` a `EXT-00003`) en estado `disponible`, para probar el escaneo en Sellado sin generarlas primero.
 - **3 ubicaciones de bodega** (`A-1`, `A-2`, `B-1`) con stock repartido en `stock_locations`, para poblar Almacén.
 - **2 OPs demo cerradas** con control de calidad (una aprobada, una rechazada) y **1 despacho demo completado**, para poblar el dashboard de Indicadores.
 - **1 notificación demo** para el admin (`type: "seed_demo"`, enlazada a `/calidad`), para que Notificaciones no quede vacío en la primera corrida.

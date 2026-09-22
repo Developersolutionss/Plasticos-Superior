@@ -53,26 +53,69 @@ Cuando se marca un ítem como despachado (`PATCH /api/dispatches/:dispatchId/ite
 
 ### 3. Producción por Órdenes de Trabajo (OP)
 
-La OP es la unidad de trabajo. Cada OP pasa por las **cuatro estaciones** en orden:
+La OP es la unidad de trabajo. Cada OP pasa por hasta **cuatro estaciones**, en este orden:
 
 ```
 Extrusión → Impresión → Sellado → Precorte
 ```
 
-- Cada **proceso** tiene su propia OP con su plantilla (formatos en papel del cliente): `POST /api/production-orders` crea la OP (`OP-00001`, con `station` y `specs`) en `status: pendiente`.
-- **Extrusión es el proceso base**: de una OP de Extrusión se derivan (`POST /:id/derive`) las OPs de Impresión, Sellado o Precorte; de Impresión se derivan Sellado o Precorte. La cadena queda en `parentOrderId`.
-- `POST /api/production-orders/:id/rolls` agrega una fila al **registro acumulativo de rollos** (fecha, turno, operario, máquina, etiqueta, peso, desperdicio, pruebas en `details`). Si la OP está `pendiente`, pasa a `en_proceso`.
-- Un operario solo carga rollos en OPs de **su** estación (definido por `OPERARIO_STATIONS`). Gestión de producción puede cargar en cualquiera.
-- `POST /api/production-orders/:id/close` cierra la OP (requiere ≥1 rollo): Extrusión/Impresión quedan `finalizada` directo (su material sigue en las OPs derivadas, sin mover stock); **Sellado/Precorte** (procesos finales) quedan `pendiente_calidad` — todavía **no** generan inventario: el stock se mueve recién cuando Calidad aprueba el lote (con la suma de kg de los rollos).
-- Estados de OP: `pendiente` → `en_proceso` → (`finalizada` | `pendiente_calidad` → `finalizada`) (o `detenida` / `cancelada`, control manual por `PATCH /status`).
+**La OP nace en blanco.** `POST /api/production-orders` la crea sin `station` (proceso `null`) y en `status: borrador`. En `borrador`, Gestión carga materia prima, medidas, cliente y referencia — la OP todavía no es visible ni operable para los operarios de planta. Dos pasos la llevan a planta:
+
+1. `POST /:id/derive` con `station: "extrusion"` asigna el primer proceso. Este primer `derive` no crea una fila nueva: solo completa el `station` de la misma OP (todavía en blanco no hubo ningún trabajo real que separar en una fila aparte).
+2. `POST /:id/release` la libera a planta: pasa de `borrador` a `pendiente` y a partir de ahí aparece en la cola de su estación (`EstacionProduccion.tsx`). No hay vuelta atrás por acá — para corregir algo después de cerrada la OP se usa `POST /:id/reopen` (ver más abajo).
+
+**Un solo número para toda la cadena.** `orderNumber` (`OP-00001`) ya no es único por fila: identifica la cadena de derivación completa, no cada etapa. Extrusión, y todo lo que se derive de ella, comparten el mismo número — cada etapa sigue siendo su propia fila en `production_orders`, con sus propios `specs` y rollos, pero el número solo sube al crear una OP nueva (nunca al derivar).
+
+- **Extrusión es el proceso base**: de ella se derivan (`POST /:id/derive`) las OPs de Impresión, Sellado o Precorte; de Impresión se derivan Sellado o Precorte. La cadena queda en `parentOrderId`. Una OP solo puede derivar **una vez** a cada estación destino.
+- La OP hija hereda producto, cliente, medida y specs heredables del padre (`inheritSpecs` — color, ancho, fuelles, calibre, tipo de material, etc.), salvo que el body los pise. Editar esos campos en una OP ya derivada **propaga el cambio en cascada** a sus OPs hijas y nietas — el padre manda sobre esos datos puntuales.
+- La meta (`quantityPlanned`) de una OP hija por defecto es lo que el padre **produjo de verdad** (suma real de sus rollos), no lo que el padre tenía planificado — evita que la hija quede esperando kilos que nunca se van a cargar. Si el padre sigue produciendo después de derivar, esa meta se sincroniza sola mientras la hija no tenga rollos propios.
+- `POST /api/production-orders/:id/rolls` agrega una fila al **registro acumulativo de rollos** (fecha, turno, operario, máquina, etiqueta, peso, desperdicio, pruebas en `details`). Si la OP está `pendiente`, pasa a `en_proceso`. La meta se completa con **peso + desperdicio**; un rollo que se pase de la meta se rechaza.
+- Un operario solo carga rollos en OPs de **su** estación (`OPERARIO_STATIONS`). Gestión de producción puede cargar en cualquiera.
+- `POST /api/production-orders/:id/close` cierra la OP (requiere ≥1 rollo): Extrusión siempre queda `finalizada` directo (su material sigue en las OPs derivadas, sin mover stock). **Impresión, Sellado y Precorte** pueden ser procesos finales — quedan `pendiente_calidad` sin mover stock todavía. Cerrar una OP e derivarla son decisiones independientes: Impresión puede cerrarse (ir a Calidad) aunque también tenga OPs derivadas a Sellado o Precorte.
+- Al cerrar una OP de **Extrusión**, el sistema descuenta del stock de materia prima el kg cargado en cada insumo de `specs.materiaPrima` (ver [Materia prima](#materia-prima) más abajo).
+- Estados de OP: `borrador` → `pendiente` → `en_proceso` → (`finalizada` | `pendiente_calidad` → `finalizada`) (o `detenida` / `cancelada`, control manual por `PATCH /status`).
 - Cuando el cierre deja la OP `pendiente_calidad`, el sistema notifica a `ROLES.CALIDAD` (`notifyRoles`, ver más abajo).
 - `GET /:id/report.pdf` emite el **reporte consolidado** de la OP con el layout del formato en papel (rollos, kilos totales, insumos, operarios por turno, adjuntos).
+
+#### Numeración de rollos por estación
+
+Cada rollo lleva un código de QR con el prefijo de su proceso: `EXT-1`, `IMP-1`, `SELL-1`, `PRE-1`. Cada estación numera **su propia secuencia**, empezando en 1 (`ProductionRoll.station` + `stationSequence`). Antes todos los rollos compartían un único autoincrement de toda la tabla: sacar un rollo de Extrusión después de uno de Precorte podía saltar de `EXT-70` a `PRE-71` en vez de arrancar en 1, porque las cuatro estaciones se veían intercaladas en un mismo conteo. Etiquetas físicas viejas con el formato anterior (`RL-<id>`) se siguen resolviendo al escanear, para no romper rollos que sigan circulando en planta.
+
+#### Rollo madre con saldo vivo (Sellado y Precorte)
+
+En Sellado y Precorte, un rollo grande de Extrusión (o Impresión) se monta en la máquina y de él salen varios rollos chicos — no se consume entero de una vez. Cada rollo chico descuenta kilos del saldo del rollo madre, hasta agotarlo:
+
+- La tabla `roll_consumptions` guarda cuántos kilos le sacó cada rollo chico a cada rollo madre. El saldo disponible de un rollo madre es su `weightKg` menos la suma de lo ya consumido.
+- Al cargar un rollo, el operario escanea uno o más rollos madre en orden (`sourceRollIds`). El reparto agota el primero antes de tocar el siguiente: si quedaban 10 kg del madre A y se cargan 15, salen 10 de A y 5 de B.
+- Si los rollos madre escaneados no alcanzan para cubrir el peso de la fila, el sistema rechaza la carga y pide escanear el siguiente rollo madre.
+- **Precorte** tiene dos pares ETIQUETA R / PESO R en el papel, justo para este caso: cuando un rollo chico se pasa del saldo del madre, el excedente sale del siguiente rollo madre y se registra en el segundo par (`details.etiquetaR2`/`details.pesoR2`). Ese segundo peso es material real: cuenta en la meta de la OP y en el kilaje que se manda a inventario al aprobar Calidad, igual que el peso base.
+- En el resto de las estaciones (Extrusión, Impresión), escanear un rollo insumo lo sigue consumiendo entero, como siempre — solo Sellado y Precorte reparten por saldo.
+- `sourceRollId` en `production_rolls` sigue guardando el rollo madre **principal** (el primero escaneado) como atajo para trazabilidad rápida; el reparto real en kilos vive en `roll_consumptions`.
+
+#### Reglas de plantilla por estación
+
+Cada estación (`services/opTemplates.ts`, con espejo en el frontend) define qué campos aplican:
+
+- **Caras** (tratado/impresión) solo acepta `1` o `2` — es una opción fija, no texto libre.
+- **Medidas finales** en Precorte solo lleva Unidad, Ancho y Largo. Sellado (y el resto que usa la sección completa) agrega además Lateral, Fuelle fondo, Pestaña, Fondo y Solapa volada — esos cinco campos se sacaron de Precorte a pedido del cliente.
+- **Color y Densidad** de Precorte se precargan con el valor cargado en la OP de Extrusión de la misma cadena (`specDefaultKey` en la plantilla) — el operario los ve completos y solo los corrige si hace falta, en vez de tipearlos de cero.
+- **Etiquetas de bulto (Sellado):** existen primero en el mundo físico. Gestión genera un lote de etiquetas pre-impresas (`bulto_labels`, código único, estado `disponible`/`usada`) y Laura las reparte a mano a cada operario. El operario escanea la que usó (`bultoLabelCode` al cargar el rollo) en vez de tipear el número de "E. BULTO" — una etiqueta ya usada no se puede volver a escanear.
+- **Umbral de alerta configurable** (`alertThresholdKg`): a cuántos kg (peso + desperdicio) avisarle a Gestión que la OP está por completarse. Si Gestión no lo configura a mano, el sistema usa el default de siempre (90 % de `quantityPlanned`). El aviso se dispara una sola vez, justo al cruzar el umbral.
+
+#### Destino de la OP y reapertura
+
+- **Destino** (estantería o cliente): el `clientId` de la OP es explícito y editable mientras la OP siga `borrador` o abierta (`PATCH /:id`) — una OP sin cliente entra a inventario general ("a estantería"); una OP con cliente asignado, además de sumar a inventario, genera su despacho automáticamente al aprobarse (ver "Control de calidad" abajo).
+- `POST /:id/reopen` reabre una OP cerrada por error (desde `finalizada`, `pendiente_calidad` o `detenida`) y la deja `en_proceso` otra vez, editable y lista para cargar o borrar rollos. Revierte cualquier efecto de inventario que ya se hubiera aplicado, para que ningún kilo quede "fantasma" en el stock:
+  - si tenía un control de calidad **aprobado**, revierte la entrada de producto terminado y borra el control (al volver a cerrar, pasa por Calidad de nuevo);
+  - si tenía un control **rechazado**, solo borra el control;
+  - si es una OP de Extrusión, revierte la materia prima que se había descontado al cerrarla.
+  - **No se puede reabrir** si Calidad ya generó un despacho para esa OP y ese despacho sigue vivo (no cancelado) — primero hay que cancelarlo (`POST /dispatches/:id/cancel`), para no descontar o duplicar el stock.
 
 ### Control de calidad
 
 `POST /api/production-orders/:id/quality-check` decide el destino del lote:
 
-- **Aprobado**: se genera la entrada de inventario (`applyMovement` con el kilaje del precorte) y la OP pasa a `finalizada`.
+- **Aprobado**: se genera la entrada de inventario (`applyMovement` con la suma de kg de los rollos) y la OP pasa a `finalizada`. Si la OP tiene **cliente asignado** (destino "a cliente", no "a estantería"), el sistema además crea un `Dispatch` automático en `pendiente` para ese cliente, con el producto y la cantidad ya cargados — Almacén solo confirma la salida física en vez de armar el despacho desde cero. El sistema notifica a `ROLES.ALMACEN` cuando esto pasa.
 - **Rechazado**: la OP queda `detenida` sin mover stock (Producción decide qué hacer). El sistema notifica a `ROLES.PRODUCCION_GESTION`.
 - La OP debe estar `pendiente_calidad` y no tener aún un control registrado (una sola revisión por OP, `quality_checks.production_order_id` es único).
 
@@ -175,8 +218,13 @@ Reglas:
 | `pendiente` | Recién creado (ningún ítem despachado) |
 | `en_proceso` | Al menos un ítem despachado. Quedan pendientes |
 | `despachado` | Todos los ítems despachados |
+| `cancelada` | Cancelado a mano (`POST /:id/cancel`) — estado final, no vuelve atrás |
 
 Transición automática en el `PATCH` de ítems. También fija `dispatched_date` al pasar a `despachado`.
+
+**Cancelar un despacho** (`POST /api/dispatches/:id/cancel`, rol almacén) revierte los movimientos de stock de cualquier ítem que ya tuviera `quantityDispatched` cargado (movimiento `devolucion`, misma ubicación de origen si se había asignado una). El histórico de `quantityDispatched` de cada ítem **no se borra** — queda como registro de qué se llegó a despachar antes de cancelar; solo cambia el estado del despacho. Un despacho `cancelada` no acepta más ítems marcados ni una segunda cancelación.
+
+Un despacho puede nacer manualmente (`POST /api/dispatches`) o automáticamente cuando Calidad aprueba una OP con cliente asignado (`productionOrderId` queda enlazado — ver [Control de calidad](#control-de-calidad)). Ese vínculo es lo que bloquea reabrir la OP mientras el despacho siga vivo.
 
 ## Origen de las entradas (`ProductionSource`)
 
@@ -199,8 +247,11 @@ Toda operación que toca **dos o más tablas** usa `prisma.$transaction`. El sis
 Operaciones transaccionales actuales:
 
 - Alta de producción (entrada + movimiento + stock).
-- Registrar etapa de estación (etapa + estado de la OP). Si la estación es precorte, la OP pasa a `pendiente_calidad` (sin mover stock).
-- Control de calidad (quality_check +, si aprueba, entrada + stock + estado `finalizada` de la OP; si rechaza, estado `detenida`).
+- Registrar un rollo (rollo + reparto entre rollos madre en `roll_consumptions`, si aplica + estado de la OP). Si la OP llega a su meta, sigue `en_proceso` hasta que Gestión la cierra a mano.
+- Cerrar una OP (estado + descuento de materia prima si es Extrusión).
+- Reabrir una OP (`/reopen`): estado `en_proceso` + reversión de la entrada de inventario (si tenía calidad aprobada) o de la materia prima descontada (si es Extrusión) + borrado del control de calidad.
+- Control de calidad (quality_check +, si aprueba, entrada + stock + estado `finalizada` de la OP + despacho automático si hay cliente asignado; si rechaza, estado `detenida`).
+- Cancelar un despacho (`/cancel`): estado `cancelada` + reversión de stock de cada ítem que ya tuviera `quantityDispatched`.
 - Marcar ítem despachado (ítem + movimiento + stock + estado del despacho).
 - Crear contacto/dirección principal (desmarcar el anterior + crear el nuevo).
 - Borrar un contacto principal (asignar el siguiente + borrar).
