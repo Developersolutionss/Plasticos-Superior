@@ -1,5 +1,18 @@
 const API_BASE = "/api";
 
+/** Error de una respuesta no-OK de la API, con el status HTTP adjunto —
+ * a diferencia de un `Error` plano, deja distinguir un 404 real ("no
+ * existe") de otro código (401/500) sin depender del texto del mensaje.
+ * Hace falta, por ejemplo, para probar un código escaneado contra más de
+ * un endpoint e ir al siguiente solo si el anterior dio 404. */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 function getToken() {
   return localStorage.getItem("token");
 }
@@ -53,7 +66,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       }
     }
     const body = await res.json().catch(() => ({}));
-    throw new Error(formatApiError(body.error) ?? `Error ${res.status}`);
+    throw new ApiError(formatApiError(body.error) ?? `Error ${res.status}`, res.status);
   }
 
   if (res.status === 204) return undefined as T;

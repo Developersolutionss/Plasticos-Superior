@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, Check, FileDown, GitBranch, Lock, Paperclip, Pencil, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, OP_PRECORTE, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
@@ -263,13 +263,15 @@ export default function OrdenProduccionDetalle() {
   // en Sellado/Precorte puede haber un segundo cuando el rollo chico se pasa
   // del saldo que le quedaba al primero.
   const [sourceRolls, setSourceRolls] = useState<SourceRollChip[]>([]);
-  const [scanningSource, setScanningSource] = useState(false);
   const [bultoLabel, setBultoLabel] = useState<{ id: number; code: string } | null>(null);
-  const [scanningBultoLabel, setScanningBultoLabel] = useState(false);
-  // Menú del botón flotante de escaneo (ver ScanDock más abajo): solo hace
-  // falta cuando hay más de una opción para elegir (rollo madre Y etiqueta de
-  // bulto); si hay una sola, el botón la abre directo sin mostrar menú.
-  const [scanMenuOpen, setScanMenuOpen] = useState(false);
+  // Botón flotante de escaneo (ver ScanDock más abajo): un solo modal, que
+  // detecta sola qué tipo de código se escaneó (ver handleScanAny) — no le
+  // pregunta al operario si es un rollo madre o una etiqueta de bulto.
+  const [scanning, setScanning] = useState(false);
+  // En celular el aviso de lo ya escaneado queda achicado a una píldora
+  // (para no tapar los campos de la fila que se está llenando) hasta que
+  // se toca; en PC siempre se ve completo, este estado no aplica ahí.
+  const [scanNotifExpandedMobile, setScanNotifExpandedMobile] = useState(false);
   // Rollos ya completados en el formulario pero todavía SIN mandar al
   // servidor -- "Añadir rollo" los agrega acá (se pueden seguir editando o
   // borrando de la lista); "Confirmar rollos" recién ahí los manda todos en
@@ -809,71 +811,112 @@ export default function OrdenProduccionDetalle() {
     });
   }
 
-  function handleScannedSource(code: string) {
-    setScanningSource(false);
-    setError(null);
-    api
-      .getProductionRollByCode(code)
-      .then((roll) => {
-        const chip: SourceRollChip = {
-          id: roll.id,
-          code,
-          label: roll.label ?? null,
-          weightKg: Number(roll.weightKg),
-          remainingKg: Number(roll.remainingKg ?? roll.weightKg),
-          createdByName: roll.createdBy?.name ?? null,
-        };
-        if (sourceRolls.some((r) => r.id === chip.id)) {
-          setError("Ese rollo madre ya está escaneado para esta fila");
-          return;
+  /** Busca el rollo madre por código y lo agrega a `sourceRolls`/precarga
+   * `rollDraft`. Tira (ApiError con status, o un Error si ya estaba
+   * escaneado) — lo usa `handleScanAny` para decidir si sigue probando como
+   * etiqueta de bulto. */
+  async function applyScannedSourceRoll(code: string): Promise<void> {
+    const roll = await api.getProductionRollByCode(code);
+    const chip: SourceRollChip = {
+      id: roll.id,
+      code,
+      label: roll.label ?? null,
+      weightKg: Number(roll.weightKg),
+      remainingKg: Number(roll.remainingKg ?? roll.weightKg),
+      createdByName: roll.createdBy?.name ?? null,
+    };
+    if (sourceRolls.some((r) => r.id === chip.id)) {
+      throw new Error("Ese rollo madre ya está escaneado para esta fila");
+    }
+    // En Sellado/Precorte se pueden acumular rollos madre (el segundo cubre
+    // lo que se pasó del primero); en el resto, escanear reemplaza porque el
+    // insumo se consume entero y es uno solo.
+    const nextRolls = template.consumesSourceByWeight ? [...sourceRolls, chip] : [chip];
+    setSourceRolls(nextRolls);
+    setRollDraft((d) => {
+      const next = { ...d };
+      if (template.originRollFields) {
+        next[`detail:${template.originRollFields.labelDetailKey}`] = roll.label ?? code;
+        next[`detail:${template.originRollFields.weightDetailKey}`] = String(Number(roll.weightKg));
+      } else if (!template.labelIsOwnRoll) {
+        // Sellado/Precorte no tienen columnas de detalle propias para el
+        // rollo de origen (a diferencia de Impresión) — ahí la columna base
+        // ETIQUETA es el rollo madre. El PESO ya NO se precarga con el peso
+        // del madre: son los kilos que salió el rollo chico, los tipea el
+        // operario y le descuentan saldo al madre.
+        next.label = nextRolls[0].code;
+        if (!template.consumesSourceByWeight) next.weight = String(Number(roll.weightKg));
+      }
+      // Pruebas SI/NO (ej. P. RESISTENCIA): si el rollo escaneado ya tiene
+      // esa misma prueba registrada de su propia estación, se precarga acá
+      // como punto de partida — el operario la puede cambiar, no queda
+      // trabada.
+      for (const col of template.rollColumns) {
+        if (col.source === "detail" && col.kind === "siNo" && roll.details?.[col.detailKey!] != null) {
+          next[`detail:${col.detailKey}`] = String(roll.details[col.detailKey!]);
         }
-        // En Sellado/Precorte se pueden acumular rollos madre (el segundo
-        // cubre lo que se pasó del primero); en el resto, escanear reemplaza
-        // porque el insumo se consume entero y es uno solo.
-        const nextRolls = template.consumesSourceByWeight ? [...sourceRolls, chip] : [chip];
-        setSourceRolls(nextRolls);
-        setRollDraft((d) => {
-          const next = { ...d };
-          if (template.originRollFields) {
-            next[`detail:${template.originRollFields.labelDetailKey}`] = roll.label ?? code;
-            next[`detail:${template.originRollFields.weightDetailKey}`] = String(Number(roll.weightKg));
-          } else if (!template.labelIsOwnRoll) {
-            // Sellado/Precorte no tienen columnas de detalle propias para el
-            // rollo de origen (a diferencia de Impresión) — ahí la columna
-            // base ETIQUETA es el rollo madre. El PESO ya NO se precarga con
-            // el peso del madre: son los kilos que salió el rollo chico, los
-            // tipea el operario y le descuentan saldo al madre.
-            next.label = nextRolls[0].code;
-            if (!template.consumesSourceByWeight) next.weight = String(Number(roll.weightKg));
-          }
-          // Pruebas SI/NO (ej. P. RESISTENCIA): si el rollo escaneado ya
-          // tiene esa misma prueba registrada de su propia estación, se
-          // precarga acá como punto de partida — el operario la puede
-          // cambiar, no queda trabada.
-          for (const col of template.rollColumns) {
-            if (col.source === "detail" && col.kind === "siNo" && roll.details?.[col.detailKey!] != null) {
-              next[`detail:${col.detailKey}`] = String(roll.details[col.detailKey!]);
-            }
-          }
-          return next;
-        });
-      })
-      .catch(() => setError('No se encontró ningún rollo con ese código. ¿Es un QR de rollo válido ("EXT-...", "IMP-...", "SELL-..." o "PRE-...")?'));
+      }
+      return next;
+    });
   }
 
-  function handleScannedBultoLabel(code: string) {
-    setScanningBultoLabel(false);
+  /** Busca la etiqueta de bulto por código y la guarda en `bultoLabel`. Tira
+   * igual que `applyScannedSourceRoll`, para el mismo mecanismo de
+   * `handleScanAny`. */
+  async function applyScannedBultoLabel(code: string): Promise<void> {
+    const label = await api.getBultoLabelByCode(code);
+    if (label.status !== "disponible") {
+      throw new Error(`La etiqueta ${label.code} ya fue usada`);
+    }
+    setBultoLabel(label);
+  }
+
+  /** Único punto de entrada del botón de escaneo: no le pregunta al
+   * operario qué escaneó, detecta el tipo sola. Las etiquetas de bulto
+   * siempre son "EXT-" + 5 dígitos con cero a la izquierda (el server las
+   * genera con `padStart(5, "0")`, ver POST /bulto-labels/generate); un
+   * rollo real de Extrusión nunca lleva cero a la izquierda porque su
+   * numeración por estación no usa padding (ver ROLL_CODE_RE en
+   * production-orders.ts) — alcanza para elegir sin ambigüedad qué probar
+   * primero. Si de todos modos el primero da 404 (no es de ese tipo),
+   * prueba el otro antes de rendirse.
+   *
+   * Nota: esto es una regla del lado del cliente, no hay en el backend un
+   * endpoint único que reciba un código y diga "es un rollo" o "es una
+   * etiqueta" — si algún día una estación llega a los 10.000 rollos, un
+   * código de 5 cifras SIN cero a la izquierda podría coincidir con una
+   * etiqueta de bulto ya usada con ese mismo número; hoy no es un caso
+   * real. */
+  async function handleScanAny(code: string) {
+    setScanning(false);
     setError(null);
-    api
-      .getBultoLabelByCode(code)
-      .then((label) => {
-        if (label.status !== "disponible") {
-          setError(`La etiqueta ${label.code} ya fue usada`);
+    const trimmed = code.trim();
+    const looksLikeBulto = /^EXT-0\d{4}$/.test(trimmed);
+
+    const rollAttempt = { ok: canScanSourceRoll, run: () => applyScannedSourceRoll(trimmed) };
+    const bultoAttempt = { ok: canScanBultoLabel, run: () => applyScannedBultoLabel(trimmed) };
+    const [first, second] = looksLikeBulto ? [bultoAttempt, rollAttempt] : [rollAttempt, bultoAttempt];
+
+    if (!first.ok && !second.ok) {
+      setError("No hay nada para escanear en este momento");
+      return;
+    }
+
+    try {
+      await (first.ok ? first.run() : second.run());
+    } catch (err) {
+      const notFound = err instanceof ApiError && err.status === 404;
+      if (notFound && first.ok && second.ok) {
+        try {
+          await second.run();
+          return;
+        } catch (err2) {
+          setError(err2 instanceof Error ? err2.message : "No se pudo procesar el código escaneado");
           return;
         }
-        setBultoLabel(label);
-      })
-      .catch(() => setError('No se encontró ninguna etiqueta con ese código. ¿Es un QR de etiqueta de bulto válido?'));
+      }
+      setError(err instanceof Error ? err.message : "No se pudo procesar el código escaneado");
+    }
   }
 
   async function handleDeleteRoll(rollId: number) {
@@ -2069,118 +2112,131 @@ export default function OrdenProduccionDetalle() {
           avance") por un botón minimalista abajo a la derecha. Lo ya
           escaneado aparece arriba del botón como una notificación chica;
           las explicaciones largas quedan en el tooltip de cada opción. */}
-      {(canScanSourceRoll || canScanBultoLabel || hasScannedSourceRoll || hasScannedBultoLabel) && (
-        <div className="fixed bottom-5 right-4 z-40 flex flex-col items-end gap-2">
-          {hasScannedSourceRoll &&
-            sourceRolls.map((roll, i) => (
-              <div
-                key={roll.id}
-                className="animate-toast-in flex items-center gap-2 max-w-[min(90vw,20rem)] text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded-lg shadow-lg px-3 py-2"
-              >
+      {(() => {
+        const hasAnyScan = hasScannedSourceRoll || hasScannedBultoLabel;
+        // Contenido completo del aviso — igual en celular y PC, la única
+        // diferencia entre medios es CUÁNDO se ve entero (ver más abajo).
+        const fullNotifications = (
+          <>
+            {hasScannedSourceRoll &&
+              sourceRolls.map((roll, i) => (
+                <div
+                  key={roll.id}
+                  className="animate-toast-in flex items-center gap-2 max-w-[min(90vw,20rem)] text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded-lg shadow-lg px-3 py-2"
+                >
+                  <ScanLine size={13} aria-hidden="true" className="shrink-0" />
+                  <span>
+                    {template.consumesSourceByWeight ? (i === 0 ? "Rollo madre: " : "Sigue con: ") : "Rollo de origen: "}
+                    <strong>{roll.code}</strong>{" "}
+                    {template.consumesSourceByWeight ? (
+                      <>
+                        · quedan <strong>{roll.remainingKg} kg</strong> de {roll.weightKg}
+                      </>
+                    ) : (
+                      <>({roll.weightKg} kg)</>
+                    )}
+                    {roll.createdByName && <> · producido por {roll.createdByName}</>}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleClearSourceRoll(roll.id)}
+                    title="Quitar"
+                    className="shrink-0 text-emerald-700 dark:text-emerald-400"
+                  >
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
+            {hasScannedSourceRoll && template.consumesSourceByWeight && Number(rollDraft.weight) > 0 && (
+              <div className="animate-toast-in text-[10px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg px-3 py-1.5 text-slate-600 dark:text-slate-300">
+                <SourceAllocationHint rolls={sourceRolls} weightKg={Number(rollDraft.weight)} />
+              </div>
+            )}
+            {hasScannedBultoLabel && bultoLabel && (
+              <div className="animate-toast-in flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded-lg shadow-lg px-3 py-2">
                 <ScanLine size={13} aria-hidden="true" className="shrink-0" />
                 <span>
-                  {template.consumesSourceByWeight ? (i === 0 ? "Rollo madre: " : "Sigue con: ") : "Rollo de origen: "}
-                  <strong>{roll.code}</strong>{" "}
-                  {template.consumesSourceByWeight ? (
-                    <>
-                      · quedan <strong>{roll.remainingKg} kg</strong> de {roll.weightKg}
-                    </>
-                  ) : (
-                    <>({roll.weightKg} kg)</>
-                  )}
-                  {roll.createdByName && <> · producido por {roll.createdByName}</>}
+                  Etiqueta de bulto: <strong>{bultoLabel.code}</strong>
                 </span>
                 <button
                   type="button"
-                  onClick={() => handleClearSourceRoll(roll.id)}
+                  onClick={() => setBultoLabel(null)}
                   title="Quitar"
                   className="shrink-0 text-emerald-700 dark:text-emerald-400"
                 >
                   <X size={13} aria-hidden="true" />
                 </button>
               </div>
-            ))}
-          {hasScannedSourceRoll && template.consumesSourceByWeight && Number(rollDraft.weight) > 0 && (
-            <div className="animate-toast-in text-[10px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg px-3 py-1.5 text-slate-600 dark:text-slate-300">
-              <SourceAllocationHint rolls={sourceRolls} weightKg={Number(rollDraft.weight)} />
-            </div>
-          )}
-          {hasScannedBultoLabel && bultoLabel && (
-            <div className="animate-toast-in flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded-lg shadow-lg px-3 py-2">
-              <ScanLine size={13} aria-hidden="true" className="shrink-0" />
-              <span>
-                Etiqueta de bulto: <strong>{bultoLabel.code}</strong>
-              </span>
-              <button
-                type="button"
-                onClick={() => setBultoLabel(null)}
-                title="Quitar"
-                className="shrink-0 text-emerald-700 dark:text-emerald-400"
-              >
-                <X size={13} aria-hidden="true" />
-              </button>
-            </div>
-          )}
+            )}
+          </>
+        );
+        // Resumen chico para la píldora de celular: solo los códigos, sin el
+        // resto del texto (kg, quién lo produjo) — eso recién se ve al tocar
+        // y expandir.
+        const compactLabel = [...(hasScannedSourceRoll ? sourceRolls.map((r) => r.code) : []), ...(bultoLabel ? [bultoLabel.code] : [])].join(
+          " · "
+        );
 
-          {(canScanSourceRoll || canScanBultoLabel) && (
-            <div className="relative">
-              {scanMenuOpen && canScanSourceRoll && canScanBultoLabel && (
-                <div className="animate-toast-in absolute bottom-full right-0 mb-2 flex flex-col gap-1.5 items-stretch">
+        return (
+          <div className="fixed bottom-5 right-4 z-40 flex flex-col items-end gap-2">
+            {/* PC: el aviso queda siempre entero, mientras el rollo/etiqueta
+                sigan seleccionados — hay pantalla de sobra y no tapa ninguna
+                fila de la tabla. */}
+            {hasAnyScan && <div className="hidden md:flex md:flex-col md:items-end md:gap-2">{fullNotifications}</div>}
+
+            {/* Celular: por defecto una píldora chica (no tapa los campos de
+                la fila); tocarla la expande al mismo aviso completo de
+                arriba, tocarla de nuevo la vuelve a achicar. Sigue
+                "seleccionado" todo el tiempo — achicar/expandir es solo una
+                cuestión de qué tanto se ve, no borra nada. */}
+            {hasAnyScan && (
+              <div className="md:hidden flex flex-col items-end gap-2">
+                {scanNotifExpandedMobile ? (
+                  <>
+                    {fullNotifications}
+                    <button
+                      type="button"
+                      onClick={() => setScanNotifExpandedMobile(false)}
+                      className="text-[10px] text-slate-500 dark:text-slate-400 underline"
+                    >
+                      Achicar aviso
+                    </button>
+                  </>
+                ) : (
                   <button
                     type="button"
-                    onClick={() => {
-                      setScanMenuOpen(false);
-                      setScanningSource(true);
-                    }}
-                    title={
-                      template.consumesSourceByWeight
+                    onClick={() => setScanNotifExpandedMobile(true)}
+                    className="animate-toast-in inline-flex items-center gap-1.5 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded-full shadow-lg px-3 py-1.5"
+                  >
+                    <ScanLine size={13} aria-hidden="true" /> {compactLabel}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {(canScanSourceRoll || canScanBultoLabel) && (
+              <button
+                type="button"
+                onClick={() => setScanning(true)}
+                title={
+                  canScanSourceRoll && canScanBultoLabel
+                    ? "Escanear: detecta sola si es un rollo madre o una etiqueta de bulto"
+                    : canScanSourceRoll
+                      ? template.consumesSourceByWeight
                         ? "Escaneá el rollo grande que montaste: cada fila le descuenta los kilos que sacás. Si se acaba a mitad de un rollo, escaneá el siguiente y el resto sale de ahí."
                         : "Escaneá el QR pegado al rollo que estás tomando como insumo"
-                    }
-                    className="inline-flex items-center gap-1.5 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 whitespace-nowrap"
-                  >
-                    <ScanLine size={13} aria-hidden="true" /> {sourceRolls.length === 0 ? "Escanear rollo madre" : "Escanear otro rollo madre"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setScanMenuOpen(false);
-                      setScanningBultoLabel(true);
-                    }}
-                    title="Opcional — si el bulto es propio no hace falta, se identifica solo. Si viene de un lote comprado afuera, escaneá su etiqueta."
-                    className="inline-flex items-center gap-1.5 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 whitespace-nowrap"
-                  >
-                    <ScanLine size={13} aria-hidden="true" /> Escanear etiqueta de bulto
-                  </button>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  if (canScanSourceRoll && canScanBultoLabel) {
-                    setScanMenuOpen((v) => !v);
-                  } else if (canScanSourceRoll) {
-                    setScanningSource(true);
-                  } else {
-                    setScanningBultoLabel(true);
-                  }
-                }}
-                title="Escanear"
+                      : "Etiqueta de bulto opcional — si el bulto es propio no hace falta, se identifica solo. Si viene de un lote comprado afuera, escaneá su etiqueta."
+                }
                 className="flex items-center justify-center w-12 h-12 rounded-full bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-lg hover:opacity-90"
               >
                 <ScanLine size={20} aria-hidden="true" />
               </button>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })()}
 
-      {scanningSource && (
-        <BarcodeScanner title="Escanear rollo de origen" onDetected={handleScannedSource} onClose={() => setScanningSource(false)} />
-      )}
-      {scanningBultoLabel && (
-        <BarcodeScanner title="Escanear etiqueta de bulto" onDetected={handleScannedBultoLabel} onClose={() => setScanningBultoLabel(false)} />
-      )}
+      {scanning && <BarcodeScanner title="Escanear código" onDetected={handleScanAny} onClose={() => setScanning(false)} />}
     </div>
   );
 }
