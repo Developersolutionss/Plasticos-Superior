@@ -268,10 +268,6 @@ export default function OrdenProduccionDetalle() {
   // detecta sola qué tipo de código se escaneó (ver handleScanAny) — no le
   // pregunta al operario si es un rollo madre o una etiqueta de bulto.
   const [scanning, setScanning] = useState(false);
-  // En celular el aviso de lo ya escaneado queda achicado a una píldora
-  // (para no tapar los campos de la fila que se está llenando) hasta que
-  // se toca; en PC siempre se ve completo, este estado no aplica ahí.
-  const [scanNotifExpandedMobile, setScanNotifExpandedMobile] = useState(false);
   // Rollos ya completados en el formulario pero todavía SIN mandar al
   // servidor -- "Añadir rollo" los agrega acá (se pueden seguir editando o
   // borrando de la lista); "Confirmar rollos" recién ahí los manda todos en
@@ -2170,69 +2166,41 @@ export default function OrdenProduccionDetalle() {
             )}
           </>
         );
-        // Resumen chico para la píldora de celular: solo los códigos, sin el
-        // resto del texto (kg, quién lo produjo) — eso recién se ve al tocar
-        // y expandir.
-        const compactLabel = [...(hasScannedSourceRoll ? sourceRolls.map((r) => r.code) : []), ...(bultoLabel ? [bultoLabel.code] : [])].join(
-          " · "
-        );
-
         return (
-          <div className="fixed bottom-5 right-4 z-40 flex flex-col items-end gap-2">
-            {/* PC: el aviso queda siempre entero, mientras el rollo/etiqueta
-                sigan seleccionados — hay pantalla de sobra y no tapa ninguna
-                fila de la tabla. */}
-            {hasAnyScan && <div className="hidden md:flex md:flex-col md:items-end md:gap-2">{fullNotifications}</div>}
+          <>
+            {/* Celular: notificación fija ARRIBA, estilo push notification,
+                visible todo el tiempo que el rollo/etiqueta sigan
+                seleccionados — sin ningún toque de más para verla. Arriba y
+                no junto al botón porque en una pantalla chica ahí abajo no
+                hay lugar de sobra sin tapar los campos de la fila que se
+                está llenando. */}
+            {hasAnyScan && <div className="md:hidden fixed top-2 inset-x-2 z-50 flex flex-col gap-2">{fullNotifications}</div>}
 
-            {/* Celular: por defecto una píldora chica (no tapa los campos de
-                la fila); tocarla la expande al mismo aviso completo de
-                arriba, tocarla de nuevo la vuelve a achicar. Sigue
-                "seleccionado" todo el tiempo — achicar/expandir es solo una
-                cuestión de qué tanto se ve, no borra nada. */}
-            {hasAnyScan && (
-              <div className="md:hidden flex flex-col items-end gap-2">
-                {scanNotifExpandedMobile ? (
-                  <>
-                    {fullNotifications}
-                    <button
-                      type="button"
-                      onClick={() => setScanNotifExpandedMobile(false)}
-                      className="text-[10px] text-slate-500 dark:text-slate-400 underline"
-                    >
-                      Achicar aviso
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setScanNotifExpandedMobile(true)}
-                    className="animate-toast-in inline-flex items-center gap-1.5 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded-full shadow-lg px-3 py-1.5"
-                  >
-                    <ScanLine size={13} aria-hidden="true" /> {compactLabel}
-                  </button>
-                )}
-              </div>
-            )}
+            <div className="fixed bottom-5 right-4 z-40 flex flex-col items-end gap-2">
+              {/* PC: el mismo aviso, siempre entero, junto al botón — hay
+                  pantalla de sobra y no tapa ninguna fila de la tabla. */}
+              {hasAnyScan && <div className="hidden md:flex md:flex-col md:items-end md:gap-2">{fullNotifications}</div>}
 
-            {(canScanSourceRoll || canScanBultoLabel) && (
-              <button
-                type="button"
-                onClick={() => setScanning(true)}
-                title={
-                  canScanSourceRoll && canScanBultoLabel
-                    ? "Escanear: detecta sola si es un rollo madre o una etiqueta de bulto"
-                    : canScanSourceRoll
-                      ? template.consumesSourceByWeight
-                        ? "Escaneá el rollo grande que montaste: cada fila le descuenta los kilos que sacás. Si se acaba a mitad de un rollo, escaneá el siguiente y el resto sale de ahí."
-                        : "Escaneá el QR pegado al rollo que estás tomando como insumo"
-                      : "Etiqueta de bulto opcional — si el bulto es propio no hace falta, se identifica solo. Si viene de un lote comprado afuera, escaneá su etiqueta."
-                }
-                className="flex items-center justify-center w-12 h-12 rounded-full bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-lg hover:opacity-90"
-              >
-                <ScanLine size={20} aria-hidden="true" />
-              </button>
-            )}
-          </div>
+              {(canScanSourceRoll || canScanBultoLabel) && (
+                <button
+                  type="button"
+                  onClick={() => setScanning(true)}
+                  title={
+                    canScanSourceRoll && canScanBultoLabel
+                      ? "Escanear: detecta sola si es un rollo madre o una etiqueta de bulto"
+                      : canScanSourceRoll
+                        ? template.consumesSourceByWeight
+                          ? "Escaneá el rollo grande que montaste: cada fila le descuenta los kilos que sacás. Si se acaba a mitad de un rollo, escaneá el siguiente y el resto sale de ahí."
+                          : "Escaneá el QR pegado al rollo que estás tomando como insumo"
+                        : "Etiqueta de bulto opcional — si el bulto es propio no hace falta, se identifica solo. Si viene de un lote comprado afuera, escaneá su etiqueta."
+                  }
+                  className="flex items-center justify-center w-12 h-12 rounded-full bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-lg hover:opacity-90"
+                >
+                  <ScanLine size={20} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </>
         );
       })()}
 
