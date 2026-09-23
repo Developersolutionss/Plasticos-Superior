@@ -266,6 +266,10 @@ export default function OrdenProduccionDetalle() {
   const [scanningSource, setScanningSource] = useState(false);
   const [bultoLabel, setBultoLabel] = useState<{ id: number; code: string } | null>(null);
   const [scanningBultoLabel, setScanningBultoLabel] = useState(false);
+  // Menú del botón flotante de escaneo (ver ScanDock más abajo): solo hace
+  // falta cuando hay más de una opción para elegir (rollo madre Y etiqueta de
+  // bulto); si hay una sola, el botón la abre directo sin mostrar menú.
+  const [scanMenuOpen, setScanMenuOpen] = useState(false);
   // Rollos ya completados en el formulario pero todavía SIN mandar al
   // servidor -- "Añadir rollo" los agrega acá (se pueden seguir editando o
   // borrando de la lista); "Confirmar rollos" recién ahí los manda todos en
@@ -467,6 +471,14 @@ export default function OrdenProduccionDetalle() {
   // En "borrador" también se edita specs — es justo cuando Gestión carga
   // materia prima/medidas/cliente/referencia antes de liberarla a planta.
   const canEditSpecs = canGestion && (isDraft || isOpen);
+
+  // Qué opciones ofrece el botón flotante de escaneo (ScanDock, más abajo)
+  // en este momento — espejo de las condiciones que antes mostraban cada
+  // bloque fijo de "Registro de rollos / avance".
+  const canScanSourceRoll = !!order.parentOrderId && canOperate && isOpen && (sourceRolls.length === 0 || template.consumesSourceByWeight);
+  const canScanBultoLabel = canOperate && isOpen && template.rollColumns.some((c) => c.scanBultoLabel) && !bultoLabel;
+  const hasScannedSourceRoll = canOperate && isOpen && sourceRolls.length > 0;
+  const hasScannedBultoLabel = canOperate && isOpen && !!bultoLabel;
 
   // Precorte carga 2 rollos de insumo por fila (ver opTemplates.ts) — el
   // segundo peso queda en details.pesoR2, pero sigue siendo material real
@@ -1680,85 +1692,6 @@ export default function OrdenProduccionDetalle() {
           </div>
         )}
 
-        {/* Registro de rollos */}
-        <SheetBand>Registro de rollos / avance</SheetBand>
-
-        {order.parentOrderId && canOperate && isOpen && (
-          <div className="px-3 py-2 border-b border-slate-300 dark:border-slate-600 flex flex-wrap items-center gap-2">
-            {sourceRolls.map((roll, i) => (
-              <div
-                key={roll.id}
-                className="inline-flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded px-3 py-1.5"
-              >
-                <span>
-                  {template.consumesSourceByWeight ? (i === 0 ? "Rollo madre: " : "Sigue con: ") : "Rollo de origen: "}
-                  <strong>{roll.code}</strong>{" "}
-                  {template.consumesSourceByWeight ? (
-                    <>
-                      · quedan <strong>{roll.remainingKg} kg</strong> de {roll.weightKg}
-                    </>
-                  ) : (
-                    <>({roll.weightKg} kg)</>
-                  )}
-                  {roll.createdByName && <> · cargado por {roll.createdByName}</>}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleClearSourceRoll(roll.id)}
-                  title="Quitar"
-                  className="text-emerald-700 dark:text-emerald-400"
-                >
-                  <X size={13} aria-hidden="true" />
-                </button>
-              </div>
-            ))}
-            {(sourceRolls.length === 0 || template.consumesSourceByWeight) && (
-              <button
-                type="button"
-                onClick={() => setScanningSource(true)}
-                className="inline-flex items-center gap-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                <ScanLine size={13} aria-hidden="true" />{" "}
-                {sourceRolls.length === 0 ? "Escanear rollo madre" : "Escanear otro rollo madre"}
-              </button>
-            )}
-            <span className="text-[10px] text-slate-500 dark:text-slate-400">
-              {template.consumesSourceByWeight
-                ? "Escaneá el rollo grande que montaste: cada fila le descuenta los kilos que sacás. Si se acaba a mitad de un rollo, escaneá el siguiente y el resto sale de ahí."
-                : "Escaneá el QR pegado al rollo que estás tomando como insumo"}
-            </span>
-            {template.consumesSourceByWeight && sourceRolls.length > 0 && Number(rollDraft.weight) > 0 && (
-              <SourceAllocationHint rolls={sourceRolls} weightKg={Number(rollDraft.weight)} />
-            )}
-          </div>
-        )}
-
-        {canOperate && isOpen && template.rollColumns.some((c) => c.scanBultoLabel) && (
-          <div className="px-3 py-2 border-b border-slate-300 dark:border-slate-600 flex flex-wrap items-center gap-2">
-            {!bultoLabel ? (
-              <button
-                type="button"
-                onClick={() => setScanningBultoLabel(true)}
-                className="inline-flex items-center gap-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                <ScanLine size={13} aria-hidden="true" /> Escanear etiqueta de bulto
-              </button>
-            ) : (
-              <div className="inline-flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded px-3 py-1.5">
-                <span>
-                  Etiqueta de bulto: <strong>{bultoLabel.code}</strong>
-                </span>
-                <button type="button" onClick={() => setBultoLabel(null)} title="Quitar" className="text-emerald-700 dark:text-emerald-400">
-                  <X size={13} aria-hidden="true" />
-                </button>
-              </div>
-            )}
-            <span className="text-[10px] text-slate-500 dark:text-slate-400">
-              Opcional — si el bulto es propio no hace falta, se identifica solo. Si viene de un lote comprado afuera, escaneá su etiqueta.
-            </span>
-          </div>
-        )}
-
         {/* Tabla real solo en escritorio, con scroll propio (la más ancha,
             hasta 11 columnas en Extrusión) en vez de para toda la hoja — así
             el resto de las secciones se ven enteras sin deslizar. En celular
@@ -2130,6 +2063,117 @@ export default function OrdenProduccionDetalle() {
           </div>
         )}
       </div>
+
+      {/* Botón flotante de escaneo (ScanDock): reemplaza los avisos fijos que
+          antes ocupaban una banda entera de la hoja ("Registro de rollos /
+          avance") por un botón minimalista abajo a la derecha. Lo ya
+          escaneado aparece arriba del botón como una notificación chica;
+          las explicaciones largas quedan en el tooltip de cada opción. */}
+      {(canScanSourceRoll || canScanBultoLabel || hasScannedSourceRoll || hasScannedBultoLabel) && (
+        <div className="fixed bottom-5 right-4 z-40 flex flex-col items-end gap-2">
+          {hasScannedSourceRoll &&
+            sourceRolls.map((roll, i) => (
+              <div
+                key={roll.id}
+                className="animate-toast-in flex items-center gap-2 max-w-[min(90vw,20rem)] text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded-lg shadow-lg px-3 py-2"
+              >
+                <ScanLine size={13} aria-hidden="true" className="shrink-0" />
+                <span>
+                  {template.consumesSourceByWeight ? (i === 0 ? "Rollo madre: " : "Sigue con: ") : "Rollo de origen: "}
+                  <strong>{roll.code}</strong>{" "}
+                  {template.consumesSourceByWeight ? (
+                    <>
+                      · quedan <strong>{roll.remainingKg} kg</strong> de {roll.weightKg}
+                    </>
+                  ) : (
+                    <>({roll.weightKg} kg)</>
+                  )}
+                  {roll.createdByName && <> · producido por {roll.createdByName}</>}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleClearSourceRoll(roll.id)}
+                  title="Quitar"
+                  className="shrink-0 text-emerald-700 dark:text-emerald-400"
+                >
+                  <X size={13} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          {hasScannedSourceRoll && template.consumesSourceByWeight && Number(rollDraft.weight) > 0 && (
+            <div className="animate-toast-in text-[10px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg px-3 py-1.5 text-slate-600 dark:text-slate-300">
+              <SourceAllocationHint rolls={sourceRolls} weightKg={Number(rollDraft.weight)} />
+            </div>
+          )}
+          {hasScannedBultoLabel && bultoLabel && (
+            <div className="animate-toast-in flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded-lg shadow-lg px-3 py-2">
+              <ScanLine size={13} aria-hidden="true" className="shrink-0" />
+              <span>
+                Etiqueta de bulto: <strong>{bultoLabel.code}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setBultoLabel(null)}
+                title="Quitar"
+                className="shrink-0 text-emerald-700 dark:text-emerald-400"
+              >
+                <X size={13} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
+          {(canScanSourceRoll || canScanBultoLabel) && (
+            <div className="relative">
+              {scanMenuOpen && canScanSourceRoll && canScanBultoLabel && (
+                <div className="animate-toast-in absolute bottom-full right-0 mb-2 flex flex-col gap-1.5 items-stretch">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScanMenuOpen(false);
+                      setScanningSource(true);
+                    }}
+                    title={
+                      template.consumesSourceByWeight
+                        ? "Escaneá el rollo grande que montaste: cada fila le descuenta los kilos que sacás. Si se acaba a mitad de un rollo, escaneá el siguiente y el resto sale de ahí."
+                        : "Escaneá el QR pegado al rollo que estás tomando como insumo"
+                    }
+                    className="inline-flex items-center gap-1.5 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 whitespace-nowrap"
+                  >
+                    <ScanLine size={13} aria-hidden="true" /> {sourceRolls.length === 0 ? "Escanear rollo madre" : "Escanear otro rollo madre"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScanMenuOpen(false);
+                      setScanningBultoLabel(true);
+                    }}
+                    title="Opcional — si el bulto es propio no hace falta, se identifica solo. Si viene de un lote comprado afuera, escaneá su etiqueta."
+                    className="inline-flex items-center gap-1.5 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg px-3 py-2 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 whitespace-nowrap"
+                  >
+                    <ScanLine size={13} aria-hidden="true" /> Escanear etiqueta de bulto
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (canScanSourceRoll && canScanBultoLabel) {
+                    setScanMenuOpen((v) => !v);
+                  } else if (canScanSourceRoll) {
+                    setScanningSource(true);
+                  } else {
+                    setScanningBultoLabel(true);
+                  }
+                }}
+                title="Escanear"
+                className="flex items-center justify-center w-12 h-12 rounded-full bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-lg hover:opacity-90"
+              >
+                <ScanLine size={20} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {scanningSource && (
         <BarcodeScanner title="Escanear rollo de origen" onDetected={handleScannedSource} onClose={() => setScanningSource(false)} />
