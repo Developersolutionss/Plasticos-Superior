@@ -786,14 +786,25 @@ export default function OrdenProduccionDetalle() {
    * El saldo de los rollos madre que trae la fila NO es la foto que se
    * guardó al agregarla (esa foto no sabe nada de filas que se hayan sumado
    * después y también hayan tomado kilos de esos mismos rollos) — se
-   * recalcula de cero contra lo que de verdad sigue pendiente. */
+   * recalcula de cero contra lo que de verdad sigue pendiente.
+   *
+   * El set de ids que se le pasa a `rootSourceRollBalances` NO es solo el de
+   * la fila que se edita: tiene que incluir TODOS los ids que aparezcan en
+   * cualquier fila de `remainingRows` también. Si no, una fila intermedia
+   * que haya repartido su peso entre DOS rollos madre (el caso normal de
+   * "se pasó del saldo, siguió con el segundo") pierde uno de los dos en la
+   * simulación -- `recomputeSourceRollBalances` le sigue restando el peso
+   * COMPLETO de esa fila al único rollo que sobrevivió en el set, dejándolo
+   * en un saldo menor al real. */
   function handleEditPendingRoll(localId: string) {
     const pending = pendingRolls.find((p) => p.localId === localId);
     if (!pending) return;
     const remainingRows = pendingRolls.filter((p) => p.localId !== localId);
-    const ids = pending.sourceRolls.map((r) => r.id);
-    const rootRolls = rootSourceRollBalances(ids);
-    const liveRolls = recomputeSourceRollBalances(rootRolls, remainingRows).filter((r) => r.remainingKg > 0.005);
+    const targetIds = pending.sourceRolls.map((r) => r.id);
+    const allIds = Array.from(new Set([...targetIds, ...remainingRows.flatMap((r) => r.sourceRolls.map((x) => x.id))]));
+    const liveRolls = recomputeSourceRollBalances(rootSourceRollBalances(allIds), remainingRows)
+      .filter((r) => targetIds.includes(r.id))
+      .filter((r) => r.remainingKg > 0.005);
     setPendingRolls(remainingRows);
     setRollDraft(pending.rollDraft);
     setSourceRolls(liveRolls);
@@ -801,16 +812,24 @@ export default function OrdenProduccionDetalle() {
     setError(null);
   }
 
-  /** Borra una fila pendiente y le devuelve el saldo a los rollos madre que
-   * tenga escaneados AHORA el formulario (si comparten alguno con la fila
-   * borrada) -- antes esto no pasaba, y el chip se quedaba mostrando menos
-   * saldo del que en realidad quedaba disponible. */
+  /** Borra una fila pendiente y recalcula el saldo real de sus rollos madre
+   * -- no solo los que estén escaneados AHORA en el formulario (`sourceRolls`
+   * puede estar vacío si el rollo madre de la fila borrada ya se había
+   * agotado y su chip había desaparecido, que es el caso más común), sino
+   * también los propios de la fila que se borra, para que reaparezcan con
+   * su saldo correcto en vez de quedar "perdidos" hasta re-escanear.
+   * Mismo cuidado que en `handleEditPendingRoll` con el set de ids completo
+   * para que la simulación no pierda un rollo madre compartido. */
   function handleDeletePendingRoll(localId: string) {
+    const pending = pendingRolls.find((p) => p.localId === localId);
     const remainingRows = pendingRolls.filter((p) => p.localId !== localId);
-    if (sourceRolls.length > 0) {
-      const ids = sourceRolls.map((r) => r.id);
-      const rootRolls = rootSourceRollBalances(ids);
-      setSourceRolls(recomputeSourceRollBalances(rootRolls, remainingRows));
+    const targetIds = Array.from(new Set([...sourceRolls.map((r) => r.id), ...(pending?.sourceRolls.map((r) => r.id) ?? [])]));
+    if (targetIds.length > 0) {
+      const allIds = Array.from(new Set([...targetIds, ...remainingRows.flatMap((r) => r.sourceRolls.map((x) => x.id))]));
+      const liveRolls = recomputeSourceRollBalances(rootSourceRollBalances(allIds), remainingRows)
+        .filter((r) => targetIds.includes(r.id))
+        .filter((r) => r.remainingKg > 0.005);
+      setSourceRolls(liveRolls);
     }
     setPendingRolls(remainingRows);
   }
