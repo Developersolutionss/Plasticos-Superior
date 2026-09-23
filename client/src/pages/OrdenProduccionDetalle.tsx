@@ -925,23 +925,25 @@ export default function OrdenProduccionDetalle() {
    * rollo real de Extrusión nunca lleva cero a la izquierda porque su
    * numeración por estación no usa padding (ver ROLL_CODE_RE en
    * production-orders.ts) — alcanza para elegir sin ambigüedad qué probar
-   * primero. Si de todos modos el primero da 404 (no es de ese tipo),
-   * prueba el otro antes de rendirse.
+   * primero. Si el primero da 404 y el código NO tenía la forma
+   * inconfundible de etiqueta de bulto, prueba el otro antes de rendirse.
    *
-   * Nota: esto es una regla del lado del cliente, no hay en el backend un
-   * endpoint único que reciba un código y diga "es un rollo" o "es una
-   * etiqueta" — si algún día una estación llega a los 10.000 rollos, un
-   * código de 5 cifras SIN cero a la izquierda podría coincidir con una
-   * etiqueta de bulto ya usada con ese mismo número; hoy no es un caso
-   * real. */
+   * Cuando SÍ tiene esa forma (ver `primaryWasAmbiguousBultoShape` abajo) NO
+   * se reintenta como rollo aunque la etiqueta dé 404: `ROLL_CODE_RE` en el
+   * server no exige "sin cero a la izquierda", así que "EXT-00007" matchea
+   * igual el código de un rollo real (`Number("00007") === 7`). Esto no es
+   * un caso raro de "algún día 10.000 rollos" — pasa hoy con cualquier
+   * etiqueta mal tipeada, con el QR dañado, o todavía sin imprimir: sin este
+   * corte, un 404 de la etiqueta terminaba enganchando en silencio el rollo
+   * de Extrusión #7 y descontándole kilos que no tienen nada que ver. */
   async function handleScanAny(code: string) {
     setScanning(false);
     setError(null);
     const trimmed = code.trim();
     const looksLikeBulto = /^EXT-0\d{4}$/.test(trimmed);
 
-    const rollAttempt = { ok: canScanSourceRoll, run: () => applyScannedSourceRoll(trimmed) };
-    const bultoAttempt = { ok: canScanBultoLabel, run: () => applyScannedBultoLabel(trimmed) };
+    const rollAttempt = { kind: "roll" as const, ok: canScanSourceRoll, run: () => applyScannedSourceRoll(trimmed) };
+    const bultoAttempt = { kind: "bulto" as const, ok: canScanBultoLabel, run: () => applyScannedBultoLabel(trimmed) };
     const [first, second] = looksLikeBulto ? [bultoAttempt, rollAttempt] : [rollAttempt, bultoAttempt];
 
     if (!first.ok && !second.ok) {
@@ -949,13 +951,21 @@ export default function OrdenProduccionDetalle() {
       return;
     }
 
+    const primary = first.ok ? first : second;
+    const fallback = first.ok ? second : first;
+    const primaryWasAmbiguousBultoShape = looksLikeBulto && primary.kind === "bulto";
+
     try {
-      await (first.ok ? first.run() : second.run());
+      await primary.run();
     } catch (err) {
       const notFound = err instanceof ApiError && err.status === 404;
-      if (notFound && first.ok && second.ok) {
+      if (notFound && primaryWasAmbiguousBultoShape) {
+        setError(`No se encontró la etiqueta de bulto ${trimmed}`);
+        return;
+      }
+      if (notFound && fallback.ok) {
         try {
-          await second.run();
+          await fallback.run();
           return;
         } catch (err2) {
           setError(err2 instanceof Error ? err2.message : "No se pudo procesar el código escaneado");
