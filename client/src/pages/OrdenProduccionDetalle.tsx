@@ -745,23 +745,74 @@ export default function OrdenProduccionDetalle() {
     }
   }
 
+  /** Saldo "de verdad" de un rollo madre en este momento: no la foto vieja
+   * que haya quedado guardada en alguna fila pendiente, sino el valor que
+   * devolvió el servidor la primera vez que se escaneó (todavía nadie le
+   * había sacado nada) — se busca en la fila pendiente MÁS ANTIGUA que lo
+   * haya usado, porque su `sourceRolls` es justo el saldo de antes de que
+   * esa fila le sacara algo. Si ninguna fila pendiente lo usa, lo que hay
+   * ahora mismo en el formulario (`sourceRolls`) ya es ese valor sin tocar. */
+  function rootSourceRollBalances(ids: number[]): SourceRollChip[] {
+    return ids.map((id) => {
+      for (const p of pendingRolls) {
+        const found = p.sourceRolls.find((r) => r.id === id);
+        if (found) return found;
+      }
+      return sourceRolls.find((r) => r.id === id) ?? { id, code: "?", label: null, weightKg: 0, remainingKg: 0 };
+    });
+  }
+
+  /** Simula en orden el consumo de `rows` sobre `rootRolls`, para saber
+   * cuánto queda de verdad DESPUÉS de esas filas. Se usa para recalcular el
+   * saldo al editar o borrar una fila del lote en vez de mutar a mano un
+   * saldo guardado -- que es justo lo que se desincronizaba antes: al editar
+   * se perdía el consumo de las filas agregadas después, y al borrar nunca
+   * se devolvía nada. */
+  function recomputeSourceRollBalances(rootRolls: SourceRollChip[], rows: PendingRoll[]): SourceRollChip[] {
+    let running = rootRolls;
+    for (const row of rows) {
+      if (row.sourceRolls.length === 0) continue;
+      const rowRolls = row.sourceRolls.map((r) => running.find((x) => x.id === r.id)).filter((r): r is SourceRollChip => r != null);
+      if (rowRolls.length === 0) continue;
+      const { allocations } = previewAllocation(rowRolls, Number(row.body.weightKg));
+      const takenById = new Map(allocations.map((a) => [a.roll.id, a.quantityKg]));
+      running = running.map((r) => (takenById.has(r.id) ? { ...r, remainingKg: Math.round((r.remainingKg - (takenById.get(r.id) ?? 0)) * 100) / 100 } : r));
+    }
+    return running;
+  }
+
   /** Vuelve a cargar una fila pendiente en el formulario para corregirla —
-   * la saca de la lista mientras tanto, "Añadir rollo" la vuelve a poner
-   * (al final de la lista; el orden entre pendientes no afecta el reparto de
-   * saldo de las demás, cada una ya tiene sus propios rollos madre y
-   * cantidades resueltos independientemente). */
+   * la saca de la lista mientras tanto, "Añadir rollo" la vuelve a poner.
+   * El saldo de los rollos madre que trae la fila NO es la foto que se
+   * guardó al agregarla (esa foto no sabe nada de filas que se hayan sumado
+   * después y también hayan tomado kilos de esos mismos rollos) — se
+   * recalcula de cero contra lo que de verdad sigue pendiente. */
   function handleEditPendingRoll(localId: string) {
     const pending = pendingRolls.find((p) => p.localId === localId);
     if (!pending) return;
-    setPendingRolls((prev) => prev.filter((p) => p.localId !== localId));
+    const remainingRows = pendingRolls.filter((p) => p.localId !== localId);
+    const ids = pending.sourceRolls.map((r) => r.id);
+    const rootRolls = rootSourceRollBalances(ids);
+    const liveRolls = recomputeSourceRollBalances(rootRolls, remainingRows).filter((r) => r.remainingKg > 0.005);
+    setPendingRolls(remainingRows);
     setRollDraft(pending.rollDraft);
-    setSourceRolls(pending.sourceRolls);
+    setSourceRolls(liveRolls);
     setBultoLabel(pending.bultoLabel);
     setError(null);
   }
 
+  /** Borra una fila pendiente y le devuelve el saldo a los rollos madre que
+   * tenga escaneados AHORA el formulario (si comparten alguno con la fila
+   * borrada) -- antes esto no pasaba, y el chip se quedaba mostrando menos
+   * saldo del que en realidad quedaba disponible. */
   function handleDeletePendingRoll(localId: string) {
-    setPendingRolls((prev) => prev.filter((p) => p.localId !== localId));
+    const remainingRows = pendingRolls.filter((p) => p.localId !== localId);
+    if (sourceRolls.length > 0) {
+      const ids = sourceRolls.map((r) => r.id);
+      const rootRolls = rootSourceRollBalances(ids);
+      setSourceRolls(recomputeSourceRollBalances(rootRolls, remainingRows));
+    }
+    setPendingRolls(remainingRows);
   }
 
   async function handlePrintLabel(rollId: number) {
