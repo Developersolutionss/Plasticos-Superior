@@ -7,6 +7,8 @@ import { randomBytes } from "crypto";
 import { prisma } from "../src/prisma";
 import { applyMovement, incrementLocationStock } from "../src/services/stockService";
 import { applyRawMaterialMovement } from "../src/services/rawMaterialStockService";
+import { generatePossessionToken, hashPossessionToken } from "../src/services/rollPossessionToken";
+import { ROLL_CODE_PREFIX, OpStation } from "../src/services/opTemplates";
 
 /** `station`/`stationSequence` son NOT NULL en ProductionRoll (numeración
  * propia por estación, ver migración roll_per_station_numbering) -- el seed
@@ -15,6 +17,14 @@ import { applyRawMaterialMovement } from "../src/services/rawMaterialStockServic
 async function nextSeedStationSequence(station: string): Promise<number> {
   const max = await prisma.productionRoll.aggregate({ where: { station: station as any }, _max: { stationSequence: true } });
   return (max._max.stationSequence ?? 0) + 1;
+}
+
+/** `possessionTokenHash` es NOT NULL (ver services/rollPossessionToken.ts) --
+ * el seed genera uno real por cada rollo, igual que POST /:id/rolls, aunque
+ * acá nadie vaya a imprimir la etiqueta física de un rollo de prueba. */
+function seedPossessionTokenHash(station: OpStation, stationSequence: number): string {
+  const code = `${ROLL_CODE_PREFIX[station]}-${stationSequence}`;
+  return hashPossessionToken(code, generatePossessionToken());
 }
 
 async function main() {
@@ -253,6 +263,7 @@ async function main() {
                 weightKg: 48,
                 wasteKg: 1.5,
                 details: { pResistencia: "SI", pTratado: "NO" },
+                possessionTokenHash: seedPossessionTokenHash("extrusion", extrusionSeq),
               },
               {
                 station: "extrusion",
@@ -264,6 +275,7 @@ async function main() {
                 weightKg: 52,
                 wasteKg: 0.8,
                 details: { pResistencia: "SI", pTratado: "NO" },
+                possessionTokenHash: seedPossessionTokenHash("extrusion", extrusionSeq + 1),
               },
             ],
           },
@@ -294,6 +306,7 @@ async function main() {
                 weightKg: 30,
                 details: { eBulto: "B-001", pBulto: 30, paqXUnid: "20x100", pResistencia: "SI" },
                 notes: "Bulto demo para probar el módulo de Calidad",
+                possessionTokenHash: seedPossessionTokenHash("sellado", selladoSeq),
               },
             ],
           },
@@ -330,6 +343,7 @@ async function main() {
                 label: "RI-001",
                 weightKg: 18,
                 details: { etiquetaExt: "R-001", pesoExt: 20, pDesprendimiento: "SI" },
+                possessionTokenHash: seedPossessionTokenHash("impresion", impresionSeq),
               },
             ],
           },
@@ -531,6 +545,7 @@ async function main() {
               operatorName: "Operario Demo",
               weightKg: 15,
               notes: "Rollo de precorte demo para probar el módulo de Indicadores",
+              possessionTokenHash: seedPossessionTokenHash("precorte", precorteSeq),
             },
           },
         },

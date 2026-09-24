@@ -729,6 +729,15 @@ model ProductionRoll {
   createdBy         User?           @relation(fields: [createdById], references: [id])
   createdAt         DateTime        @default(now()) @map("created_at")
 
+  /// Hash (HMAC-SHA256 con ROLL_TOKEN_SECRET) del token de posesión física
+  /// que se imprime en el QR (`EXT-9-<token>`), nunca el token en texto
+  /// plano — mismo principio que guardar un hash de contraseña en vez de la
+  /// contraseña: si esta tabla se filtra, no alcanza para fabricar un QR
+  /// válido, hace falta la etiqueta física. Obligatorio: el sistema todavía
+  /// no está desplegado, así que no hay rollos "de antes" que soportar sin
+  /// token — todo rollo nuevo (incluido el seed) lo exige desde ya.
+  possessionTokenHash String        @map("possession_token_hash")
+
   bultoLabel        BultoLabel?
 
   @@unique([station, stationSequence])

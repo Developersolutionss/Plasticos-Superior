@@ -348,6 +348,11 @@ export const api = {
       /** Rollos madre escaneados EN ORDEN (Sellado/Precorte): el servidor
        * reparte `weightKg` agotando el primero antes de tocar el siguiente. */
       sourceRollIds?: number[];
+      /** Token de posesión física de cada rollo madre escaneado (uno por id
+       * de `sourceRollIds`/`sourceRollId`, ver services/rollPossessionToken.ts
+       * del servidor) — sin el token correcto, el servidor rechaza consumir
+       * ese rollo aunque el id sea válido. */
+      sourceRollTokens?: Record<number, string>;
       bultoLabelCode?: string;
     }
   ) => request<any>(`/production-orders/${productionOrderId}/rolls`, { method: "POST", body: JSON.stringify(data) }),
@@ -355,9 +360,19 @@ export const api = {
     request<void>(`/production-orders/${productionOrderId}/rolls/${rollId}`, { method: "DELETE" }),
   getProductionRollLabel: (productionOrderId: number, rollId: number) =>
     request<any>(`/production-orders/${productionOrderId}/rolls/${rollId}/label`),
-  /** Resuelve un rollo por el código de su QR (`RL-<id>`), para el escaneo
-   * de rollo de origen al cargar la OP derivada. */
-  getProductionRollByCode: (code: string) => request<any>(`/production-orders/rolls/by-code/${encodeURIComponent(code)}`),
+  /** Genera un token de posesión NUEVO para un rollo ya creado e imprime su
+   * QR con el código+token embebido — invalida cualquier etiqueta anterior
+   * (su token viejo deja de servir). Para etiquetas dañadas/perdidas. */
+  reissueProductionRollLabel: (productionOrderId: number, rollId: number) =>
+    request<any>(`/production-orders/${productionOrderId}/rolls/${rollId}/reissue-label`, { method: "POST" }),
+  /** Resuelve un rollo por el código de su QR (`EXT-9`), para el escaneo de
+   * rollo de origen al cargar la OP derivada. `token` es el token de
+   * posesión leído del mismo QR (si el rollo lo tiene) — si se manda y no
+   * matchea, el servidor responde 403 (feedback inmediato de QR falso; el
+   * chequeo real es el de `createProductionRoll`, este es solo para avisar
+   * antes de terminar de llenar la fila). */
+  getProductionRollByCode: (code: string, token?: string) =>
+    request<any>(`/production-orders/rolls/by-code/${encodeURIComponent(code)}${token ? `?token=${encodeURIComponent(token)}` : ""}`),
   // ---- Etiquetas de bulto (Sellado/Precorte): pre-impresas por Gestión,
   // el operario escanea la que le tocó en vez de tipear E. BULTO. ----
   getBultoLabels: (status?: string) => request<any[]>(`/bulto-labels${status ? `?status=${status}` : ""}`),

@@ -23,6 +23,15 @@ import {
   allocateWholeSourceRolls,
   remainingSourceKg,
 } from "../services/rollBalance";
+import { generatePossessionToken, hashPossessionToken, verifyPossessionToken } from "../services/rollPossessionToken";
+import { checkRateLimit } from "../services/rateLimiter";
+
+/** 50 verificaciones de token por minuto y por usuario -- ver
+ * rateLimiter.ts: es un freno de rendimiento para un cliente en loop, no un
+ * control de seguridad, así que el número es holgado a propósito. */
+function checkPossessionTokenRateLimit(userId: number): boolean {
+  return checkRateLimit(`roll-token:${userId}`, 50, 60_000);
+}
 
 const UPLOADS_DIR = path.join(__dirname, "..", "..", "uploads", "produccion");
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -295,11 +304,30 @@ productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
   });
   if (!roll) return res.status(404).json({ error: "Rollo no encontrado" });
 
+  // Verificación de posesión física: si el escaneo trae un token, se valida
+  // acá para dar feedback inmediato -- el chequeo que de verdad importa es
+  // el de POST /:id/rolls al consumirlo, este es solo para no hacer esperar
+  // al operario hasta el final del formulario para enterarse de un QR
+  // trucho. Sin token en la query no se exige nada (permite seguir usando
+  // este mismo endpoint para simples consultas de información, ej.
+  // Trazabilidad).
+  const tokenVisible = typeof req.query.token === "string" ? req.query.token : undefined;
+  if (tokenVisible) {
+    if (!checkPossessionTokenRateLimit(req.user!.userId)) {
+      return res.status(429).json({ error: "Demasiados escaneos seguidos — esperá un momento y volvé a intentar" });
+    }
+    if (!verifyPossessionToken(match ? `${match[1]}-${match[2]}` : req.params.code, tokenVisible, roll.possessionTokenHash)) {
+      return res.status(403).json({ error: "El token de posesión del QR no es válido" });
+    }
+  }
+
   // Saldo que le queda al rollo: es lo que el operario necesita ver al
   // escanearlo para saber cuánto más puede sacarle antes de tener que montar
   // el siguiente (antes esa cuenta la llevaban a mano en el papel).
   const remainingKg = await remainingSourceKg(prisma, roll.id);
-  res.json({ ...roll, remainingKg });
+  // El hash nunca sale del servidor (se pidió arriba solo para verificar).
+  const { possessionTokenHash, ...rollWithoutHash } = roll;
+  res.json({ ...rollWithoutHash, remainingKg });
 });
 
 /**
@@ -388,7 +416,11 @@ productionOrdersRouter.get("/:id", async (req, res) => {
     }),
   ]);
 
-  res.json({ ...order, chain, warehouseLocations, recentDispatchItems });
+  // possessionTokenHash nunca sale del servidor (mismo criterio que
+  // passwordHash) -- `include` trae la fila completa de cada rollo, así
+  // que se saca acá antes de responder.
+  const rollsWithoutHash = order.rolls.map(({ possessionTokenHash, ...r }) => r);
+  res.json({ ...order, rolls: rollsWithoutHash, chain, warehouseLocations, recentDispatchItems });
 });
 
 const createOrderSchema = z.object({
@@ -1152,6 +1184,11 @@ const createRollSchema = z.object({
    * salen 10 de A y 5 de B. `sourceRollId` de arriba es el caso viejo de un
    * solo rollo consumido entero (Impresión) y se sigue aceptando. */
   sourceRollIds: z.array(z.number().int()).min(1).optional(),
+  /** Token de posesión de cada rollo madre escaneado (ver
+   * services/rollPossessionToken.ts), uno por id de `sourceRollIds`/
+   * `sourceRollId` -- obligatorio para poder consumir ese rollo, todo rollo
+   * tiene un `possessionTokenHash` desde que se creó. */
+  sourceRollTokens: z.record(z.string(), z.string()).optional(),
   /** Código de la etiqueta física de bulto escaneada (Sellado/Precorte) —
    * ver GET /bulto-labels/by-code/:code. Reemplaza tipear "E. BULTO" a
    * mano: se valida que exista y siga disponible, y queda consumida
@@ -1199,6 +1236,18 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     // ser trazabilidad y pasa a ser un dato suelto sin sentido.
     if (source.productionOrderId !== order.parentOrderId) {
       return res.status(400).json({ error: "El rollo escaneado no pertenece a la OP de la que deriva esta orden" });
+    }
+    // La UI mirror-ea este chequeo al escanear (GET /rolls/by-code, con el
+    // mismo token), pero ESTE es el que de verdad importa: el server es la
+    // autoridad, no la pantalla -- sin esto, cualquiera con sesión válida
+    // podría mandar un sourceRollId adivinado sin haber escaneado nada.
+    if (!checkPossessionTokenRateLimit(req.user!.userId)) {
+      return res.status(429).json({ error: "Demasiados intentos seguidos — esperá un momento y volvé a intentar" });
+    }
+    const tokenVisible = parsed.data.sourceRollTokens?.[String(sourceRollId)];
+    const code = sourceRollCode(source);
+    if (!tokenVisible || !verifyPossessionToken(code, tokenVisible, source.possessionTokenHash)) {
+      return res.status(403).json({ error: `Falta demostrar posesión física del rollo ${code} — escaneá su QR` });
     }
     sourceRollById.set(sourceRollId, { station: source.station as OpStation, stationSequence: source.stationSequence });
   }
@@ -1312,6 +1361,15 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
 
       const stationSequence = await nextStationSequence(tx, order.station as OpStation);
 
+      // Token de posesión física de ESTE rollo recién creado (ver
+      // services/rollPossessionToken.ts): se guarda solo el hash; el valor
+      // visible (`possessionToken`) se devuelve en la respuesta y es la
+      // ÚNICA vez que existe fuera de la etiqueta impresa -- no se puede
+      // recuperar después, ni releyendo esta misma fila.
+      const code = `${ROLL_CODE_PREFIX[order.station as OpStation]}-${stationSequence}`;
+      const possessionToken = generatePossessionToken();
+      const possessionTokenHash = hashPossessionToken(code, possessionToken);
+
       const created = await tx.productionRoll.create({
         data: {
           productionOrderId,
@@ -1335,6 +1393,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
           // mostrar "de dónde salió" sin cargar el ledger.
           sourceRollId: allocations[0]?.sourceRollId ?? parsed.data.sourceRollId,
           createdById: req.user!.userId,
+          possessionTokenHash,
         },
       });
 
@@ -1354,7 +1413,17 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
 
       await syncQuantityPlannedToChildren(tx, productionOrderId);
 
-      return created;
+      // QR listo para imprimir de una: código+token embebidos -- es la
+      // ÚNICA vez que se puede armar (nada de esto queda guardado en texto
+      // plano). Si acá no se imprime, la única forma de conseguir una
+      // etiqueta válida después es reemitiéndola (ver
+      // POST /:id/rolls/:rollId/reissue-label, invalida esta).
+      const qrDataUrl = await QRCode.toDataURL(`${code}-${possessionToken}`);
+      // El hash nunca sale del servidor -- lo único que se manda es el
+      // token visible (arriba), que es la única vez que va a existir fuera
+      // de la etiqueta impresa.
+      const { possessionTokenHash: _hash, ...createdWithoutHash } = created;
+      return { ...createdWithoutHash, possessionToken, qrDataUrl };
     })
     );
   } catch (err) {
@@ -1732,11 +1801,14 @@ productionOrdersRouter.delete("/:id/attachments/:attachmentId", requireProduccio
 });
 
 /**
- * Etiqueta térmica imprimible de un rollo: QR con el código `<prefijo>-<n>`
- * (EXT/IMP/SELL/PRE según de qué proceso salió, numerado dentro de esa
- * estación, mismo formato que la etiqueta de productos), para pegar en el
- * rollo físico. Al escanearla en la OP derivada se resuelve con GET
- * /rolls/by-code/:code.
+ * Etiqueta térmica imprimible de un rollo: QR con SOLO el código
+ * `<prefijo>-<n>` (EXT/IMP/SELL/PRE), sin el token de posesión -- ese token
+ * nunca se guarda en texto plano (ver services/rollPossessionToken.ts), así
+ * que no hay forma de reconstruirlo después de la creación. Este QR sirve
+ * para identificar el rollo (ej. Trazabilidad), pero NO demuestra posesión
+ * física: no sirve para escanearlo como insumo (eso siempre exige el
+ * token). Para una etiqueta que sí lo incluya, ver
+ * POST /:id/rolls/:rollId/reissue-label.
  */
 productionOrdersRouter.get("/:id/rolls/:rollId/label", async (req, res) => {
   const productionOrderId = Number(req.params.id);
@@ -1762,3 +1834,49 @@ productionOrdersRouter.get("/:id/rolls/:rollId/label", async (req, res) => {
     qrDataUrl,
   });
 });
+
+/**
+ * Reemite el token de posesión de un rollo ya creado: genera uno nuevo,
+ * invalida el anterior (deja de matchear el hash guardado) y devuelve el QR
+ * código+token listo para imprimir. Para cuando la etiqueta física original
+ * nunca se imprimió, se dañó o se perdió -- es la única forma de conseguir
+ * una etiqueta válida después de la creación, porque el token no se guarda
+ * en texto plano en ningún lado. Restringido a Gestión/Calidad: reemitir a
+ * la ligera invalida cualquier etiqueta física que ya esté pegada en
+ * planta con el token viejo.
+ */
+productionOrdersRouter.post(
+  "/:id/rolls/:rollId/reissue-label",
+  requireRole(...ROLES.PRODUCCION_GESTION, ...ROLES.CALIDAD),
+  async (req, res) => {
+    const productionOrderId = Number(req.params.id);
+    const rollId = Number(req.params.rollId);
+    if (!Number.isInteger(productionOrderId) || !Number.isInteger(rollId)) {
+      return res.status(400).json({ error: "Id inválido" });
+    }
+
+    const roll = await prisma.productionRoll.findFirst({
+      where: { id: rollId, productionOrderId },
+      include: { productionOrder: { select: { orderNumber: true, station: true, product: { select: { name: true } } } } },
+    });
+    if (!roll) return res.status(404).json({ error: "Rollo no encontrado" });
+
+    const code = sourceRollCode(roll);
+    const possessionToken = generatePossessionToken();
+    await prisma.productionRoll.update({
+      where: { id: rollId },
+      data: { possessionTokenHash: hashPossessionToken(code, possessionToken) },
+    });
+
+    const qrDataUrl = await QRCode.toDataURL(`${code}-${possessionToken}`);
+    res.json({
+      code,
+      possessionToken,
+      label: roll.label,
+      weightKg: roll.weightKg,
+      orderNumber: roll.productionOrder.orderNumber,
+      productName: roll.productionOrder.product.name,
+      qrDataUrl,
+    });
+  }
+);
