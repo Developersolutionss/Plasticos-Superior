@@ -30,6 +30,8 @@ import { notificationsRouter } from "../../server/src/routes/notifications";
 import { whatsappWebhookRouter } from "../../server/src/routes/whatsappWebhook";
 import { prisma } from "../../server/src/prisma";
 import { redistributeScores, boostValue, isHot, nextCycle, nextVisitState, HOT_THRESHOLD } from "../../server/src/services/frequency";
+import { generatePossessionToken, hashPossessionToken } from "../../server/src/services/rollPossessionToken";
+import { ROLL_CODE_PREFIX } from "../../server/src/services/opTemplates";
 
 let server: Server;
 let baseUrl = "";
@@ -74,11 +76,17 @@ async function createTestRoll(
 ) {
   const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id: productionOrderId }, select: { station: true } });
   const max = await prisma.productionRoll.aggregate({ where: { station: order.station! }, _max: { stationSequence: true } });
-  return prisma.productionRoll.create({
+  const stationSequence = (max._max.stationSequence ?? 0) + 1;
+  // possessionTokenHash es NOT NULL (ver services/rollPossessionToken.ts) —
+  // un insert directo de test también necesita el suyo, igual que el
+  // endpoint real y el seed.
+  const code = `${ROLL_CODE_PREFIX[order.station!]}-${stationSequence}`;
+  const possessionToken = generatePossessionToken();
+  const created = await prisma.productionRoll.create({
     data: {
       productionOrderId,
       station: order.station!,
-      stationSequence: (max._max.stationSequence ?? 0) + 1,
+      stationSequence,
       operatorName: data.operatorName ?? "Op",
       weightKg: data.weightKg,
       wasteKg: data.wasteKg,
@@ -86,8 +94,13 @@ async function createTestRoll(
       shift: data.shift,
       details: data.details,
       sourceRollId: data.sourceRollId,
+      possessionTokenHash: hashPossessionToken(code, possessionToken),
     },
   });
+  // El token visible nunca queda en la base (ver rollPossessionToken.ts) —
+  // se devuelve acá para que los tests que consumen este rollo como insumo
+  // puedan mandarlo en `sourceRollTokens`, igual que haría un escaneo real.
+  return Object.assign(created, { possessionToken });
 }
 
 function buildApp() {
@@ -2020,14 +2033,14 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const first = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ weightKg: 5, sourceRollId: source.id }),
+      body: JSON.stringify({ weightKg: 5, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
     });
     assert.equal(first.status, 201, "el primer escaneo del rollo de origen se acepta");
 
     const second = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ weightKg: 3, sourceRollId: source.id }),
+      body: JSON.stringify({ weightKg: 3, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
     });
     assert.equal(second.status, 400, "un segundo escaneo del mismo rollo de origen se rechaza");
     const secondBody = (await second.json()) as { error: string };
@@ -2061,11 +2074,15 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     return ((await res.json()) as { remainingKg: number }).remainingKg;
   }
 
-  async function cargarFila(childId: number, weightKg: number, sourceRollIds: number[]) {
+  async function cargarFila(childId: number, weightKg: number, madres: { id: number; possessionToken: string }[]) {
     return fetch(`${baseUrl}/api/production-orders/${childId}/rolls`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ weightKg, sourceRollIds }),
+      body: JSON.stringify({
+        weightKg,
+        sourceRollIds: madres.map((m) => m.id),
+        sourceRollTokens: Object.fromEntries(madres.map((m) => [String(m.id), m.possessionToken])),
+      }),
     });
   }
 
@@ -2089,7 +2106,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       [10, 20],
       [10, 10],
     ]) {
-      const res = await cargarFila(child.id, kg, [madre.id]);
+      const res = await cargarFila(child.id, kg, [madre]);
       assert.equal(res.status, 201, `cargar ${kg} kg contra el mismo rollo madre se acepta`);
       assert.equal(await saldoDe(madre.stationSequence), saldoEsperado);
     }
@@ -2101,11 +2118,11 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const { parent, child, madres } = await setupRolloMadre("sellado", [10, 50]);
     const [madreA, madreB] = madres;
 
-    const sinCubrir = await cargarFila(child.id, 15, [madreA.id]);
+    const sinCubrir = await cargarFila(child.id, 15, [madreA]);
     assert.equal(sinCubrir.status, 400, "no alcanza el saldo del rollo madre y no se escaneó otro");
     assert.match(((await sinCubrir.json()) as { error: string }).error, /Faltan 5 kg/);
 
-    const conElSiguiente = await cargarFila(child.id, 15, [madreA.id, madreB.id]);
+    const conElSiguiente = await cargarFila(child.id, 15, [madreA, madreB]);
     assert.equal(conElSiguiente.status, 201);
 
     assert.equal(await saldoDe(madreA.stationSequence), 0, "el rollo madre viejo queda agotado");
@@ -2118,7 +2135,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const { parent, child, madres } = await setupRolloMadre("precorte", [10, 50]);
     const [madreA, madreB] = madres;
 
-    const res = await cargarFila(child.id, 15, [madreA.id, madreB.id]);
+    const res = await cargarFila(child.id, 15, [madreA, madreB]);
     assert.equal(res.status, 201);
     const fila = (await res.json()) as { weightKg: string; details: Record<string, unknown> };
 
@@ -2146,6 +2163,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       body: JSON.stringify({
         weightKg: 10,
         sourceRollIds: [madre.id],
+        sourceRollTokens: { [madre.id]: madre.possessionToken },
         details: { etiquetaR2: "EXT-999", pesoR2: 5 },
       }),
     });
@@ -2178,7 +2196,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const res = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ weightKg: 10, sourceRollIds: [madre.id], details: { pesoR2: 5 } }),
+      body: JSON.stringify({ weightKg: 10, sourceRollIds: [madre.id], sourceRollTokens: { [madre.id]: madre.possessionToken }, details: { pesoR2: 5 } }),
     });
     assert.equal(res.status, 201, "10kg reales contra una meta de 10kg debe entrar, aunque el cliente haya mandado un pesoR2 de más");
 
@@ -2188,7 +2206,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
   it("no se puede borrar un rollo madre del que ya se sacó material", async () => {
     const { parent, child, madres } = await setupRolloMadre("sellado", [45]);
     const madre = madres[0];
-    assert.equal((await cargarFila(child.id, 15, [madre.id])).status, 201);
+    assert.equal((await cargarFila(child.id, 15, [madre])).status, 201);
 
     const del = await fetch(`${baseUrl}/api/production-orders/${parent.id}/rolls/${madre.id}`, {
       method: "DELETE",
@@ -2204,7 +2222,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const { parent, child, madres } = await setupRolloMadre("sellado", [45]);
     const madre = madres[0];
 
-    const res = await cargarFila(child.id, 15, [madre.id]);
+    const res = await cargarFila(child.id, 15, [madre]);
     const fila = (await res.json()) as { id: number };
     assert.equal(await saldoDe(madre.stationSequence), 30);
 
