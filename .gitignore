@@ -9,6 +9,7 @@ server/src/generated/
 docs/branch-flow.md
 docs/maindashboard.md
 docs/notas-qa-proceso.md
+docs/notas-token-posesion.md
 CLAUDE.md
 .claude/settings.json
 .claude/settings.local.json
