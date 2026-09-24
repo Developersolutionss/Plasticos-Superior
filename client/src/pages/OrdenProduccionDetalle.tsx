@@ -174,7 +174,10 @@ interface ColorRow {
 }
 
 /** Un rollo madre escaneado, con el saldo que le quedaba al momento del
- * escaneo (`remainingKg`, lo calcula el server en GET /rolls/by-code). */
+ * escaneo (`remainingKg`, lo calcula el server en GET /rolls/by-code).
+ * `possessionToken` es la parte del QR que demuestra que se tiene el rollo
+ * físico en mano (ver server/src/services/rollPossessionToken.ts) — viaja
+ * junto con el resto del chip hasta el POST final que lo consume. */
 interface SourceRollChip {
   id: number;
   code: string;
@@ -182,6 +185,7 @@ interface SourceRollChip {
   weightKg: number;
   remainingKg: number;
   createdByName?: string | null;
+  possessionToken: string;
 }
 
 /** Un rollo ya completado en el formulario pero todavía no mandado al
@@ -278,6 +282,15 @@ export default function OrdenProduccionDetalle() {
   // fila.
   const [pendingRolls, setPendingRolls] = useState<PendingRoll[]>([]);
   const [confirmingPending, setConfirmingPending] = useState(false);
+  // Etiquetas listas para imprimir de los rollos que se acaban de confirmar
+  // (ver handleConfirmPendingRolls) -- el QR con el token de posesión de
+  // cada uno viene YA armado en la respuesta de creación (qrDataUrl), esta
+  // es la única oportunidad de imprimirlo tal cual: el token nunca se
+  // guarda en texto plano, así que no se puede volver a pedir después (ver
+  // handleReissueLabel para esa situación).
+  const [justCreatedLabels, setJustCreatedLabels] = useState<
+    { rollId: number; code: string; qrDataUrl: string; weightKg: unknown; orderNumber: string; productName: string }[]
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [reopening, setReopening] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -655,6 +668,11 @@ export default function OrdenProduccionDetalle() {
         wasteKg: rollDraft.waste ? Number(rollDraft.waste) : undefined,
         details: Object.keys(details).length ? details : undefined,
         sourceRollIds: sourceRolls.length > 0 ? sourceRolls.map((r) => r.id) : undefined,
+        // El server exige el token de cada rollo madre para consumirlo (ver
+        // POST /:id/rolls del server) -- viaja junto con los ids, uno por
+        // cada rollo escaneado para esta fila.
+        sourceRollTokens:
+          sourceRolls.length > 0 ? Object.fromEntries(sourceRolls.map((r) => [r.id, r.possessionToken])) : undefined,
         bultoLabelCode: bultoLabel?.code,
       },
     };
@@ -719,17 +737,32 @@ export default function OrdenProduccionDetalle() {
     setError(null);
     setConfirmingPending(true);
     let confirmedCount = 0;
+    const newLabels: typeof justCreatedLabels = [];
     try {
       for (const pending of pendingRolls) {
-        await api.createProductionRoll(orderId, pending.body);
+        const created = await api.createProductionRoll(orderId, pending.body);
         confirmedCount++;
+        if (created.qrDataUrl) {
+          newLabels.push({
+            rollId: created.id,
+            code: `${ROLL_CODE_PREFIX[station]}-${created.stationSequence}`,
+            qrDataUrl: created.qrDataUrl,
+            weightKg: created.weightKg,
+            orderNumber: order.orderNumber,
+            productName: order.product.name,
+          });
+        }
       }
       setPendingRolls([]);
+      setJustCreatedLabels(newLabels);
       setMessage(`Se confirmaron ${confirmedCount} rollo${confirmedCount === 1 ? "" : "s"}.`);
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
     } catch (err: any) {
       setPendingRolls((prev) => prev.slice(confirmedCount));
+      // Las que sí se alcanzaron a crear antes del error también necesitan
+      // su etiqueta -- es la única oportunidad de imprimirlas.
+      if (newLabels.length > 0) setJustCreatedLabels(newLabels);
       const detail = err?.message?.includes("403") ? "Tu rol no puede registrar rollos en esta estación" : err?.message || "No se pudo registrar el rollo";
       setError(
         confirmedCount > 0
@@ -758,7 +791,7 @@ export default function OrdenProduccionDetalle() {
         const found = p.sourceRolls.find((r) => r.id === id);
         if (found) return found;
       }
-      return sourceRolls.find((r) => r.id === id) ?? { id, code: "?", label: null, weightKg: 0, remainingKg: 0 };
+      return sourceRolls.find((r) => r.id === id) ?? { id, code: "?", label: null, weightKg: 0, remainingKg: 0, possessionToken: "" };
     });
   }
 
@@ -844,6 +877,24 @@ export default function OrdenProduccionDetalle() {
     }
   }
 
+  /** Genera un token de posesión NUEVO para un rollo ya guardado e imprime
+   * su QR -- para cuando la etiqueta original (la que se pudo imprimir una
+   * sola vez, justo al confirmarlo) nunca se imprimió, se dañó o se
+   * perdió. Invalida cualquier etiqueta física anterior: su token viejo
+   * deja de matchear apenas se reemite uno nuevo. */
+  async function handleReissueLabel(rollId: number, code: string) {
+    setError(null);
+    if (!(await confirm(`La etiqueta física actual de ${code} (si existe) va a dejar de servir. ¿Reemitir de todos modos?`, { title: "¿Reemitir etiqueta?", tone: "danger" }))) {
+      return;
+    }
+    try {
+      const label = await api.reissueProductionRollLabel(orderId, rollId);
+      printRollLabel(label);
+    } catch {
+      setError("No se pudo reemitir la etiqueta");
+    }
+  }
+
   /** "Quitar" en el chip del rollo de origen: además de soltar `sourceRoll`,
    * hay que borrar lo que handleScannedSource haya precargado en el
    * borrador — si no, queda un ETIQUETA/PESO viejo sentado en rollDraft que
@@ -878,11 +929,14 @@ export default function OrdenProduccionDetalle() {
   }
 
   /** Busca el rollo madre por código y lo agrega a `sourceRolls`/precarga
-   * `rollDraft`. Tira (ApiError con status, o un Error si ya estaba
-   * escaneado) — lo usa `handleScanAny` para decidir si sigue probando como
-   * etiqueta de bulto. */
-  async function applyScannedSourceRoll(code: string): Promise<void> {
-    const roll = await api.getProductionRollByCode(code);
+   * `rollDraft`. `token` es la parte del QR que demuestra posesión física
+   * (ver deriveScannedCode más abajo) — se manda al server para feedback
+   * inmediato si es falso, y se guarda en el chip para poder mandarlo de
+   * nuevo al confirmar la fila (el chequeo que de verdad importa es ese).
+   * Tira (ApiError con status, o un Error si ya estaba escaneado) — lo usa
+   * `handleScanAny` para decidir si sigue probando como etiqueta de bulto. */
+  async function applyScannedSourceRoll(code: string, token: string): Promise<void> {
+    const roll = await api.getProductionRollByCode(code, token);
     const chip: SourceRollChip = {
       id: roll.id,
       code,
@@ -890,6 +944,7 @@ export default function OrdenProduccionDetalle() {
       weightKg: Number(roll.weightKg),
       remainingKg: Number(roll.remainingKg ?? roll.weightKg),
       createdByName: roll.createdBy?.name ?? null,
+      possessionToken: token,
     };
     if (sourceRolls.some((r) => r.id === chip.id)) {
       throw new Error("Ese rollo madre ya está escaneado para esta fila");
@@ -937,6 +992,19 @@ export default function OrdenProduccionDetalle() {
     setBultoLabel(label);
   }
 
+  /** El QR de un rollo lleva el código y el token de posesión pegados con
+   * un guión de más (`EXT-9-K7M9XT4P2R6HW3JC`, ver
+   * server/src/services/rollPossessionToken.ts) -- se separan acá ANTES de
+   * decidir qué tipo de código es, para que `looksLikeBulto` de más abajo
+   * siga mirando solo la parte del código, igual que siempre. Una etiqueta
+   * de bulto no tiene esta protección (no lleva token), así que si no hay
+   * un segundo guión se asume que no hay token -- eso pasa igual con
+   * cualquier código tipeado a mano en vez de escaneado. */
+  function splitScannedCode(raw: string): { code: string; token: string } {
+    const match = /^([A-Za-z]+-\d+)-(.+)$/.exec(raw);
+    return match ? { code: match[1], token: match[2] } : { code: raw, token: "" };
+  }
+
   /** Único punto de entrada del botón de escaneo: no le pregunta al
    * operario qué escaneó, detecta el tipo sola. Las etiquetas de bulto
    * siempre son "EXT-" + 5 dígitos con cero a la izquierda (el server las
@@ -959,10 +1027,11 @@ export default function OrdenProduccionDetalle() {
     setScanning(false);
     setError(null);
     const trimmed = code.trim();
-    const looksLikeBulto = /^EXT-0\d{4}$/.test(trimmed);
+    const { code: scannedCode, token: scannedToken } = splitScannedCode(trimmed);
+    const looksLikeBulto = /^EXT-0\d{4}$/.test(scannedCode);
 
-    const rollAttempt = { kind: "roll" as const, ok: canScanSourceRoll, run: () => applyScannedSourceRoll(trimmed) };
-    const bultoAttempt = { kind: "bulto" as const, ok: canScanBultoLabel, run: () => applyScannedBultoLabel(trimmed) };
+    const rollAttempt = { kind: "roll" as const, ok: canScanSourceRoll, run: () => applyScannedSourceRoll(scannedCode, scannedToken) };
+    const bultoAttempt = { kind: "bulto" as const, ok: canScanBultoLabel, run: () => applyScannedBultoLabel(scannedCode) };
     const [first, second] = looksLikeBulto ? [bultoAttempt, rollAttempt] : [rollAttempt, bultoAttempt];
 
     if (!first.ok && !second.ok) {
@@ -979,7 +1048,7 @@ export default function OrdenProduccionDetalle() {
     } catch (err) {
       const notFound = err instanceof ApiError && err.status === 404;
       if (notFound && primaryWasAmbiguousBultoShape) {
-        setError(`No se encontró la etiqueta de bulto ${trimmed}`);
+        setError(`No se encontró la etiqueta de bulto ${scannedCode}`);
         return;
       }
       if (notFound && fallback.ok) {
@@ -1349,6 +1418,35 @@ export default function OrdenProduccionDetalle() {
 
       <ErrorToast message={error} onClose={() => setError(null)} />
       {message && <p className="text-emerald-700 dark:text-emerald-400 text-sm">{message}</p>}
+
+      {/* Etiquetas de los rollos recién confirmados: el QR con el token de
+          posesión solo se puede armar en este momento (ver
+          handleConfirmPendingRolls) -- si no se imprime acá, después hace
+          falta reemitir (botón "Reemitir etiqueta" en la fila del rollo). */}
+      {justCreatedLabels.length > 0 && (
+        <div className="bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-700 rounded-lg p-3 flex flex-wrap items-center gap-2">
+          <p className="text-sm text-emerald-800 dark:text-emerald-300 font-medium">
+            Etiquetas listas para imprimir ({justCreatedLabels.length}):
+          </p>
+          {justCreatedLabels.map((l) => (
+            <button
+              key={l.rollId}
+              type="button"
+              onClick={() => printRollLabel(l)}
+              className="inline-flex items-center gap-1.5 text-sm bg-emerald-700 hover:bg-emerald-600 text-white rounded px-3 py-1.5"
+            >
+              <Printer size={14} aria-hidden="true" /> {l.code}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setJustCreatedLabels([])}
+            className="text-sm text-emerald-700 dark:text-emerald-400 hover:underline ml-auto"
+          >
+            Ocultar
+          </button>
+        </div>
+      )}
 
       {/* ---- La hoja, con la estructura del formato en papel ---- */}
       <div className="bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-500 shadow">
@@ -1844,6 +1942,16 @@ export default function OrdenProduccionDetalle() {
                       <button type="button" className="text-slate-500 dark:text-slate-400" title="Imprimir etiqueta" onClick={() => handlePrintLabel(roll.id)}>
                         <Printer size={13} aria-hidden="true" />
                       </button>
+                      {canGestion && (
+                        <button
+                          type="button"
+                          className="text-slate-500 dark:text-slate-400 ml-1.5"
+                          title="Reemitir etiqueta (invalida la anterior)"
+                          onClick={() => handleReissueLabel(roll.id, `${ROLL_CODE_PREFIX[station]}-${roll.stationSequence}`)}
+                        >
+                          <RotateCcw size={13} aria-hidden="true" />
+                        </button>
+                      )}
                       {canGestion && isOpen && (
                         <button type="button" className="text-red-600 dark:text-red-400 ml-1.5" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
                           <Trash2 size={13} aria-hidden="true" />
@@ -1983,6 +2091,16 @@ export default function OrdenProduccionDetalle() {
                     <button type="button" className="text-slate-500 dark:text-slate-400" title="Imprimir etiqueta" onClick={() => handlePrintLabel(roll.id)}>
                       <Printer size={15} aria-hidden="true" />
                     </button>
+                    {canGestion && (
+                      <button
+                        type="button"
+                        className="text-slate-500 dark:text-slate-400"
+                        title="Reemitir etiqueta (invalida la anterior)"
+                        onClick={() => handleReissueLabel(roll.id, `${ROLL_CODE_PREFIX[station]}-${roll.stationSequence}`)}
+                      >
+                        <RotateCcw size={15} aria-hidden="true" />
+                      </button>
+                    )}
                     {canGestion && isOpen && (
                       <button type="button" className="text-red-600 dark:text-red-400" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
                         <Trash2 size={15} aria-hidden="true" />

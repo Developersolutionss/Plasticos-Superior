@@ -8,6 +8,7 @@
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "prisma:migrate": "prisma migrate dev && prisma generate",
+    "prisma:deploy": "prisma migrate deploy && prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:seed": "prisma db seed",
     "test": "prisma generate && node --import tsx --test ../testing/server/api.test.ts"
