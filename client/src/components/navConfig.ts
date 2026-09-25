@@ -53,6 +53,11 @@ export const CATALOGO_GESTION: UserRole[] = [...ADMIN, "planeacion"];
 // siendo de Almacén (ver Dispatches.tsx, que oculta esos controles si el
 // rol no está en ALMACEN).
 export const DESPACHOS_LECTURA: UserRole[] = [...ALMACEN, "ventas_pedidos"];
+// Despacho de rollos entre bodegas internas (Extrusión -> Impresión/Sellado/
+// Precorte): lo registra el operario que entrega o quien se lleva el rollo,
+// que puede ser de cualquier estación o de Almacén -- mismo grupo que
+// ROLES.DESPACHO_BODEGAS en el backend.
+export const DESPACHO_BODEGAS: UserRole[] = [...OPERARIOS, "almacen_despachos"];
 const TODOS: UserRole[] = [
   "super_admin",
   "admin",
@@ -153,6 +158,16 @@ export const navSections: NavEntry[] = [
       { id: "produccion-por-operario", label: "Producción por operario", to: "/produccion/por-operario", roles: PRODUCCION_GESTION },
       { id: "produccion-etiquetas-bulto", label: "Etiquetas de bulto", to: "/produccion/etiquetas-bulto", roles: PRODUCCION_GESTION },
     ],
+  },
+  // Fuera del menú "Producción" (que es solo OPERARIOS) porque Almacén
+  // también lo usa.
+  {
+    id: "despacho-bodegas",
+    icon: "scan-line",
+    label: "Despacho a bodegas",
+    to: "/produccion/despacho-bodegas",
+    roles: DESPACHO_BODEGAS,
+    group: "Producción",
   },
   { id: "calidad", icon: "badge-check", label: "Calidad", to: "/calidad", roles: CALIDAD, group: "Producción" },
   {

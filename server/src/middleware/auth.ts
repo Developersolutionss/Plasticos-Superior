@@ -97,6 +97,21 @@ export const ROLES = {
   // en dispatches.ts): las mutaciones (marcar ítem, cancelar) siguen siendo
   // dominio exclusivo de Almacén.
   DESPACHOS_LECTURA: ["super_admin", "admin", "almacen_despachos", "ventas_pedidos"] as UserRole[],
+  // Despacho de rollos entre las bodegas internas de planta (ver
+  // routes/rollTransfers.ts): lo registra el operario que entrega o quien
+  // se lleva el rollo -- puede ser un operario de cualquier estación o
+  // alguien de Almacén, así que se suma almacen_despachos a OPERARIOS.
+  DESPACHO_BODEGAS: [
+    "super_admin",
+    "admin",
+    "gerente_produccion",
+    "planeacion",
+    "operario_extrusion",
+    "operario_impresion",
+    "operario_sellado",
+    "operario_precorte",
+    "almacen_despachos",
+  ] as UserRole[],
 };
 
 /**

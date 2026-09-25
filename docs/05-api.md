@@ -234,6 +234,23 @@ Etiqueta física de bulto **pre-impresa** con QR (Sellado): a diferencia del rol
 | GET | `/api/bulto-labels/:id/qr` | — | QR imprimible de una etiqueta (`{ code, status, qrDataUrl }`) |
 | GET | `/api/bulto-labels/by-code/:code` | — | Resuelve el código escaneado a la etiqueta, para confirmar cuál se está tomando antes de cargar el rollo |
 
+### Despacho a bodegas (`/api/roll-transfers`)
+
+Traslado de un rollo desde su estación (Extrusión, Impresión) a la bodega de otra estación (Impresión, Sellado, Precorte), en dos pasos. Los dos escanean el QR completo del rollo (código + token de posesión, ver `rollPossessionToken.ts`): transportar exige tener el rollo en la mano, igual que consumirlo. Roles: `ROLES.DESPACHO_BODEGAS` (operarios de cualquier estación, gestión de producción y `almacen_despachos`).
+
+1. **Salida**: `mode: "entrega"` = el operario de origen escanea y tipea a quién se lo entrega (`carrierName`). `mode: "retiro"` = quien se lo lleva lo escanea con su cuenta (el `carrierName` enviado se ignora y queda el nombre de la cuenta).
+2. **Recepción**: el operario de la bodega destino escanea el mismo QR cuando le llega. Un operario solo recibe en la bodega de su estación.
+
+La hora es siempre la del servidor. `clientTimezone` (IANA, ej. `America/Bogota`) y `clientUtcOffsetMinutes` son la zona horaria del celular que escaneó, y sirven para mostrar la hora tal como la vio el operario.
+
+| Método | Ruta | Cuerpo | Descripción |
+|---|---|---|---|
+| GET | `/api/roll-transfers` | `?status=en_transito\|recibido&toStation=&fromStation=&from=YYYY-MM-DD&to=YYYY-MM-DD` | Historial (los últimos 300, lo más nuevo primero), con `rollCode` legible |
+| GET | `/api/roll-transfers/scan/:code?token=` | — | Rollo escaneado + `remainingKg`, `destinations` (según `DERIVATIONS`), `openTransfer` (despacho en tránsito, si hay) y `lastTransfer`. 403 si el token no matchea |
+| POST | `/api/roll-transfers` | `{ code, token, toStation, mode, carrierName?, notes?, clientTimezone, clientUtcOffsetMinutes }` | Registra la salida. 400 si el destino no está en `DERIVATIONS`, es la bodega donde el rollo ya está, o el rollo ya se consumió entero. `fromStation` es la bodega del último despacho recibido (o la estación de origen si nunca se movió); 409 si ya hay un despacho en tránsito de ese rollo |
+| POST | `/api/roll-transfers/:id/receive` | `{ code, token, notes?, clientTimezone, clientUtcOffsetMinutes }` | Registra la recepción. 403 si el operario es de otra estación; 409 si ya se recibió |
+| DELETE | `/api/roll-transfers/:id` | — | (gestión de producción) Anula un despacho registrado por error. Solo si sigue en tránsito: uno ya recibido no se borra |
+
 ### Despachos
 
 Un despacho puede nacer manual (`POST /`, Almacén) o **automático**: al aprobar Calidad una OP con cliente asignado, se crea solo (ver "Órdenes de producción" arriba, `POST /production-orders/:id/quality-check`) — en ese caso queda enlazado a la OP (`Dispatch.productionOrderId`), lo que además bloquea reabrir esa OP mientras el despacho siga vivo.

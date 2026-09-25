@@ -50,6 +50,7 @@ pedido_version_items 0..1───0..1 production_orders (vínculo opcional, mó
 production_rolls 0..1───N production_rolls (rollo madre principal: source_roll_id)
 production_rolls 1───N roll_consumptions (como rollo chico: roll_id) y 1───N roll_consumptions (como rollo madre: source_roll_id)
 production_rolls 0..1───1 bulto_labels (used_by_roll_id)
+production_rolls 1───N roll_transfers (despachos a bodegas) · users 1───N roll_transfers (registered_by / received_by)
 cotizaciones 1───N cotizacion_items · 1───0..N pedidos
 pedidos 1───N pedido_versions 1───N pedido_version_items
 pedidos 1───N pedido_attachments · 1───0..N facturas
@@ -340,6 +341,26 @@ Etiqueta física de bulto pre-impresa con QR (Sellado). A diferencia del rollo, 
 | usedAt | DateTime? | `@map("used_at")` |
 | createdById | Int? | `@map("created_by")`. FK → users, quién generó el lote |
 | createdAt | DateTime | `@map("created_at")` |
+
+### `roll_transfers`
+
+Despacho de un rollo de su estación a la bodega de otra estación (ver `/api/roll-transfers` en [05 — API](05-api.md)). Un rollo puede tener varios; su ubicación actual es el último. Se borra en cascada con el rollo.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| rollId | Int | `@map("roll_id")`. FK → production_rolls, `onDelete: Cascade` |
+| fromStation / toStation | `ProductionStation` | Origen (bodega del último despacho recibido, o `roll.station` si nunca se movió) y bodega destino |
+| mode | `RollTransferMode` | `entrega` (el operario tipeó a quién) / `retiro` (quien se lo lleva escaneó con su cuenta) |
+| carrierName | String | Quién se lleva el rollo |
+| registeredById | Int | `@map("registered_by")`. FK → users, quién escaneó la salida |
+| clientTimezone / clientUtcOffsetMinutes | String / Int | Zona horaria del celular en la salida |
+| notes | String? | |
+| createdAt | DateTime | Hora del servidor en la salida |
+| status | `RollTransferStatus` | `en_transito` / `recibido` |
+| receivedById | Int? | `@map("received_by")`. FK → users, quién lo recibió en destino |
+| receivedAt | DateTime? | Hora del servidor en la recepción |
+| receivedTimezone / receivedUtcOffsetMinutes | String? / Int? | Zona horaria del celular en la recepción |
 
 ### `production_order_attachments`
 

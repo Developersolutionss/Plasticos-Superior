@@ -15,6 +15,7 @@ import { rawMaterialsRouter } from "../../server/src/routes/rawMaterials";
 import { productionRouter } from "../../server/src/routes/production";
 import { productionOrdersRouter } from "../../server/src/routes/productionOrders";
 import { bultoLabelsRouter } from "../../server/src/routes/bultoLabels";
+import { rollTransfersRouter } from "../../server/src/routes/rollTransfers";
 import { dispatchesRouter } from "../../server/src/routes/dispatches";
 import { cotizacionesRouter } from "../../server/src/routes/cotizaciones";
 import { pedidosRouter } from "../../server/src/routes/pedidos";
@@ -115,6 +116,7 @@ function buildApp() {
   app.use("/api/production", productionRouter);
   app.use("/api/production-orders", productionOrdersRouter);
   app.use("/api/bulto-labels", bultoLabelsRouter);
+  app.use("/api/roll-transfers", rollTransfersRouter);
   app.use("/api/dispatches", dispatchesRouter);
   app.use("/api/cotizaciones", cotizacionesRouter);
   app.use("/api/pedidos", pedidosRouter);
@@ -5303,5 +5305,124 @@ describe("frecuentes · ranking, boost por interacciones y purga semanal", () =>
   it("nextVisitState: +1 normal o boost consumido al cruzar el umbral (motor común)", () => {
     assert.deepEqual(nextVisitState({ viewCount: 3, cycleInteractions: 4 }, 10), { viewCount: 11, cycleInteractions: 0 });
     assert.deepEqual(nextVisitState({ viewCount: 3, cycleInteractions: 2 }, 10), { viewCount: 4, cycleInteractions: 3 });
+  });
+});
+
+describe("despacho de rollos a bodegas internas", () => {
+  let orderId = 0;
+  let roll: Awaited<ReturnType<typeof createTestRoll>>;
+  let rollCode = "";
+  const clock = { clientTimezone: "America/Bogota", clientUtcOffsetMinutes: -300 };
+
+  before(async () => {
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-TRASLADO-${Date.now()}`, station: "extrusion", productId: product.id, quantityPlanned: 100 },
+    });
+    orderId = order.id;
+    roll = await createTestRoll(order.id, { weightKg: 40 });
+    rollCode = `${ROLL_CODE_PREFIX.extrusion}-${roll.stationSequence}`;
+  });
+
+  after(async () => {
+    await prisma.rollTransfer.deleteMany({ where: { rollId: roll.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: orderId } });
+    await prisma.productionOrder.delete({ where: { id: orderId } });
+  });
+
+  const post = (role: string, path: string, body: unknown) =>
+    fetch(`${baseUrl}/api/roll-transfers${path}`, { method: "POST", headers: headersFor(role), body: JSON.stringify(body) });
+
+  it("ventas no tiene acceso al módulo", async () => {
+    const res = await fetch(`${baseUrl}/api/roll-transfers`, { headers: headersFor("ventas") });
+    assert.equal(res.status, 403);
+  });
+
+  it("escanear sin el token correcto da 403 (hay que tener el rollo en la mano)", async () => {
+    const res = await fetch(`${baseUrl}/api/roll-transfers/scan/${rollCode}?token=AAAAAAAAAAAAAAAA`, { headers: headersFor("operario_extrusion") });
+    assert.equal(res.status, 403);
+    const create = await post("operario_extrusion", "", { code: rollCode, token: "AAAAAAAAAAAAAAAA", toStation: "sellado", mode: "retiro", ...clock });
+    assert.equal(create.status, 403);
+  });
+
+  it("escanear con el token devuelve el rollo y las bodegas a las que puede ir", async () => {
+    const res = await fetch(`${baseUrl}/api/roll-transfers/scan/${rollCode}?token=${roll.possessionToken}`, { headers: headersFor("operario_extrusion") });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as any;
+    assert.equal(body.roll.code, rollCode);
+    assert.equal(body.roll.remainingKg, 40);
+    assert.deepEqual(body.destinations, ["impresion", "sellado", "precorte"]);
+    assert.equal(body.openTransfer, null);
+    assert.equal(body.roll.possessionTokenHash, undefined, "el hash nunca sale del servidor");
+  });
+
+  it("valida destino, nombre en modo entrega y zona horaria", async () => {
+    const base = { code: rollCode, token: roll.possessionToken, ...clock };
+    assert.equal((await post("operario_extrusion", "", { ...base, toStation: "extrusion", mode: "retiro" })).status, 400);
+    assert.equal((await post("operario_extrusion", "", { ...base, toStation: "sellado", mode: "entrega" })).status, 400);
+    assert.equal((await post("operario_extrusion", "", { ...base, toStation: "sellado", mode: "retiro", clientTimezone: "Marte/Olympus" })).status, 400);
+  });
+
+  it("entrega: el operario tipea quién se lo lleva; no se puede despachar dos veces sin recibir", async () => {
+    const res = await post("operario_extrusion", "", {
+      code: rollCode,
+      token: roll.possessionToken,
+      toStation: "sellado",
+      mode: "entrega",
+      carrierName: "Juan Camionero",
+      ...clock,
+    });
+    assert.equal(res.status, 201);
+    const transfer = (await res.json()) as any;
+    assert.equal(transfer.carrierName, "Juan Camionero");
+    assert.equal(transfer.registeredBy.name, "Operario Extrusión");
+    assert.equal(transfer.status, "en_transito");
+    assert.equal(transfer.clientTimezone, "America/Bogota");
+    assert.equal(transfer.rollCode, rollCode);
+
+    const again = await post("operario_extrusion", "", { code: rollCode, token: roll.possessionToken, toStation: "precorte", mode: "retiro", ...clock });
+    assert.equal(again.status, 409);
+  });
+
+  it("recepción: solo un operario de la bodega destino, con el QR, y una sola vez", async () => {
+    const open = await prisma.rollTransfer.findFirstOrThrow({ where: { rollId: roll.id, status: "en_transito" } });
+    const body = { code: rollCode, token: roll.possessionToken, clientTimezone: "America/Lima", clientUtcOffsetMinutes: -300 };
+
+    assert.equal((await post("operario_precorte", `/${open.id}/receive`, body)).status, 403, "otra bodega no lo recibe");
+    assert.equal((await post("operario_sellado", `/${open.id}/receive`, { ...body, token: "AAAAAAAAAAAAAAAA" })).status, 403);
+
+    const ok = await post("operario_sellado", `/${open.id}/receive`, body);
+    assert.equal(ok.status, 200);
+    const received = (await ok.json()) as any;
+    assert.equal(received.status, "recibido");
+    assert.equal(received.receivedBy.name, "Operario Sellado");
+    assert.equal(received.receivedTimezone, "America/Lima");
+
+    assert.equal((await post("operario_sellado", `/${open.id}/receive`, body)).status, 409);
+  });
+
+  it("retiro: queda a nombre de la cuenta que escanea; el historial filtra por bodega", async () => {
+    const res = await post("almacen", "", { code: rollCode, token: roll.possessionToken, toStation: "precorte", mode: "retiro", carrierName: "ignorado", ...clock });
+    assert.equal(res.status, 201);
+    const transfer = (await res.json()) as any;
+    assert.equal(transfer.mode, "retiro");
+    assert.equal(transfer.carrierName, "Encargado Despacho");
+    assert.equal(transfer.fromStation, "sellado", "sale de la bodega donde lo recibieron, no de su estación de origen");
+
+    const list = (await (await fetch(`${baseUrl}/api/roll-transfers?toStation=precorte&status=en_transito`, { headers: headersFor("operario_precorte") })).json()) as any[];
+    assert.ok(list.some((t) => t.id === transfer.id));
+    assert.ok(list.every((t) => t.toStation === "precorte" && t.status === "en_transito"));
+  });
+
+  it("anular es solo de Gestión y solo mientras está en tránsito", async () => {
+    const received = await prisma.rollTransfer.findFirstOrThrow({ where: { rollId: roll.id, status: "recibido" } });
+    const deniedReceived = await fetch(`${baseUrl}/api/roll-transfers/${received.id}`, { method: "DELETE", headers: headersFor("produccion") });
+    assert.equal(deniedReceived.status, 400);
+
+    const open = await prisma.rollTransfer.findFirstOrThrow({ where: { rollId: roll.id, status: "en_transito" } });
+    const denied = await fetch(`${baseUrl}/api/roll-transfers/${open.id}`, { method: "DELETE", headers: headersFor("operario_extrusion") });
+    assert.equal(denied.status, 403);
+    const ok = await fetch(`${baseUrl}/api/roll-transfers/${open.id}`, { method: "DELETE", headers: headersFor("produccion") });
+    assert.equal(ok.status, 204);
   });
 });

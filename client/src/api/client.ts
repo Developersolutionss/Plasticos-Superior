@@ -73,6 +73,56 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
+export type ProductionStation = "extrusion" | "impresion" | "sellado" | "precorte";
+
+/** Despacho de un rollo a la bodega de otra estación (ver RollTransfer en
+ * server/prisma/schema.prisma). `createdAt`/`receivedAt` son hora del
+ * servidor; `clientTimezone`/`receivedTimezone`, la zona horaria del
+ * celular que escaneó cada paso. */
+export interface RollTransfer {
+  id: number;
+  rollId: number;
+  rollCode: string;
+  fromStation: ProductionStation;
+  toStation: ProductionStation;
+  mode: "entrega" | "retiro";
+  carrierName: string;
+  registeredBy: { name: string };
+  clientTimezone: string;
+  clientUtcOffsetMinutes: number;
+  notes: string | null;
+  createdAt: string;
+  status: "en_transito" | "recibido";
+  receivedBy: { name: string } | null;
+  receivedAt: string | null;
+  receivedTimezone: string | null;
+  receivedUtcOffsetMinutes: number | null;
+  roll: {
+    id: number;
+    station: ProductionStation;
+    stationSequence: number;
+    weightKg: string;
+    productionOrder: { id: number; orderNumber: string; product: { name: string; sku: string } };
+  };
+}
+
+export interface RollTransferScan {
+  roll: {
+    id: number;
+    code: string;
+    station: ProductionStation;
+    stationSequence: number;
+    weightKg: string;
+    remainingKg: number;
+    operatorName: string;
+    date: string;
+    productionOrder: { id: number; orderNumber: string; product: { name: string; sku: string } };
+  };
+  destinations: ProductionStation[];
+  openTransfer: RollTransfer | null;
+  lastTransfer: RollTransfer | null;
+}
+
 export const api = {
   login: (email: string, password: string, totpToken?: string) =>
     request<{
@@ -373,6 +423,32 @@ export const api = {
    * antes de terminar de llenar la fila). */
   getProductionRollByCode: (code: string, token?: string) =>
     request<any>(`/production-orders/rolls/by-code/${encodeURIComponent(code)}${token ? `?token=${encodeURIComponent(token)}` : ""}`),
+  // ---- Despacho de rollos entre bodegas internas (Extrusión/Impresión ->
+  // Impresión/Sellado/Precorte), ver server/src/routes/rollTransfers.ts ----
+  /** Qué rollo se escaneó, a dónde puede ir y si ya hay un despacho en
+   * tránsito. Exige el token del QR (403 si no matchea). */
+  scanRollForTransfer: (code: string, token: string) =>
+    request<RollTransferScan>(`/roll-transfers/scan/${encodeURIComponent(code)}?token=${encodeURIComponent(token)}`),
+  getRollTransfers: (filters: { status?: string; toStation?: string; fromStation?: string; from?: string; to?: string } = {}) => {
+    const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]);
+    const qs = params.toString();
+    return request<RollTransfer[]>(`/roll-transfers${qs ? `?${qs}` : ""}`);
+  },
+  createRollTransfer: (data: {
+    code: string;
+    token: string;
+    toStation: string;
+    mode: "entrega" | "retiro";
+    carrierName?: string;
+    notes?: string;
+    clientTimezone: string;
+    clientUtcOffsetMinutes: number;
+  }) => request<RollTransfer>("/roll-transfers", { method: "POST", body: JSON.stringify(data) }),
+  receiveRollTransfer: (
+    id: number,
+    data: { code: string; token: string; notes?: string; clientTimezone: string; clientUtcOffsetMinutes: number }
+  ) => request<RollTransfer>(`/roll-transfers/${id}/receive`, { method: "POST", body: JSON.stringify(data) }),
+  deleteRollTransfer: (id: number) => request<void>(`/roll-transfers/${id}`, { method: "DELETE" }),
   // ---- Etiquetas de bulto (Sellado/Precorte): pre-impresas por Gestión,
   // el operario escanea la que le tocó en vez de tipear E. BULTO. ----
   getBultoLabels: (status?: string) => request<any[]>(`/bulto-labels${status ? `?status=${status}` : ""}`),

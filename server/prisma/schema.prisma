@@ -104,6 +104,21 @@ enum ProductionStation {
   precorte
 }
 
+/// Cómo se registró un despacho de rollo a otra bodega (ver RollTransfer):
+/// `entrega` = el operario de origen escanea y TIPEA a quién se lo entregó;
+/// `retiro` = quien se lleva el rollo lo escanea con su propia cuenta.
+enum RollTransferMode {
+  entrega
+  retiro
+}
+
+/// `en_transito` desde que el rollo sale hasta que el operario de la bodega
+/// destino escanea su QR al recibirlo (`recibido`).
+enum RollTransferStatus {
+  en_transito
+  recibido
+}
+
 enum BultoLabelStatus {
   disponible
   usada
@@ -201,6 +216,8 @@ model User {
   bultoLabelsUsed       BultoLabel[] @relation("BultoLabelUsedBy")
   bultoLabelsCreated    BultoLabel[] @relation("BultoLabelCreatedBy")
   clientManualProducts  ClientManualProduct[]
+  rollTransfers         RollTransfer[] @relation("RollTransferRegisteredBy")
+  rollTransfersReceived RollTransfer[] @relation("RollTransferReceivedBy")
 
   @@map("users")
 }
@@ -739,6 +756,7 @@ model ProductionRoll {
   possessionTokenHash String        @map("possession_token_hash")
 
   bultoLabel        BultoLabel?
+  transfers         RollTransfer[]
 
   @@unique([station, stationSequence])
   @@map("production_rolls")
@@ -770,6 +788,52 @@ model RollConsumption {
   @@index([rollId])
   @@index([sourceRollId])
   @@map("roll_consumptions")
+}
+
+/// Despacho de un rollo de su estación (Extrusión, Impresión) a la bodega
+/// de otra estación (Impresión/Sellado/Precorte) -- cada una tiene su
+/// bodega aparte y el rollo se transporta físicamente. Se registra
+/// escaneando el QR del rollo (código + token de posesión, así nadie
+/// despacha un rollo que no tiene en la mano). Un rollo puede tener varios:
+/// su ubicación actual es el último.
+/// `carrierName` es quién se lo lleva: en `entrega` lo tipea el operario de
+/// origen; en `retiro` es el nombre de la cuenta de quien escaneó.
+/// `createdAt` es la hora del SERVIDOR (no se confía en el reloj del
+/// celular); `clientTimezone`/`clientUtcOffsetMinutes` son la zona horaria
+/// del celular que escaneó, para mostrar la hora tal cual la vio el
+/// operario. Mismo criterio para la recepción (`received*`): el operario
+/// de la bodega destino escanea el QR al llegar el rollo y queda su cuenta,
+/// la hora del servidor y la zona horaria de SU celular.
+model RollTransfer {
+  id                     Int               @id @default(autoincrement())
+  rollId                 Int               @map("roll_id")
+  /// Cascade: si Gestión borra un rollo cargado por error (DELETE
+  /// /production-orders/:id/rolls/:rollId), sus despachos también eran un
+  /// error -- no hay rollo que rastrear.
+  roll                   ProductionRoll    @relation(fields: [rollId], references: [id], onDelete: Cascade)
+  /// Dónde estaba el rollo al salir: la bodega del último despacho
+  /// recibido, o `roll.station` si nunca se movió.
+  fromStation            ProductionStation @map("from_station")
+  toStation              ProductionStation @map("to_station")
+  mode                   RollTransferMode
+  carrierName            String            @map("carrier_name")
+  registeredById         Int               @map("registered_by")
+  registeredBy           User              @relation("RollTransferRegisteredBy", fields: [registeredById], references: [id])
+  clientTimezone         String            @map("client_timezone")
+  clientUtcOffsetMinutes Int               @map("client_utc_offset_minutes")
+  notes                  String?
+  createdAt              DateTime          @default(now()) @map("created_at")
+
+  status                   RollTransferStatus @default(en_transito)
+  receivedById             Int?               @map("received_by")
+  receivedBy               User?              @relation("RollTransferReceivedBy", fields: [receivedById], references: [id])
+  receivedAt               DateTime?          @map("received_at")
+  receivedTimezone         String?            @map("received_timezone")
+  receivedUtcOffsetMinutes Int?               @map("received_utc_offset_minutes")
+
+  @@index([rollId])
+  @@index([toStation, createdAt])
+  @@map("roll_transfers")
 }
 
 /// Etiqueta física de bulto pre-impresa con QR (Sellado): a diferencia del

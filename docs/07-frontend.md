@@ -327,6 +327,12 @@ Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía r
 - Genera lotes de etiquetas de bulto (`E. BULTO-*`, `BultoLabel`) e imprime stickers térmicos 40×30 mm con QR (mismo patrón de ventana nueva que `Productos.tsx`).
 - Es solo para mercancía **comprada afuera** que entra como bulto — no para rollos que el sistema ya etiqueta solo al cargarlos. El operario escanea la etiqueta usada al cargar el rollo en vez de tipear el número a mano; una etiqueta usada no se puede volver a escanear.
 
+### `DespachoBodegas.tsx`
+- Ruta `/produccion/despacho-bodegas` (roles `DESPACHO_BODEGAS`: operarios, gestión de producción y almacén). Botón "Escanear rollo" → `GET /roll-transfers/scan`.
+- Sin despacho en tránsito: el operario elige la bodega destino y quién se lo lleva ("Se lo entrego a alguien" + nombre tipeado, o "Me lo llevo yo" = su cuenta). Con despacho en tránsito: botón "Confirmar recepción", solo visible para un operario de la bodega destino.
+- Manda la zona horaria del celular (`Intl.DateTimeFormat().resolvedOptions().timeZone` y `-getTimezoneOffset()`); el historial muestra cada hora en la zona horaria del celular que registró ese paso.
+- El helper `splitScannedCode` (código + token del QR) está en `lib/rollQr.ts`, compartido con `OrdenProduccionDetalle.tsx`.
+
 ### `MateriaPrima.tsx`
 - CRUD del catálogo de insumos de Extrusión (`RawMaterial`) y su stock (`RawMaterialStock`): crear/editar/desactivar/reactivar, ver alertas de mínimo y el historial de movimientos, y hacer ajustes manuales de entrada/salida.
 - El descuento automático (al cerrar una OP de Extrusión) no pasa por acá — es lógica de servidor. Ver [08 — Reglas de negocio](08-workflow.md).
