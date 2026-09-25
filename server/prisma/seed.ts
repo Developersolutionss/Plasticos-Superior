@@ -349,6 +349,53 @@ async function main() {
           },
         },
       });
+
+      // Despacho de rollos a bodegas (roll_transfers): un ejemplo de cada
+      // estado, sobre los 2 rollos de Extrusión recién creados (R-001,
+      // R-002), para que la pantalla "Despacho a bodegas" no arranque
+      // vacía. Mismo guard `!existingSeedExtrusion` que el resto de este
+      // bloque -- son parte de la misma cadena demo.
+      const [r001, r002] = await Promise.all([
+        prisma.productionRoll.findFirstOrThrow({ where: { productionOrderId: extrusionOp.id, label: "R-001" } }),
+        prisma.productionRoll.findFirstOrThrow({ where: { productionOrderId: extrusionOp.id, label: "R-002" } }),
+      ]);
+      const [opImpresion, opSellado] = await Promise.all([
+        prisma.user.findUniqueOrThrow({ where: { email: "operario.impresion@empresa.com" } }),
+        prisma.user.findUniqueOrThrow({ where: { email: "operario.sellado@empresa.com" } }),
+      ]);
+      await prisma.rollTransfer.create({
+        data: {
+          rollId: r001.id,
+          fromStation: "extrusion",
+          toStation: "impresion",
+          mode: "retiro",
+          carrierName: opImpresion.name,
+          registeredById: opImpresion.id,
+          clientTimezone: "America/Bogota",
+          clientUtcOffsetMinutes: -300,
+          status: "recibido",
+          receivedById: opImpresion.id,
+          receivedAt: new Date(),
+          receivedTimezone: "America/Bogota",
+          receivedUtcOffsetMinutes: -300,
+        },
+      });
+      await prisma.rollTransfer.create({
+        data: {
+          rollId: r002.id,
+          fromStation: "extrusion",
+          toStation: "sellado",
+          mode: "entrega",
+          carrierName: "Camionero Demo",
+          registeredById: opSellado.id,
+          clientTimezone: "America/Bogota",
+          clientUtcOffsetMinutes: -300,
+          // Sin recibir a propósito: para poder probar "Confirmar recepción"
+          // manualmente contra data de seed, sin tener que crear un rollo
+          // nuevo desde cero.
+          status: "en_transito",
+        },
+      });
     }
 
     // OP en "borrador": Gestión la está armando (specs a medio cargar, sin

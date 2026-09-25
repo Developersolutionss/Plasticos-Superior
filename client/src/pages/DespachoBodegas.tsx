@@ -244,6 +244,11 @@ export default function DespachoBodegas() {
                 <p className="text-sm text-slate-500 dark:text-slate-400">Lo tiene que recibir un operario de {stationLabel(open.toStation)}.</p>
               )}
             </div>
+          ) : Number(info.roll.remainingKg) <= 0 ? (
+            // Mismo chequeo que hace POST / dentro de la transacción (server
+            // es la autoridad) -- acá es solo para no dejar llenar todo el
+            // formulario y recién enterarse con un 400 al enviar.
+            <p className="text-sm text-slate-500 dark:text-slate-400">El rollo {info.roll.code} ya se consumió entero — no queda nada que despachar.</p>
           ) : info.destinations.length === 0 ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">Los rollos de {stationLabel(info.roll.station)} no se despachan a otra bodega.</p>
           ) : (

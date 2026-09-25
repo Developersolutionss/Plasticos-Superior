@@ -2054,6 +2054,52 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
 
+  it("un rollo madre 'en tránsito' hacia otra bodega (ver roll-transfers) no se puede consumir hasta que se confirme la recepción", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 20 },
+    });
+    const source = await createTestRoll(parent.id, { weightKg: 20 });
+    const child = await prisma.productionOrder.create({
+      data: { orderNumber: parent.orderNumber, station: "impresion", productId, quantityPlanned: 20, parentOrderId: parent.id },
+    });
+    const transfer = await prisma.rollTransfer.create({
+      data: {
+        rollId: source.id,
+        fromStation: "extrusion",
+        toStation: "impresion",
+        mode: "retiro",
+        carrierName: "Camionero Test",
+        registeredById: (await prisma.user.findFirstOrThrow({ where: { email: "operario.extrusion@empresa.com" } })).id,
+        clientTimezone: "America/Bogota",
+        clientUtcOffsetMinutes: -300,
+      },
+    });
+
+    const blocked = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ weightKg: 5, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
+    });
+    assert.equal(blocked.status, 400, "el rollo sigue en tránsito, no se puede consumir todavía");
+    const blockedBody = (await blocked.json()) as { error: string };
+    assert.match(blockedBody.error, /en tránsito/);
+
+    // Una vez recibido, sí se puede consumir normalmente.
+    await prisma.rollTransfer.update({ where: { id: transfer.id }, data: { status: "recibido", receivedAt: new Date() } });
+    const allowed = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ weightKg: 5, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
+    });
+    assert.equal(allowed.status, 201, "una vez recibido, el rollo se puede consumir");
+
+    await prisma.rollTransfer.deleteMany({ where: { rollId: source.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: child.id } });
+    await prisma.productionOrder.delete({ where: { id: child.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: parent.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
   /** Arma un padre de Extrusión con los rollos madre pedidos y una OP hija
    * de la estación indicada, para los tests de consumo parcial. */
   async function setupRolloMadre(station: "sellado" | "precorte", pesos: number[]) {
@@ -5399,6 +5445,24 @@ describe("despacho de rollos a bodegas internas", () => {
     assert.equal(received.receivedTimezone, "America/Lima");
 
     assert.equal((await post("operario_sellado", `/${open.id}/receive`, body)).status, 409);
+  });
+
+  it("recibir escaneando el QR de OTRO rollo (no el del despacho) se rechaza", async () => {
+    const otherRoll = await createTestRoll(orderId, { weightKg: 10 });
+    const otherCode = `${ROLL_CODE_PREFIX.extrusion}-${otherRoll.stationSequence}`;
+    const dispatch = await post("operario_extrusion", "", { code: otherCode, token: otherRoll.possessionToken, toStation: "impresion", mode: "retiro", ...clock });
+    assert.equal(dispatch.status, 201);
+    const transfer = (await dispatch.json()) as any;
+
+    // Escanea el QR del `roll` de la fixture (un rollo real, pero NO el de
+    // este despacho) al intentar recibir el despacho de `otherRoll`.
+    const wrongScan = await post("operario_impresion", `/${transfer.id}/receive`, { code: rollCode, token: roll.possessionToken, ...clock });
+    assert.equal(wrongScan.status, 400);
+    const body = (await wrongScan.json()) as { error: string };
+    assert.match(body.error, /no es el del rollo/);
+
+    await prisma.rollTransfer.deleteMany({ where: { rollId: otherRoll.id } });
+    await prisma.productionRoll.delete({ where: { id: otherRoll.id } });
   });
 
   it("retiro: queda a nombre de la cuenta que escanea; el historial filtra por bodega", async () => {

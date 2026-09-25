@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { getLowStockAlerts } from "../services/stockService";
+import { localDayBoundary } from "../services/dateRange";
 
 export const dashboardRouter = Router();
 dashboardRouter.use(requireAuth);
@@ -290,19 +291,6 @@ dashboardRouter.get("/resumen", async (req, res) => {
  * el schema. Rango configurable por querystring (`from`/`to`, YYYY-MM-DD);
  * sin params, cae al comportamiento de siempre (últimos 30 días).
  */
-/**
- * Arma el límite de un día (inicio o fin) a partir de un "YYYY-MM-DD" en la
- * hora LOCAL del servidor. `new Date("YYYY-MM-DD")` parsea como medianoche
- * UTC — combinarlo con setHours/setUTCHours después queda mal en cualquier
- * huso con offset != 0 (en America/Bogota, UTC-5, se pierden horas del día
- * elegido). Parsear los componentes a mano y pasarlos al constructor local
- * evita el problema para cualquier huso horario donde corra el servidor.
- */
-function localDayBoundary(dateStr: string, end: boolean): Date {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  return end ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(year, month - 1, day, 0, 0, 0, 0);
-}
-
 dashboardRouter.get("/indicadores", async (req, res) => {
   const defaultSince = new Date();
   defaultSince.setDate(defaultSince.getDate() - 30);

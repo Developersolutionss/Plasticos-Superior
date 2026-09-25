@@ -26,6 +26,7 @@ import {
 import { generatePossessionToken, hashPossessionToken, verifyPossessionToken } from "../services/rollPossessionToken";
 import { checkRateLimit } from "../services/rateLimiter";
 import { LEGACY_ROLL_CODE_RE, PREFIX_TO_STATION, ROLL_CODE_RE } from "../services/rollCode";
+import { localDayBoundary } from "../services/dateRange";
 
 /** 50 verificaciones de token por minuto y por usuario -- ver
  * rateLimiter.ts: es un freno de rendimiento para un cliente en loop, no un
@@ -196,17 +197,6 @@ productionOrdersRouter.get("/pending-planning", requireProduccionGestion, async 
 
   res.json(pending);
 });
-
-/**
- * Arma el límite de un día (inicio o fin) a partir de un "YYYY-MM-DD" en la
- * hora LOCAL del servidor — mismo criterio que dashboard.ts (evita el
- * corrimiento de horas que da `new Date("YYYY-MM-DD")` + setHours en husos
- * horarios != 0).
- */
-function localDayBoundary(dateStr: string, end: boolean): Date {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  return end ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(year, month - 1, day, 0, 0, 0, 0);
-}
 
 /**
  * Reporte pedido por Gestión (ver audio de la reunión con el cliente): hoy
@@ -1237,6 +1227,20 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     const code = sourceRollCode(source);
     if (!tokenVisible || !verifyPossessionToken(code, tokenVisible, source.possessionTokenHash)) {
       return res.status(403).json({ error: `Falta demostrar posesión física del rollo ${code} — escaneá su QR` });
+    }
+    // Si el rollo está "en tránsito" (ver rollTransfers.ts) hacia otra
+    // bodega, todavía no llegó de verdad a donde sea que esté físicamente
+    // parado ahora mismo — tener el QR (y hasta el rollo en la mano, si
+    // alguien lo escaneó antes de que saliera) no alcanza para consumirlo acá
+    // sin que primero alguien confirme la recepción del lado de destino. Sin
+    // este chequeo, "Recibir" quedaba en los hechos opcional: el despacho
+    // podía seguir "en_transito" para siempre en el historial mientras el
+    // rollo ya se consumía río abajo.
+    const openTransfer = await prisma.rollTransfer.findFirst({ where: { rollId: sourceRollId, status: "en_transito" } });
+    if (openTransfer) {
+      return res.status(400).json({
+        error: `El rollo ${code} está en tránsito hacia ${STATION_LABELS[openTransfer.toStation as OpStation]} — hay que confirmar que llegó (Despacho a bodegas) antes de poder consumirlo`,
+      });
     }
     sourceRollById.set(sourceRollId, { station: source.station as OpStation, stationSequence: source.stationSequence });
   }

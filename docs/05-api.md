@@ -251,6 +251,8 @@ La hora es siempre la del servidor. `clientTimezone` (IANA, ej. `America/Bogota`
 | POST | `/api/roll-transfers/:id/receive` | `{ code, token, notes?, clientTimezone, clientUtcOffsetMinutes }` | Registra la recepción. 403 si el operario es de otra estación; 409 si ya se recibió |
 | DELETE | `/api/roll-transfers/:id` | — | (gestión de producción) Anula un despacho registrado por error. Solo si sigue en tránsito: uno ya recibido no se borra |
 
+**Corregido en QA**: `POST /:id/rolls` (registro de rollos, ver arriba) no chequeaba si el rollo madre escaneado tenía un despacho `en_transito` abierto — se podía escanear y consumir un rollo que salió hacia otra bodega sin que nadie hubiera confirmado que llegó, dejando el paso de "Recibir" en los hechos opcional. Ahora, mientras el rollo esté `en_transito`, consumirlo como insumo se rechaza con 400 hasta que se confirme la recepción. También se corrigió un error de build (`resolveScannedRoll` sin tipo de retorno explícito hacía fallar `tsc`/`npm run build --workspace=server`) y se agregaron 2 rollos de ejemplo (uno `recibido`, otro `en_transito`) al seed para que la pantalla no arranque vacía.
+
 ### Despachos
 
 Un despacho puede nacer manual (`POST /`, Almacén) o **automático**: al aprobar Calidad una OP con cliente asignado, se crea solo (ver "Órdenes de producción" arriba, `POST /production-orders/:id/quality-check`) — en ese caso queda enlazado a la OP (`Dispatch.productionOrderId`), lo que además bloquea reabrir esa OP mientras el despacho siga vivo.

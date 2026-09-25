@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import type { Prisma } from "../generated/prisma/client";
+import type { Prisma, ProductionRoll } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
 import { DERIVATIONS, OpStation, ROLL_CODE_PREFIX, STATION_LABELS } from "../services/opTemplates";
@@ -8,6 +8,7 @@ import { remainingSourceKg } from "../services/rollBalance";
 import { verifyPossessionToken } from "../services/rollPossessionToken";
 import { checkRateLimit } from "../services/rateLimiter";
 import { rollWhereFromCode } from "../services/rollCode";
+import { localDayBoundary } from "../services/dateRange";
 
 /**
  * Despacho de rollos entre las bodegas internas de planta (ver
@@ -77,11 +78,17 @@ function withRollCode<T extends { roll: { station: string; stationSequence: numb
   return { ...transfer, rollCode: rollCode(transfer.roll) };
 }
 
+/** Unión discriminada explícita en vez de dejar que TS infiera el retorno de
+ * los `return` sueltos de abajo -- sin esto, el compilador no reduce bien
+ * `result.error` a definido dentro de cada `if ("error" in result)` de los
+ * call sites (TS18048), aunque en runtime nunca puede faltar. */
+type ScannedRollResult = { error: { status: number; error: string } } | { roll: ProductionRoll };
+
 /**
  * Busca el rollo escaneado y verifica su token de posesión. Devuelve el
  * rollo o la respuesta de error ya armada ({ status, error }).
  */
-async function resolveScannedRoll(code: string, token: string, userId: number) {
+async function resolveScannedRoll(code: string, token: string, userId: number): Promise<ScannedRollResult> {
   const where = rollWhereFromCode(code);
   if (!where) return { error: { status: 400, error: "Código de rollo inválido" } } as const;
   const roll = await prisma.productionRoll.findUnique({ where });
@@ -101,13 +108,6 @@ async function resolveScannedRoll(code: string, token: string, userId: number) {
 function canReceiveAt(role: string, station: string): boolean {
   const allowed = OPERARIO_STATIONS[role as keyof typeof OPERARIO_STATIONS];
   return !allowed || allowed.includes(station);
-}
-
-/** Límite de un día "YYYY-MM-DD" en la hora local del servidor — mismo
- * criterio que localDayBoundary en productionOrders.ts. */
-function localDayBoundary(dateStr: string, end: boolean): Date {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  return end ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(year, month - 1, day, 0, 0, 0, 0);
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
