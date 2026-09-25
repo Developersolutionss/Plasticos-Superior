@@ -73,6 +73,7 @@ El avance real frente al plan se detalla a continuación.
 |---|---|---|
 | 18 | Etiquetas térmicas | ✅ Implementado (impresión de etiquetas con QR desde el navegador, en Productos; no es integración con hardware de impresora térmica específico) |
 | 19 | Escaneo QR / código de barras | ✅ Implementado (escaneo por cámara del navegador: producto en Despachos y Almacén, OP en la estación de producción, ubicación de bodega en Almacén) |
+| — | Despacho de rollos a bodegas | ✅ Implementado (salida desde Extrusión/Impresión hacia las bodegas de Impresión, Sellado y Precorte, más recepción en destino, escaneando el QR con token de posesión; queda quién lo entregó, quién se lo llevó, quién lo recibió, la hora y la zona horaria del celular — ver `/api/roll-transfers`) |
 | 20 | Notificaciones | ✅ Implementado (notificaciones in-app; hoy solo dos disparadores: OP lista para calidad y OP rechazada en calidad) |
 | 21 | Pruebas finales y despliegue | ❌ Pendiente |
 
@@ -92,8 +93,6 @@ para cuando la interpretación de abajo no alcance a cubrir el detalle pedido.
 
 | Idea | Interpretación |
 |---|---|
-| Bodegas por estación con registro de recepción | Hoy Almacén/WMS tiene ubicaciones genéricas (estante/rack/zona), sin distinguir una bodega física por estación. La idea pide una bodega propia para Sellado, Precorte e Impresión, con un registro de **qué operario entrega y qué camionero recibe** el material al transportarlo entre estaciones — hoy ese traspaso no queda registrado en el sistema |
-| Flujo de transporte automatizado con QR | Ligado a lo anterior: que escanear el QR del rollo al recibirlo en la bodega de destino registre solo el traspaso (quién lo entregó, quién lo recibió, cuándo), en vez de anotarlo aparte. Nota de ambigüedad: el texto original menciona "QRs" en plural sin más detalle — falta confirmar si es un QR por rollo (el que ya existe) o un QR distinto por bodega/traspaso |
 | Vista de trazabilidad de un rollo individual | Hoy `Trazabilidad.tsx` muestra el historial completo de una **OP** (todas sus estaciones). Falta una vista que, dado el código de un rollo puntual (`EXT-12`, `PRE-30`...), muestre su información y su historial propio — de dónde salió, qué rollos hijos generó, en qué OP quedó — sin tener que abrir toda la OP |
 | Rollos hijos de un rollo madre | El sistema ya guarda de qué rollo(s) madre salió un rollo chico (`sourceRollId`, `RollConsumption` — ver [04 — Base de datos](04-database.md)), pero no hay una vista que haga el camino inverso: dado un rollo madre, listar todos los rollos hijos que salieron de él. Es la mitad que falta de la trazabilidad de rollo madre/hijo |
 

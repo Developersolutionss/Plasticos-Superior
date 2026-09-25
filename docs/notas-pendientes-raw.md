@@ -14,8 +14,9 @@ Mejoras de UI sobre `OrdenProduccionDetalle.tsx` (ver [07 — Frontend](07-front
 Funcionalidad todavía no implementada (backlog, ver [00 — Hoja de ruta](00-roadmap.md)):
 
 - "3 bodegas (sellado, pre-corte, impresion), debe haber un registro de que operario y camionero
-  lo recibe y registra"
-- "flujo automatico por medio de qr a hora de transportar QRs"
+  lo recibe y registra" → **hecho**: Despacho a bodegas (`DespachoBodegas.tsx`, `/api/roll-transfers`).
+- "flujo automatico por medio de qr a hora de transportar QRs" → **hecho**: se usa el mismo QR del rollo
+  (código + token) para la salida y para la recepción.
 - "vista de visualizacion de informacion de cualquier rollo, para mejor trasabilidad"
 - "Implementar los rollos hijos de los rollos madres"
 

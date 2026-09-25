@@ -25,6 +25,7 @@ import {
 } from "../services/rollBalance";
 import { generatePossessionToken, hashPossessionToken, verifyPossessionToken } from "../services/rollPossessionToken";
 import { checkRateLimit } from "../services/rateLimiter";
+import { LEGACY_ROLL_CODE_RE, PREFIX_TO_STATION, ROLL_CODE_RE } from "../services/rollCode";
 
 /** 50 verificaciones de token por minuto y por usuario -- ver
  * rateLimiter.ts: es un freno de rendimiento para un cliente en loop, no un
@@ -261,18 +262,6 @@ productionOrdersRouter.get("/reports/por-operario", requireProduccionGestion, as
   const result = [...groups.values()].sort((a, b) => (a.day !== b.day ? (a.day < b.day ? 1 : -1) : a.operatorName.localeCompare(b.operatorName)));
   res.json(result);
 });
-
-// Cada estación numera aparte, arrancando en 1 (ver ProductionRoll.station/
-// stationSequence en el schema) — el código captura el prefijo Y el número
-// para poder resolver por ambos, no solo por el número.
-const ROLL_CODE_RE = /^(EXT|IMP|SELL|PRE)-(\d+)$/;
-// Formato viejo, de ANTES de tener prefijo por estación (ver 51fc5ed): el
-// número era el id global de la tabla. Las etiquetas físicas ya impresas con
-// este formato (pegadas en rollos que todavía pueden estar circulando en
-// planta) tienen que seguir resolviendo — si no, un operario que escanea un
-// rollo viejo se encuentra con "código inválido" de la nada.
-const LEGACY_ROLL_CODE_RE = /^RL-(\d+)$/;
-const PREFIX_TO_STATION: Record<string, OpStation> = { EXT: "extrusion", IMP: "impresion", SELL: "sellado", PRE: "precorte" };
 
 /**
  * Resuelve un rollo por el código de su etiqueta QR (`<prefijo>-<n>`, ver

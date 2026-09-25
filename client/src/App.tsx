@@ -13,6 +13,7 @@ import NuevoCliente from "./pages/NuevoCliente";
 import OrdenesProduccion from "./pages/OrdenesProduccion";
 import ProduccionPorOperario from "./pages/ProduccionPorOperario";
 import EtiquetasBulto from "./pages/EtiquetasBulto";
+import DespachoBodegas from "./pages/DespachoBodegas";
 import OrdenProduccionDetalle from "./pages/OrdenProduccionDetalle";
 import Planeacion from "./pages/Planeacion";
 import Calidad from "./pages/Calidad";
@@ -52,6 +53,7 @@ import {
   EXISTENCIAS,
   CATALOGO_GESTION,
   DESPACHOS_LECTURA,
+  DESPACHO_BODEGAS,
 } from "./components/navConfig";
 
 /** La hoja de una OP la ven todos los que participan del ciclo: operarios y
@@ -313,6 +315,14 @@ export default function App() {
           element={
             <RequireRole roles={PRODUCCION_GESTION}>
               <EtiquetasBulto />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="produccion/despacho-bodegas"
+          element={
+            <RequireRole roles={DESPACHO_BODEGAS}>
+              <DespachoBodegas />
             </RequireRole>
           }
         />
