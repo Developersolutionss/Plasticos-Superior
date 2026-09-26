@@ -340,6 +340,14 @@ productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
  */
 productionOrdersRouter.get("/trace/by-code/:code", async (req, res) => {
   const code = req.params.code.trim().toUpperCase();
+  // Misma regla de visibilidad que GET /:id: un operario puro no ve una OP
+  // en borrador (ni confirma que ese número existe).
+  const hideDraft = OPERARIO_ONLY_ROLES.includes(req.user!.role);
+  const visible = async (orderId: number) => {
+    if (!hideDraft) return true;
+    const o = await prisma.productionOrder.findUnique({ where: { id: orderId }, select: { status: true } });
+    return !!o && o.status !== "borrador";
+  };
 
   // Etiqueta de bulto primero: tiene la forma inconfundible EXT- + 5 cifras
   // (ver handleScanAny en la hoja de OP), que también matchearía como rollo.
@@ -350,6 +358,7 @@ productionOrdersRouter.get("/trace/by-code/:code", async (req, res) => {
     });
     if (label) {
       if (!label.usedByRoll) return res.status(404).json({ error: `La etiqueta de bulto ${code} todavía no se usó en ningún rollo` });
+      if (!(await visible(label.usedByRoll.productionOrderId))) return res.status(404).json({ error: `No existe el rollo ${code}` });
       return res.json({ kind: "bulto", orderId: label.usedByRoll.productionOrderId, rollId: label.usedByRoll.id });
     }
   }
@@ -362,14 +371,14 @@ productionOrdersRouter.get("/trace/by-code/:code", async (req, res) => {
       orderBy: [{ parentOrderId: { sort: "asc", nulls: "first" } }, { id: "asc" }],
       select: { id: true },
     });
-    if (!order) return res.status(404).json({ error: `No existe la OP ${code}` });
+    if (!order || !(await visible(order.id))) return res.status(404).json({ error: `No existe la OP ${code}` });
     return res.json({ kind: "op", orderId: order.id, rollId: null });
   }
 
   const where = rollWhereFromCode(code);
   if (!where) return res.status(400).json({ error: "Código no reconocido — escaneá el QR de un rollo, una etiqueta de bulto o escribí el número de OP" });
   const roll = await prisma.productionRoll.findUnique({ where, select: { id: true, productionOrderId: true } });
-  if (!roll) return res.status(404).json({ error: `No existe el rollo ${code}` });
+  if (!roll || !(await visible(roll.productionOrderId))) return res.status(404).json({ error: `No existe el rollo ${code}` });
   res.json({ kind: "rollo", orderId: roll.productionOrderId, rollId: roll.id });
 });
 
@@ -1273,8 +1282,15 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
       // que el chequeo de arriba sabe detectar) -- revertir dejaría el
       // stock en negativo, así que se bloquea en vez de "arreglarlo" a
       // costa de un número roto.
+      // Dos causas distintas con la misma clase de error: el stock ya se
+      // ubicó en un estante (hay que liberarlo en Almacén) o ya no está
+      // completo en el total (se despachó por otro lado). El mensaje de
+      // applyMovement ya dice cuál es; la pista extra solo aplica al segundo.
+      const yaUbicado = err.message.includes("stock ubicado en estantes");
       return res.status(400).json({
-        error: `No se puede reabrir: ${err.message} (probablemente parte de lo que produjo esta OP ya se despachó por otro lado)`,
+        error: yaUbicado
+          ? `No se puede reabrir: ${err.message}. Primero sacá ese producto del estante en Almacén.`
+          : `No se puede reabrir: ${err.message} (probablemente parte de lo que produjo esta OP ya se despachó por otro lado)`,
       });
     }
     throw err;

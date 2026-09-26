@@ -83,13 +83,17 @@ inventoryRouter.get("/movements", requireRole(...ROLES.ALMACEN), async (req, res
     }),
   ]);
   const orderById = new Map(orders.map((o) => [o.id, o]));
+  // Almacén ve Movimientos pero no puede abrir la hoja de una OP (el router
+  // de production-orders no lo admite): para ese rol el origen va sin link,
+  // en vez de un link que lo rebota al inicio.
+  const canOpenOrders = ([...ROLES.OPERARIOS, ...ROLES.CALIDAD, ...ROLES.AUDITORIA] as string[]).includes(req.user!.role);
   const dispatchItemById = new Map(dispatchItems.map((d) => [d.id, d]));
   const originOf = (m: (typeof items)[number]): { label: string; link?: string } => {
     if (m.referenceType === "production_order") {
       const o = m.referenceId != null ? orderById.get(m.referenceId) : undefined;
       if (!o) return { label: "OP (ya no existe)" };
       const verb = m.movementType === "entrada_produccion" ? "Aprobada en Calidad" : "Reversión por reapertura";
-      return { label: `${verb} · ${o.orderNumber}`, link: `/produccion/ordenes/${o.id}` };
+      return { label: `${verb} · ${o.orderNumber}`, link: canOpenOrders ? `/produccion/ordenes/${o.id}` : undefined };
     }
     if (m.referenceType === "dispatch_item") {
       const d = m.referenceId != null ? dispatchItemById.get(m.referenceId) : undefined;

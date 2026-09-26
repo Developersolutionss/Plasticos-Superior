@@ -32,7 +32,7 @@ import { whatsappWebhookRouter } from "../../server/src/routes/whatsappWebhook";
 import { prisma } from "../../server/src/prisma";
 import { redistributeScores, boostValue, isHot, nextCycle, nextVisitState, HOT_THRESHOLD } from "../../server/src/services/frequency";
 import { generatePossessionToken, hashPossessionToken } from "../../server/src/services/rollPossessionToken";
-import { ROLL_CODE_PREFIX } from "../../server/src/services/opTemplates";
+import { ROLL_CODE_PREFIX, inheritSpecs } from "../../server/src/services/opTemplates";
 import { applyMovement, InsufficientStockError } from "../../server/src/services/stockService";
 import { applyRawMaterialMovement } from "../../server/src/services/rawMaterialStockService";
 
@@ -5703,6 +5703,11 @@ describe("despacho de rollos a bodegas internas", () => {
 describe("revisión trazabilidad / inventario / almacén / avisos", () => {
   const stamp = Date.now();
 
+  it("al heredar, un valor viejo que significa 'no aplica' (caras 'no') llega a la hija como vacío, igual que normalizeSpecOptions", () => {
+    assert.deepEqual(inheritSpecs("extrusion", "sellado", { tratadoCaras: "no" }), { caras: "" });
+    assert.deepEqual(inheritSpecs("extrusion", "sellado", { tratadoCaras: "ambas" }), { caras: "2" });
+  });
+
   it("trazabilidad: busca la OP desde el QR de un rollo, una etiqueta de bulto o el número de OP, y devuelve la cadena completa del rollo", async () => {
     const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
     const orderNumber = `OP-${stamp}`;
@@ -5732,6 +5737,17 @@ describe("revisión trazabilidad / inventario / almacén / avisos", () => {
     const porOp = (await (await trace(orderNumber)).json()) as any;
     assert.equal(porOp.orderId, parent.id, "el número de OP abre la etapa raíz de la cadena");
     assert.equal((await trace("EXT-999999999")).status, 404);
+
+    // Un operario no confirma la existencia de una OP en borrador (misma regla que GET /:id).
+    const borradorNumber = `OP-${stamp + 1}`;
+    const borrador = await prisma.productionOrder.create({
+      data: { orderNumber: borradorNumber, station: "extrusion", productId: product.id, quantityPlanned: 10, status: "borrador" },
+    });
+    const traceComo = (role: string, c: string) =>
+      fetch(`${baseUrl}/api/production-orders/trace/by-code/${encodeURIComponent(c)}`, { headers: headersFor(role) });
+    assert.equal((await traceComo("operario_extrusion", borradorNumber)).status, 404);
+    assert.equal((await traceComo("produccion", borradorNumber)).status, 200);
+    await prisma.productionOrder.delete({ where: { id: borrador.id } });
     assert.equal((await trace("cualquier cosa")).status, 400);
 
     const detalle = (await (await fetch(`${baseUrl}/api/production-orders/${child.id}`, { headers: headersFor("produccion") })).json()) as any;
@@ -5774,7 +5790,9 @@ describe("revisión trazabilidad / inventario / almacén / avisos", () => {
 
     const movimientos = (await (await fetch(`${baseUrl}/api/inventory/movements?productId=${product.id}`, { headers: headersFor("almacen") })).json()) as any;
     assert.match(movimientos.items[0].origin.label, new RegExp(`Aprobada en Calidad · OP-TEST-QC-${stamp}`));
-    assert.equal(movimientos.items[0].origin.link, `/produccion/ordenes/${order.id}`);
+    assert.equal(movimientos.items[0].origin.link, undefined, "Almacén no puede abrir la hoja de la OP: el origen va sin link");
+    const comoAdmin = (await (await fetch(`${baseUrl}/api/inventory/movements?productId=${product.id}`, { headers: headersFor("super_admin") })).json()) as any;
+    assert.equal(comoAdmin.items[0].origin.link, `/produccion/ordenes/${order.id}`);
 
     await prisma.qualityCheck.deleteMany({ where: { productionOrderId: order.id } });
     await prisma.inventoryMovement.deleteMany({ where: { productId: product.id } });

@@ -478,8 +478,12 @@ export function inheritSpecs(
       result[toKey] = value;
       continue;
     }
+    // `!== null`, no truthy: CLEAR_VALUE ("") también es una respuesta válida
+    // ("no aplica") y tiene que llegar a la hija — si no, al propagar en
+    // cascada (propagateSpecsToChildren) un padre que pasa a "no aplica"
+    // nunca limpiaría el valor que ya tenía la hija.
     const match = matchOption(toKey, value, options);
-    if (match) result[toKey] = match;
+    if (match !== null) result[toKey] = match;
   }
   return result;
 }
