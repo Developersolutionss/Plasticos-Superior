@@ -1779,13 +1779,23 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const abreviado = await patch({ color: "TRANSP" });
     assert.equal(((await abreviado.json()) as { specs: any }).specs.color, "Transparente", "TRANSP es la abreviatura del papel");
 
-    const bad = await patch({ color: "Natural", fuelles: "2" });
+    const confirmados = await patch({ color: "Natural", fuelles: "2", tratadoCaras: "0" });
+    assert.equal(confirmados.status, 200);
+    const confirmadosBody = (await confirmados.json()) as { specs: any };
+    assert.equal(confirmadosBody.specs.color, "Transparente", "Natural = polietileno sin pigmento (confirmado por Gestión)");
+    assert.equal(confirmadosBody.specs.fuelles, "SI", "una cantidad de fuelles mayor a 0 es que sí lleva");
+    assert.equal(confirmadosBody.specs.tratadoCaras, "", "caras '0' es una OP sin tratado: el campo queda vacío");
+    const sinFuelles = await patch({ color: "Natural", fuelles: "0" });
+    assert.equal(((await sinFuelles.json()) as { specs: any }).specs.fuelles, "NO");
+
+    const bad = await patch({ color: "Azul", fuelles: "muchos" });
     assert.equal(bad.status, 400, "un valor que no es ninguna opción se rechaza, no se adivina");
     const badBody = (await bad.json()) as { error: string };
-    assert.match(badBody.error, /Color = "Natural"/);
-    assert.match(badBody.error, /Fuelles = "2"/);
+    assert.match(badBody.error, /Color = "Azul"/);
+    assert.match(badBody.error, /Fuelles = "muchos"/);
     const unchanged = await prisma.productionOrder.findUniqueOrThrow({ where: { id: order.id } });
     assert.equal((unchanged.specs as any).color, "Transparente", "el PATCH rechazado no guarda nada");
+    assert.equal((unchanged.specs as any).fuelles, "NO", "el PATCH rechazado no guarda nada");
 
     const badMaterialPara = await fetch(`${baseUrl}/api/production-orders/${order.id}/material-para`, {
       method: "PATCH",
@@ -1813,7 +1823,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
         quantityPlanned: 40,
         status: "en_proceso",
         // Guardado directo (como los datos viejos de producción), sin pasar por la validación nueva.
-        specs: { densidad: "baja", color: "Natural", tratadoCaras: "ambas", fuelles: "no" },
+        specs: { densidad: "baja", color: "Azul", tratadoCaras: "ambas", fuelles: "0" },
       },
     });
 
@@ -1834,7 +1844,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     assert.equal(child.specs.materialDensidad, "BAJA");
     assert.equal(child.specs.caras, "2");
     assert.equal(child.specs.fuelles, "NO");
-    assert.equal(child.specs.color, undefined, "'Natural' no es un color de la lista: no se copia a la hija");
+    assert.equal(child.specs.color, undefined, "'Azul' no es un color de la lista: no se copia a la hija");
 
     await prisma.productionOrder.delete({ where: { id: child.id } });
     await prisma.productionOrder.delete({ where: { id: parent.id } });

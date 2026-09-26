@@ -367,17 +367,24 @@ function foldOption(value: string): string {
 }
 
 /**
- * Sinónimos que NO son solo diferencias de mayúsculas/tildes, por campo. Solo
- * los que son inequívocamente la misma opción: "ambas" caras son las 2 caras,
- * "trasparente" es un error de tipeo y "TRANSP" la abreviatura del papel de
- * "Transparente". Lo dudoso (ej. color
- * "Natural", fuelles "2") NO se traduce acá — se rechaza para que Gestión
- * elija la opción correcta, en vez de que el sistema adivine.
+ * Sinónimos que NO son solo diferencias de mayúsculas/tildes, por campo.
+ * Solo equivalencias que Gestión confirmó o que son inequívocas: "ambas"
+ * caras son las 2 caras, "trasparente" es un error de tipeo y "TRANSP" la
+ * abreviatura del papel de "Transparente", y "Natural" (polietileno sin
+ * pigmento) es "Transparente" (confirmado por Gestión 2026-09-26). Lo que no
+ * está acá se rechaza, para que Gestión elija la opción correcta en vez de
+ * que el sistema adivine.
+ *
+ * CLEAR_VALUE ("") significa "este valor quiere decir que el campo no
+ * aplica": caras "0"/"no" es una OP sin tratado, así que el campo queda
+ * vacío en vez de forzarlo a 1 o 2.
  */
+const CLEAR_VALUE = "";
+const CARAS_ALIASES: Record<string, string> = { ambas: "2", "ambas caras": "2", una: "1", "una cara": "1", "0": CLEAR_VALUE, no: CLEAR_VALUE, ninguna: CLEAR_VALUE };
 const OPTION_ALIASES: Record<string, Record<string, string>> = {
-  color: { trasparente: "Transparente", transp: "Transparente" },
-  caras: { ambas: "2", "ambas caras": "2", una: "1", "una cara": "1" },
-  tratadoCaras: { ambas: "2", "ambas caras": "2", una: "1", "una cara": "1" },
+  color: { trasparente: "Transparente", transp: "Transparente", natural: "Transparente" },
+  caras: CARAS_ALIASES,
+  tratadoCaras: CARAS_ALIASES,
 };
 
 /** Un campo de lista con un valor que no es ninguna de sus opciones. */
@@ -388,13 +395,22 @@ export interface SpecOptionIssue {
   options: string[];
 }
 
-/** Opción canónica de `options` para `value`, o null si no corresponde a ninguna. */
+/** Opción canónica de `options` para `value`; CLEAR_VALUE si el valor
+ * significa "no aplica" (el campo queda vacío); null si no corresponde a
+ * ninguna. */
 function matchOption(key: string, value: unknown, options: string[]): string | null {
   if (typeof value !== "string" && typeof value !== "number") return null;
   const folded = foldOption(String(value));
   const direct = options.find((o) => foldOption(o) === folded);
   if (direct) return direct;
+  // Fuelles se cargaba como cantidad ("0", "2") antes de ser SI/NO: 0 es
+  // que no lleva, cualquier cantidad mayor es que sí (confirmado por
+  // Gestión 2026-09-26). El número exacto de fuelles no tiene campo propio.
+  if (key === "fuelles" && /^\d+$/.test(folded) && options.includes("SI") && options.includes("NO")) {
+    return Number(folded) > 0 ? "SI" : "NO";
+  }
   const alias = OPTION_ALIASES[key]?.[folded];
+  if (alias === CLEAR_VALUE) return CLEAR_VALUE;
   return alias && options.includes(alias) ? alias : null;
 }
 
@@ -421,7 +437,7 @@ export function normalizeSpecOptions(
       const value = result[field.key];
       if (value == null || value === "") continue;
       const match = matchOption(field.key, value, field.options);
-      if (match) result[field.key] = match;
+      if (match !== null) result[field.key] = match;
       else issues.push({ key: field.key, label: field.label, value, options: field.options });
     }
   }
