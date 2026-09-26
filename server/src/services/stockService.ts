@@ -1,4 +1,6 @@
 import { prisma } from "../prisma";
+import { ROLES } from "../middleware/auth";
+import { notifyRolesTx } from "./notify";
 
 // `prisma` está envuelto en `$extends` (auditExtension.ts), así que el tipo
 // del cliente de transacción ya no es el `Prisma.TransactionClient` genérico
@@ -25,7 +27,7 @@ export async function applyMovement(
     productId: number;
     quantity: number; // positivo = entrada, negativo = salida
     movementType: "entrada_produccion" | "salida_despacho" | "ajuste" | "devolucion";
-    referenceType: "production_entry" | "dispatch_item" | "manual_adjustment";
+    referenceType: "production_entry" | "dispatch_item" | "manual_adjustment" | "production_order";
     referenceId?: number;
     productionEntryId?: number;
     createdById?: number;
@@ -41,14 +43,27 @@ export async function applyMovement(
       data: { currentQuantity: { increment: params.quantity } },
     });
     if (claim.count === 0) {
-      const current = await tx.inventoryStock.findUnique({ where: { productId: params.productId } });
+      const [current, product] = await Promise.all([
+        tx.inventoryStock.findUnique({ where: { productId: params.productId } }),
+        tx.product.findUnique({ where: { id: params.productId }, select: { sku: true, name: true, unit: true } }),
+      ]);
       throw new InsufficientStockError(
-        `Stock insuficiente: hay ${Number(current?.currentQuantity ?? 0)} disponibles, se pidieron ${-params.quantity}`
+        `Stock insuficiente de ${product ? `${product.name} (${product.sku})` : "este producto"}: hay ${Number(current?.currentQuantity ?? 0)} ${product?.unit ?? ""} disponibles, se pidieron ${-params.quantity}`.replace(/  +/g, " ")
       );
     }
     if (params.locationId != null) {
       await decrementLocationStock(tx, params.productId, params.locationId, -params.quantity, params.createdById);
+    } else {
+      // Una salida sin ubicación solo puede salir de lo que está "sin
+      // ubicar" (total menos lo asignado a estantes). Si no, el total baja
+      // pero los estantes siguen mostrando lo mismo, y el almacén termina
+      // diciendo que hay más producto ubicado que el que existe. El
+      // formulario de Despachos ya obliga a elegir estante; esto lo hace
+      // valer para cualquier camino (reabrir una OP aprobada, anular un
+      // despacho, API directa).
+      await assertUnlocatedCovers(tx, params.productId);
     }
+    await notifyIfCrossedMinimum(tx, params.productId, -params.quantity);
   } else {
     // La primera entrada de un producto que todavía no tiene fila en
     // inventory_stock la crea. Prisma compila este `upsert` (where por
@@ -81,6 +96,46 @@ export async function applyMovement(
   });
 }
 
+/** Ya descontado el total: si lo ubicado en estantes quedó por encima del
+ * total, la salida sin ubicación se comió stock que estaba en un estante —
+ * se rechaza (la transacción entera se deshace). */
+async function assertUnlocatedCovers(tx: TxClient, productId: number) {
+  const [stock, located] = await Promise.all([
+    tx.inventoryStock.findUnique({ where: { productId }, select: { currentQuantity: true } }),
+    tx.stockLocation.aggregate({ where: { productId }, _sum: { quantity: true } }),
+  ]);
+  const total = Number(stock?.currentQuantity ?? 0);
+  const ubicado = Number(located._sum.quantity ?? 0);
+  if (ubicado > total + 0.005) {
+    const product = await tx.product.findUnique({ where: { id: productId }, select: { sku: true, name: true } });
+    throw new InsufficientStockError(
+      `${product ? `${product.name} (${product.sku})` : "Este producto"} tiene stock ubicado en estantes — elegí de qué ubicación sale (lo que queda sin ubicar no alcanza)`
+    );
+  }
+}
+
+/** Aviso a Almacén y Gestión cuando una salida deja el producto por debajo de
+ * su stock mínimo. Solo al CRUZAR el mínimo (antes estaba en o sobre el
+ * mínimo, ahora debajo), no en cada salida posterior — si no, cada despacho
+ * de un producto ya bajo mínimo repetiría el aviso. */
+async function notifyIfCrossedMinimum(tx: TxClient, productId: number, salida: number) {
+  const product = await tx.product.findUnique({
+    where: { id: productId },
+    select: { sku: true, name: true, unit: true, minStock: true, active: true, stock: { select: { currentQuantity: true } } },
+  });
+  if (!product || !product.active) return;
+  const min = Number(product.minStock);
+  const despues = Number(product.stock?.currentQuantity ?? 0);
+  const antes = despues + salida;
+  if (min > 0 && antes >= min && despues < min) {
+    await notifyRolesTx(tx, [...new Set([...ROLES.ALMACEN, ...ROLES.PRODUCCION_GESTION])], {
+      type: "stock_bajo_minimo",
+      message: `${product.name} (${product.sku}) quedó bajo el mínimo: ${despues} ${product.unit} (mínimo ${min})`,
+      link: "/",
+    });
+  }
+}
+
 /** Descuenta stock de una ubicación física puntual, atómico y sin dejarla
  * en negativo — mismo patrón de `UPDATE` condicional que `applyMovement`. */
 export async function decrementLocationStock(tx: TxClient, productId: number, locationId: number, quantity: number, updatedById?: number) {
@@ -89,7 +144,14 @@ export async function decrementLocationStock(tx: TxClient, productId: number, lo
     data: { quantity: { decrement: quantity }, updatedById },
   });
   if (claim.count === 0) {
-    throw new InsufficientStockError("La ubicación de origen no tiene suficiente cantidad de este producto");
+    const [product, location, row] = await Promise.all([
+      tx.product.findUnique({ where: { id: productId }, select: { sku: true, name: true } }),
+      tx.warehouseLocation.findUnique({ where: { id: locationId }, select: { code: true } }),
+      tx.stockLocation.findUnique({ where: { productId_locationId: { productId, locationId } }, select: { quantity: true } }),
+    ]);
+    throw new InsufficientStockError(
+      `La ubicación ${location?.code ?? ""} no tiene suficiente ${product ? `${product.name} (${product.sku})` : "de este producto"}: hay ${Number(row?.quantity ?? 0)}, se pidieron ${quantity}`.replace(/  +/g, " ")
+    );
   }
 }
 

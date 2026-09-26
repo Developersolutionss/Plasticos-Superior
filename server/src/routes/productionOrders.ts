@@ -35,7 +35,7 @@ import {
 } from "../services/rollBalance";
 import { generatePossessionToken, hashPossessionToken, verifyPossessionToken } from "../services/rollPossessionToken";
 import { checkRateLimit } from "../services/rateLimiter";
-import { LEGACY_ROLL_CODE_RE, PREFIX_TO_STATION, ROLL_CODE_RE } from "../services/rollCode";
+import { LEGACY_ROLL_CODE_RE, PREFIX_TO_STATION, ROLL_CODE_RE, rollWhereFromCode } from "../services/rollCode";
 import { localDayBoundary } from "../services/dateRange";
 import { getRollLocation, rollLocationBlock } from "../services/rollLocation";
 
@@ -332,6 +332,48 @@ productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
 });
 
 /**
+ * Trazabilidad desde un código físico: el QR de un rollo (`EXT-9`, o el
+ * viejo `RL-12`), una etiqueta de bulto (`EXT-00007`) o el número de OP
+ * (`OP-00012`). Devuelve a qué OP (y rollo) pertenece, para abrir su
+ * trazabilidad. El QR con token de posesión (`EXT-9-XXXX`) llega ya separado
+ * desde la pantalla — acá solo se busca, no se exige posesión.
+ */
+productionOrdersRouter.get("/trace/by-code/:code", async (req, res) => {
+  const code = req.params.code.trim().toUpperCase();
+
+  // Etiqueta de bulto primero: tiene la forma inconfundible EXT- + 5 cifras
+  // (ver handleScanAny en la hoja de OP), que también matchearía como rollo.
+  if (/^EXT-\d{5}$/.test(code)) {
+    const label = await prisma.bultoLabel.findUnique({
+      where: { code },
+      select: { usedByRoll: { select: { id: true, productionOrderId: true } } },
+    });
+    if (label) {
+      if (!label.usedByRoll) return res.status(404).json({ error: `La etiqueta de bulto ${code} todavía no se usó en ningún rollo` });
+      return res.json({ kind: "bulto", orderId: label.usedByRoll.productionOrderId, rollId: label.usedByRoll.id });
+    }
+  }
+
+  const opMatch = /^OP-\d+$/.test(code);
+  if (opMatch) {
+    // La cadena comparte el número: se abre la etapa raíz (la que no tiene padre).
+    const order = await prisma.productionOrder.findFirst({
+      where: { orderNumber: code },
+      orderBy: [{ parentOrderId: { sort: "asc", nulls: "first" } }, { id: "asc" }],
+      select: { id: true },
+    });
+    if (!order) return res.status(404).json({ error: `No existe la OP ${code}` });
+    return res.json({ kind: "op", orderId: order.id, rollId: null });
+  }
+
+  const where = rollWhereFromCode(code);
+  if (!where) return res.status(400).json({ error: "Código no reconocido — escaneá el QR de un rollo, una etiqueta de bulto o escribí el número de OP" });
+  const roll = await prisma.productionRoll.findUnique({ where, select: { id: true, productionOrderId: true } });
+  if (!roll) return res.status(404).json({ error: `No existe el rollo ${code}` });
+  res.json({ kind: "rollo", orderId: roll.productionOrderId, rollId: roll.id });
+});
+
+/**
  * Detalle completo de una OP: sus rollos, adjuntos, cadena de derivación
  * (padre e hijas), el resultado de Calidad (si ya se registró) y el
  * pedido/cliente de origen (si vino de Planeación).
@@ -350,9 +392,46 @@ productionOrdersRouter.get("/:id", async (req, res) => {
         include: {
           createdBy: { select: { name: true } },
           sourceRoll: { select: { id: true, label: true, station: true, stationSequence: true, weightKg: true, createdBy: { select: { name: true } } } },
+          // Trazabilidad: TODOS los rollos madre de los que salió (con los kg
+          // de cada uno), no solo el principal de `sourceRoll`; por dónde se
+          // movió el rollo entre bodegas; y la etiqueta de bulto si tiene.
+          consumptions: {
+            orderBy: { id: "asc" },
+            select: { quantityKg: true, sourceRoll: { select: { id: true, label: true, station: true, stationSequence: true } } },
+          },
+          transfers: {
+            orderBy: { id: "asc" },
+            select: {
+              id: true,
+              fromStation: true,
+              toStation: true,
+              status: true,
+              mode: true,
+              carrierName: true,
+              createdAt: true,
+              receivedAt: true,
+              dispatchedKg: true,
+              receivedKg: true,
+              registeredBy: { select: { name: true } },
+              receivedBy: { select: { name: true } },
+            },
+          },
+          bultoLabel: { select: { code: true } },
         },
       },
       attachments: { orderBy: { createdAt: "asc" } },
+      // El despacho a cliente que generó ESTA OP al aprobarse (no los del
+      // producto en general, ver recentDispatchItems más abajo).
+      dispatches: {
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          status: true,
+          dispatchedDate: true,
+          client: { select: { name: true } },
+          items: { select: { quantityRequested: true, quantityDispatched: true } },
+        },
+      },
       // rolls acá es solo para que Sellado/Precorte puedan mostrar los
       // totales reales de "Orden de Extrusión/Impresión" (kilos y rollos
       // que produjo la OP padre) sin que nadie los tipee a mano.
@@ -387,6 +466,9 @@ productionOrdersRouter.get("/:id", async (req, res) => {
       status: true,
       parentOrderId: true,
       quantityPlanned: true,
+      // Trazabilidad muestra los lotes de materia prima de Extrusión
+      // (specs.materiaPrima) de toda la cadena.
+      specs: true,
       rolls: { select: { weightKg: true, details: true } },
     },
     orderBy: { id: "asc" },
@@ -1139,7 +1221,7 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
               productId: order.productId,
               quantity: -reversedProductKg,
               movementType: "ajuste",
-              referenceType: "manual_adjustment",
+              referenceType: "production_order",
               referenceId: order.id,
               createdById: req.user!.userId,
             });
@@ -1665,8 +1747,11 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
           productId: order.productId,
           quantity: totalKg,
           movementType: "entrada_produccion",
-          referenceType: "manual_adjustment",
-          referenceId: created.id,
+          // Apunta a la OP (no al control de calidad, que se borra si la OP
+          // se reabre): así Movimientos/Trazabilidad pueden decir de qué OP
+          // salió este stock. Antes quedaba como "ajuste manual".
+          referenceType: "production_order",
+          referenceId: order.id,
           createdById: req.user!.userId,
         });
         // Si la OP ya tiene un cliente asignado, el producto no es para

@@ -138,7 +138,7 @@ Reglas de validación: en los endpoints de **contactos**, el `:id` debe ser num�
 | GET | `/api/inventory` | `?category=rollos_fuelle` (opcional) | Stock de todos los productos (o filtrado por categoría). Incluye `currentStock`, `minStock`, `belowMinimum` |
 | GET | `/api/inventory/alerts` | — | Solo productos bajo el stock mínimo |
 | GET | `/api/inventory/products` | — | Catálogo de productos activos |
-| GET | `/api/inventory/movements` | `?productId=&movementType=&page=&pageSize=` (rol almacén) | Historial paginado de `InventoryMovement` (`pageSize` tope 200, default 50). Devuelve `{ items, total, page, pageSize }` |
+| GET | `/api/inventory/movements` | `?productId=&movementType=&page=&pageSize=` (rol almacén) | Historial paginado de `InventoryMovement` (`pageSize` tope 200, default 50). Devuelve `{ items, total, page, pageSize }`; cada item trae `origin: { label, link? }` con de dónde salió (OP aprobada en Calidad o su reversión, despacho, carga de producción, ajuste manual) |
 
 ### Materia prima
 

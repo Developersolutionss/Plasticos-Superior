@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import Movimientos from "../../client/src/pages/Movimientos";
 
 vi.mock("../../client/src/api/client", () => ({
@@ -19,6 +20,7 @@ const PAGE = {
       product: { name: "Bulto 25kg", sku: "BUL-001", unit: "kg" },
       createdBy: { name: "Juan" },
       createdAt: "2026-08-14T10:00:00Z",
+      origin: { label: "Aprobada en Calidad · OP-00020", link: "/produccion/ordenes/20" },
     },
     {
       id: 2,
@@ -27,6 +29,7 @@ const PAGE = {
       product: { name: "Rollo Fuelle", sku: "ROL-001", unit: "unidad" },
       createdBy: null,
       createdAt: "2026-08-13T10:00:00Z",
+      origin: { label: "Despacho #3 · Cliente ACME", link: "/despachos" },
     },
   ],
   total: 2,
@@ -38,7 +41,9 @@ function renderMovimientos() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Movimientos />
+      <MemoryRouter>
+        <Movimientos />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -63,6 +68,9 @@ describe("Movimientos", () => {
     expect(table.getByText("−4 unidad")).toBeInTheDocument();
     expect(table.getByText("Juan")).toBeInTheDocument();
     expect(table.getByText("—")).toBeInTheDocument();
+    // Origen de cada movimiento, con link a la OP / despacho de donde salió.
+    expect(table.getByRole("link", { name: "Aprobada en Calidad · OP-00020" })).toHaveAttribute("href", "/produccion/ordenes/20");
+    expect(table.getByRole("link", { name: "Despacho #3 · Cliente ACME" })).toHaveAttribute("href", "/despachos");
   });
 
   it("cambiar el filtro de tipo vuelve a pedir con el nuevo movementType", async () => {

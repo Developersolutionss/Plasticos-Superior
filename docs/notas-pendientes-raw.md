@@ -17,8 +17,31 @@ Funcionalidad todavía no implementada (backlog, ver [00 — Hoja de ruta](00-ro
   lo recibe y registra" → **hecho**: Despacho a bodegas (`DespachoBodegas.tsx`, `/api/roll-transfers`).
 - "flujo automatico por medio de qr a hora de transportar QRs" → **hecho**: se usa el mismo QR del rollo
   (código + token) para la salida y para la recepción.
-- "vista de visualizacion de informacion de cualquier rollo, para mejor trasabilidad"
+- "vista de visualizacion de informacion de cualquier rollo, para mejor trasabilidad" → **hecho (2026-09-26)**:
+  Trazabilidad busca por el QR de un rollo, una etiqueta de bulto o el número de OP, y muestra por cada rollo
+  todos sus rollos madre (con kg), sus despachos entre bodegas, la etiqueta de bulto, los lotes de materia
+  prima de Extrusión y el despacho a cliente de la OP.
 - "Implementar los rollos hijos de los rollos madres"
+
+## Revisión de Trazabilidad / Inventario / Almacén / Exportaciones / Avisos (2026-09-26)
+
+Pendiente a propósito (Gestión, 2026-09-26: "dejalo como está por ahora"):
+
+- **Unidades en la entrada de Calidad.** Al aprobar una OP, Calidad suma al inventario los **kilos** de sus
+  rollos aunque el producto se maneje por **unidad** (ej. "Bulto 25kg Tipo A", "Control Impresión Etiqueta A"),
+  y el despacho automático al cliente pide esos kilos. Hoy no pasó con datos reales. Si resulta que esos
+  productos sí se fabrican por OP, hay que decidir cómo convertir (kilos ÷ peso por unidad del producto, o que
+  la OP registre unidades) — el punto a tocar es `POST /production-orders/:id/quality-check` (y su reversión en
+  `POST /:id/reopen`), en `server/src/routes/productionOrders.ts`.
+
+Quedaron fuera de esta ronda (no se decidió todavía):
+
+- Ajuste manual de stock de producto terminado tras un conteo físico (la materia prima sí lo tiene).
+- Exportaciones del área de producción (OPs, rollos, movimientos, materia prima, despachos a bodegas) y
+  filtro por fecha en las existentes.
+- Preferencias/vencimiento de avisos (hoy le llegan a todos los usuarios del rol y no vencen), y avisos
+  de OPs estancadas o rollos en tránsito hace mucho.
+- Datos del catálogo contradictorios (ej. producto con "ALTA DENSIDAD" en el nombre y densidad BAJA).
 
 ## Recibidas 2026-09-24
 

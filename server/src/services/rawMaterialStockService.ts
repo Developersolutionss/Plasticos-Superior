@@ -1,6 +1,8 @@
 import { prisma } from "../prisma";
 import type { TxClient } from "./stockService";
 import { InsufficientStockError } from "./stockService";
+import { ROLES } from "../middleware/auth";
+import { notifyRolesTx } from "./notify";
 
 export { InsufficientStockError };
 
@@ -30,11 +32,18 @@ export async function applyRawMaterialMovement(
       data: { currentQuantity: { increment: params.quantity } },
     });
     if (claim.count === 0) {
-      const current = await tx.rawMaterialStock.findUnique({ where: { rawMaterialId: params.rawMaterialId } });
+      const [current, material] = await Promise.all([
+        tx.rawMaterialStock.findUnique({ where: { rawMaterialId: params.rawMaterialId } }),
+        tx.rawMaterial.findUnique({ where: { id: params.rawMaterialId }, select: { code: true } }),
+      ]);
+      // Nombra el insumo: antes el cierre de Extrusión decía solo "hay 64
+      // disponibles, se pidieron 690" y no había forma de saber cuál de las
+      // 10 materias primas era la que faltaba.
       throw new InsufficientStockError(
-        `Stock insuficiente: hay ${Number(current?.currentQuantity ?? 0)} disponibles, se pidieron ${-params.quantity}`
+        `Stock insuficiente de materia prima ${material?.code ?? ""}: hay ${Number(current?.currentQuantity ?? 0)} kg disponibles, se pidieron ${-params.quantity} kg`.replace(/  +/g, " ")
       );
     }
+    await notifyIfRawMaterialCrossedMinimum(tx, params.rawMaterialId, -params.quantity);
   } else {
     // Mismo `upsert` atómico nativo (INSERT ... ON CONFLICT DO UPDATE) que
     // la rama de entrada de applyMovement -- la primera entrada de un
@@ -58,6 +67,28 @@ export async function applyRawMaterialMovement(
       createdById: params.createdById,
     },
   });
+}
+
+/** Aviso a Gestión/Planeación cuando un consumo deja la materia prima por
+ * debajo de su mínimo — es lo que después termina trabando el cierre de
+ * Extrusión por falta de stock. Solo al CRUZAR el mínimo, no en cada
+ * consumo posterior. */
+async function notifyIfRawMaterialCrossedMinimum(tx: TxClient, rawMaterialId: number, salida: number) {
+  const material = await tx.rawMaterial.findUnique({
+    where: { id: rawMaterialId },
+    select: { code: true, minStock: true, active: true, stock: { select: { currentQuantity: true } } },
+  });
+  if (!material || !material.active) return;
+  const min = Number(material.minStock);
+  const despues = Number(material.stock?.currentQuantity ?? 0);
+  const antes = despues + salida;
+  if (min > 0 && antes >= min && despues < min) {
+    await notifyRolesTx(tx, ROLES.PRODUCCION_GESTION, {
+      type: "materia_prima_bajo_minimo",
+      message: `Materia prima ${material.code} quedó bajo el mínimo: ${despues} kg (mínimo ${min} kg)`,
+      link: "/inventario/materia-prima",
+    });
+  }
 }
 
 export async function getRawMaterialStock() {

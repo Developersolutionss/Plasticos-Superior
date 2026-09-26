@@ -33,6 +33,8 @@ import { prisma } from "../../server/src/prisma";
 import { redistributeScores, boostValue, isHot, nextCycle, nextVisitState, HOT_THRESHOLD } from "../../server/src/services/frequency";
 import { generatePossessionToken, hashPossessionToken } from "../../server/src/services/rollPossessionToken";
 import { ROLL_CODE_PREFIX } from "../../server/src/services/opTemplates";
+import { applyMovement, InsufficientStockError } from "../../server/src/services/stockService";
+import { applyRawMaterialMovement } from "../../server/src/services/rawMaterialStockService";
 
 let server: Server;
 let baseUrl = "";
@@ -5697,3 +5699,144 @@ describe("despacho de rollos a bodegas internas", () => {
     assert.equal(ok.status, 204);
   });
 });
+
+describe("revisión trazabilidad / inventario / almacén / avisos", () => {
+  const stamp = Date.now();
+
+  it("trazabilidad: busca la OP desde el QR de un rollo, una etiqueta de bulto o el número de OP, y devuelve la cadena completa del rollo", async () => {
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const orderNumber = `OP-${stamp}`;
+    const parent = await prisma.productionOrder.create({ data: { orderNumber, station: "extrusion", productId: product.id, quantityPlanned: 50 } });
+    const madre = await createTestRoll(parent.id, { weightKg: 20 });
+    const child = await prisma.productionOrder.create({
+      data: { orderNumber, station: "sellado", productId: product.id, quantityPlanned: 50, parentOrderId: parent.id },
+    });
+    await placeRollAt(madre.id, "sellado");
+    const bultoCode = `EXT-${String(stamp).slice(-5)}`;
+    await prisma.bultoLabel.deleteMany({ where: { code: bultoCode } });
+    await prisma.bultoLabel.create({ data: { code: bultoCode } });
+    const fila = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ weightKg: 8, sourceRollIds: [madre.id], sourceRollTokens: { [madre.id]: madre.possessionToken }, bultoLabelCode: bultoCode }),
+    });
+    assert.equal(fila.status, 201);
+    const hijo = (await fila.json()) as { id: number };
+
+    const trace = (code: string) => fetch(`${baseUrl}/api/production-orders/trace/by-code/${encodeURIComponent(code)}`, { headers: headersFor("produccion") });
+
+    const porRollo = (await (await trace(`EXT-${madre.stationSequence}`)).json()) as any;
+    assert.deepEqual(porRollo, { kind: "rollo", orderId: parent.id, rollId: madre.id });
+    const porBulto = (await (await trace(bultoCode)).json()) as any;
+    assert.deepEqual(porBulto, { kind: "bulto", orderId: child.id, rollId: hijo.id }, "la etiqueta de bulto lleva al rollo que la usó");
+    const porOp = (await (await trace(orderNumber)).json()) as any;
+    assert.equal(porOp.orderId, parent.id, "el número de OP abre la etapa raíz de la cadena");
+    assert.equal((await trace("EXT-999999999")).status, 404);
+    assert.equal((await trace("cualquier cosa")).status, 400);
+
+    const detalle = (await (await fetch(`${baseUrl}/api/production-orders/${child.id}`, { headers: headersFor("produccion") })).json()) as any;
+    const r = detalle.rolls.find((x: any) => x.id === hijo.id);
+    assert.equal(r.consumptions.length, 1);
+    assert.equal(r.consumptions[0].sourceRoll.stationSequence, madre.stationSequence);
+    assert.equal(Number(r.consumptions[0].quantityKg), 8);
+    assert.equal(r.bultoLabel.code, bultoCode);
+    const madreEnPadre = ((await (await fetch(`${baseUrl}/api/production-orders/${parent.id}`, { headers: headersFor("produccion") })).json()) as any).rolls.find(
+      (x: any) => x.id === madre.id
+    );
+    assert.equal(madreEnPadre.transfers.length, 1, "el despacho a la bodega de Sellado aparece en la trazabilidad del rollo");
+    assert.equal(madreEnPadre.transfers[0].toStation, "sellado");
+
+    await prisma.bultoLabel.deleteMany({ where: { code: bultoCode } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: child.id } });
+    await prisma.productionOrder.delete({ where: { id: child.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: parent.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
+  it("la entrada a inventario al aprobar Calidad apunta a la OP y Movimientos dice de dónde salió", async () => {
+    const product = await prisma.product.create({
+      data: { sku: `TEST-QC-${stamp}`, name: `Producto QC ${stamp}`, category: "rollos_fuelle", unit: "kg" },
+    });
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-QC-${stamp}`, station: "sellado", productId: product.id, quantityPlanned: 20, status: "pendiente_calidad" },
+    });
+    await createTestRoll(order.id, { weightKg: 12 });
+
+    const qc = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
+      method: "POST",
+      headers: headersFor("calidad"),
+      body: JSON.stringify({ result: "aprobado" }),
+    });
+    assert.equal(qc.status, 201);
+    const mov = await prisma.inventoryMovement.findFirstOrThrow({ where: { productId: product.id } });
+    assert.equal(mov.referenceType, "production_order", "ya no queda como 'ajuste manual'");
+    assert.equal(mov.referenceId, order.id);
+
+    const movimientos = (await (await fetch(`${baseUrl}/api/inventory/movements?productId=${product.id}`, { headers: headersFor("almacen") })).json()) as any;
+    assert.match(movimientos.items[0].origin.label, new RegExp(`Aprobada en Calidad · OP-TEST-QC-${stamp}`));
+    assert.equal(movimientos.items[0].origin.link, `/produccion/ordenes/${order.id}`);
+
+    await prisma.qualityCheck.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { productId: product.id } });
+    await prisma.inventoryStock.deleteMany({ where: { productId: product.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+    await prisma.product.delete({ where: { id: product.id } });
+  });
+
+  it("almacén: una salida sin ubicación no puede tocar lo que está en estantes; los errores nombran el producto; aviso al cruzar el mínimo", async () => {
+    const product = await prisma.product.create({
+      data: { sku: `TEST-ALM-${stamp}`, name: `Producto almacén ${stamp}`, category: "rollos_fuelle", unit: "kg", minStock: 10 },
+    });
+    const location = await prisma.warehouseLocation.create({ data: { code: `T-${stamp}`, label: "Test", publicToken: `tok-${stamp}` } });
+    await prisma.$transaction((tx) => applyMovement(tx, { productId: product.id, quantity: 30, movementType: "entrada_produccion", referenceType: "manual_adjustment" }));
+    // Total 30: 20 en el estante, 10 sin ubicar.
+    await prisma.stockLocation.create({ data: { productId: product.id, locationId: location.id, quantity: 20 } });
+
+    const salida = (quantity: number, locationId?: number) =>
+      prisma.$transaction((tx) =>
+        applyMovement(tx, { productId: product.id, quantity: -quantity, movementType: "salida_despacho", referenceType: "manual_adjustment", locationId })
+      );
+
+    await assert.rejects(salida(15), (err: unknown) => {
+      assert.ok(err instanceof InsufficientStockError);
+      assert.match((err as Error).message, new RegExp(`Producto almacén ${stamp}.*elegí de qué ubicación sale`));
+      return true;
+    }, "sin ubicar hay solo 10: sacar 15 sin elegir estante dejaría el estante con más de lo que existe");
+    await salida(5); // lo que está sin ubicar sí sale sin elegir estante (total 25, estante 20)
+    await assert.rejects(salida(22, location.id), new RegExp(`La ubicación T-${stamp} no tiene suficiente Producto almacén ${stamp}.*hay 20`));
+    await assert.rejects(salida(1000), new RegExp(`Stock insuficiente de Producto almacén ${stamp}`));
+
+    await salida(16, location.id); // total 25 -> 9: cruza el mínimo de 10
+    const aviso = await prisma.notification.findFirst({ where: { type: "stock_bajo_minimo", message: { contains: `TEST-ALM-${stamp}` } } });
+    assert.ok(aviso, "al cruzar el mínimo se avisa a Almacén/Gestión");
+    const avisosAntes = await prisma.notification.count({ where: { type: "stock_bajo_minimo", message: { contains: `TEST-ALM-${stamp}` } } });
+    await salida(1, location.id); // ya estaba bajo mínimo: no se repite
+    assert.equal(await prisma.notification.count({ where: { type: "stock_bajo_minimo", message: { contains: `TEST-ALM-${stamp}` } } }), avisosAntes);
+
+    await prisma.notification.deleteMany({ where: { type: "stock_bajo_minimo", message: { contains: `TEST-ALM-${stamp}` } } });
+    await prisma.stockLocation.deleteMany({ where: { productId: product.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { productId: product.id } });
+    await prisma.inventoryStock.deleteMany({ where: { productId: product.id } });
+    await prisma.warehouseLocation.delete({ where: { id: location.id } });
+    await prisma.product.delete({ where: { id: product.id } });
+  });
+
+  it("materia prima: el error de stock nombra el insumo y se avisa al cruzar el mínimo", async () => {
+    const material = await prisma.rawMaterial.create({ data: { code: `TMP-${stamp}`, minStock: 20 } });
+    const mov = (quantity: number) =>
+      prisma.$transaction((tx) =>
+        applyRawMaterialMovement(tx, { rawMaterialId: material.id, quantity, movementType: quantity > 0 ? "compra" : "consumo_produccion" })
+      );
+    await mov(30);
+    await assert.rejects(mov(-100), new RegExp(`Stock insuficiente de materia prima TMP-${stamp}: hay 30 kg`));
+    await mov(-15); // 30 -> 15: cruza el mínimo de 20
+    assert.ok(await prisma.notification.findFirst({ where: { type: "materia_prima_bajo_minimo", message: { contains: `TMP-${stamp}` } } }));
+
+    await prisma.notification.deleteMany({ where: { message: { contains: `TMP-${stamp}` } } });
+    await prisma.rawMaterialMovement.deleteMany({ where: { rawMaterialId: material.id } });
+    await prisma.rawMaterialStock.deleteMany({ where: { rawMaterialId: material.id } });
+    await prisma.rawMaterial.delete({ where: { id: material.id } });
+  });
+});
+

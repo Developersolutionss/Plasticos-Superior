@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
@@ -29,6 +30,20 @@ function MovementBadge({ type }: { type: string }) {
     <span className={`text-xs rounded-full px-2 py-1 ${MOVEMENT_COLORS[type] ?? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"}`}>
       {MOVEMENT_LABELS[type] ?? type}
     </span>
+  );
+}
+
+/** De dónde salió el movimiento (OP aprobada, despacho, carga de
+ * producción...), armado por el servidor — ver GET /inventory/movements. */
+function MovementOrigin({ movement }: { movement: any }) {
+  const origin = movement.origin as { label: string; link?: string } | undefined;
+  if (!origin) return <span className="text-slate-400">—</span>;
+  return origin.link ? (
+    <Link to={origin.link} className="text-sky-700 dark:text-sky-400 hover:underline">
+      {origin.label}
+    </Link>
+  ) : (
+    <span>{origin.label}</span>
   );
 }
 
@@ -95,6 +110,7 @@ export default function Movimientos() {
                     <th className="p-3">Producto</th>
                     <th className="p-3">Tipo</th>
                     <th className="p-3">Cantidad</th>
+                    <th className="p-3">Origen</th>
                     <th className="p-3">Usuario</th>
                     <th className="p-3">Fecha</th>
                   </tr>
@@ -110,6 +126,9 @@ export default function Movimientos() {
                       </td>
                       <td className="p-3">
                         <MovementQuantity movement={m} />
+                      </td>
+                      <td className="p-3 text-sm">
+                        <MovementOrigin movement={m} />
                       </td>
                       <td className="p-3 text-slate-500 dark:text-slate-400">{m.createdBy?.name ?? "—"}</td>
                       <td className="p-3 text-slate-500 dark:text-slate-400">{new Date(m.createdAt).toLocaleString()}</td>
@@ -132,6 +151,9 @@ export default function Movimientos() {
                     <MovementQuantity movement={m} />
                     <span className="text-slate-500 dark:text-slate-400">{m.createdBy?.name ?? "—"}</span>
                   </div>
+                  <p className="text-xs">
+                    <MovementOrigin movement={m} />
+                  </p>
                   <p className="text-xs text-slate-400 dark:text-slate-400">{new Date(m.createdAt).toLocaleString()}</p>
                 </div>
               ))}

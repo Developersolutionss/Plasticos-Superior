@@ -67,6 +67,9 @@ enum ReferenceType {
   production_entry
   dispatch_item
   manual_adjustment
+  /// Entrada de producto terminado al aprobar Calidad (y su reversión al
+  /// reabrir la OP): referenceId es el id de la OP.
+  production_order
 }
 
 enum RawMaterialMovementType {

@@ -346,6 +346,12 @@ export const api = {
     return request<any[]>(`/production-orders${suffix}`);
   },
   getProductionOrder: (id: number) => request<any>(`/production-orders/${id}`),
+  /** Trazabilidad desde un código físico (QR de rollo, etiqueta de bulto o
+   * número de OP) — devuelve la OP y el rollo al que pertenece. */
+  traceByCode: (code: string) =>
+    request<{ kind: "rollo" | "bulto" | "op"; orderId: number; rollId: number | null }>(
+      `/production-orders/trace/by-code/${encodeURIComponent(code)}`
+    ),
   createProductionOrder: (data: {
     // Opcional: la OP nace sin proceso y se deriva a Extrusión después.
     station?: string;

@@ -70,5 +70,34 @@ inventoryRouter.get("/movements", requireRole(...ROLES.ALMACEN), async (req, res
     prisma.inventoryMovement.count({ where }),
   ]);
 
-  res.json({ items, total, page, pageSize });
+  // De dónde salió cada movimiento, en palabras (la referencia es
+  // polimórfica: referenceType + referenceId, sin FK). Antes la pantalla solo
+  // mostraba el tipo, y una entrada por Calidad aparecía como "ajuste manual"
+  // sin forma de saber de qué OP venía.
+  const idsOf = (type: string) => [...new Set(items.filter((m) => m.referenceType === type && m.referenceId != null).map((m) => m.referenceId!))];
+  const [orders, dispatchItems] = await Promise.all([
+    prisma.productionOrder.findMany({ where: { id: { in: idsOf("production_order") } }, select: { id: true, orderNumber: true, station: true } }),
+    prisma.dispatchItem.findMany({
+      where: { id: { in: idsOf("dispatch_item") } },
+      select: { id: true, dispatchId: true, dispatch: { select: { client: { select: { name: true } } } } },
+    }),
+  ]);
+  const orderById = new Map(orders.map((o) => [o.id, o]));
+  const dispatchItemById = new Map(dispatchItems.map((d) => [d.id, d]));
+  const originOf = (m: (typeof items)[number]): { label: string; link?: string } => {
+    if (m.referenceType === "production_order") {
+      const o = m.referenceId != null ? orderById.get(m.referenceId) : undefined;
+      if (!o) return { label: "OP (ya no existe)" };
+      const verb = m.movementType === "entrada_produccion" ? "Aprobada en Calidad" : "Reversión por reapertura";
+      return { label: `${verb} · ${o.orderNumber}`, link: `/produccion/ordenes/${o.id}` };
+    }
+    if (m.referenceType === "dispatch_item") {
+      const d = m.referenceId != null ? dispatchItemById.get(m.referenceId) : undefined;
+      return d ? { label: `Despacho #${d.dispatchId} · ${d.dispatch.client.name}`, link: "/despachos" } : { label: "Despacho" };
+    }
+    if (m.referenceType === "production_entry") return { label: "Carga de producción", link: "/produccion" };
+    return { label: "Ajuste manual" };
+  };
+
+  res.json({ items: items.map((m) => ({ ...m, origin: originOf(m) })), total, page, pageSize });
 });

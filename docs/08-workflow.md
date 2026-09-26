@@ -116,6 +116,15 @@ Cada estación (`services/opTemplates.ts`, con espejo en el frontend) define qu�
   - si es una OP de Extrusión, revierte la materia prima que se había descontado al cerrarla.
   - **No se puede reabrir** si Calidad ya generó un despacho para esa OP y ese despacho sigue vivo (no cancelado) — primero hay que cancelarlo (`POST /dispatches/:id/cancel`), para no descontar o duplicar el stock.
 
+### Inventario, almacén y avisos (revisión 2026-09-26)
+
+- La entrada de producto terminado al aprobar Calidad (y su reversión al reabrir la OP) se registra con `referenceType: "production_order"` y `referenceId` = id de la OP — antes quedaba como "ajuste manual" sin forma de saber de qué OP salió. Movimientos muestra el origen de cada movimiento con link.
+- Una salida de stock **sin ubicación** solo puede sacar lo que está sin ubicar (total menos lo asignado a estantes); si no alcanza, se rechaza pidiendo elegir el estante (`applyMovement`, `services/stockService.ts`). Vale para cualquier camino: despacho, reapertura de OP aprobada, anulación de despacho.
+- Los errores de stock insuficiente nombran el producto o la materia prima (y la ubicación, si aplica).
+- Avisos de **stock bajo el mínimo**: al cruzar el mínimo (no en cada salida posterior), a Almacén y Gestión para producto terminado (`stock_bajo_minimo`) y a Gestión/Planeación para materia prima (`materia_prima_bajo_minimo`). Se guardan dentro de la misma transacción del movimiento.
+- Un aviso que falla **después** de guardar una operación ya no la convierte en error para el usuario (se registra en el log del servidor).
+- Trazabilidad: `GET /api/production-orders/trace/by-code/:code` resuelve el QR de un rollo, una etiqueta de bulto o un número de OP a su OP/rollo.
+
 ### Control de calidad
 
 `POST /api/production-orders/:id/quality-check` decide el destino del lote:
