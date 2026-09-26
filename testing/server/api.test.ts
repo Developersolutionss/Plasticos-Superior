@@ -1673,7 +1673,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
         station: "extrusion",
         productId,
         quantityPlanned: 40,
-        specs: { formaMaterial: "Tubular", ancho: "30", anchoUnidad: "Cms.", fuelles: "SI", calibre: "0.6", color: "Natural", tratadoCaras: "2", materialPara: "SELLADO", densidad: "ALTA" },
+        specs: { formaMaterial: "Tubular", ancho: "30", anchoUnidad: "Cms.", fuelles: "SI", calibre: "0.6", color: "Blanco", tratadoCaras: "2", materialPara: "SELLADO", densidad: "ALTA" },
       },
     });
 
@@ -1689,7 +1689,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     assert.equal(derived.specs.anchoUnidad, "Cms.");
     assert.equal(derived.specs.fuelles, "SI");
     assert.equal(derived.specs.calibre, "0.6");
-    assert.equal(derived.specs.color, "Natural");
+    assert.equal(derived.specs.color, "Blanco");
     assert.equal(derived.specs.caras, "2", "tratadoCaras (Caras tratadas) del padre se mapea a caras (Caras) del hijo");
     assert.equal(derived.specs.materialPara, undefined, "materialPara es de ruteo de Extrusión, no un concepto de Sellado");
     assert.equal(derived.specs.materialDensidad, "ALTA", "densidad de Extrusión se mapea a materialDensidad del hijo (comparten las mismas opciones BAJA/ALTA)");
@@ -1734,7 +1734,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
     // Campo vacío en el padre (fuelles sin cargar) no debe pisar con "" al hijo.
     const parentSinFuelles = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}b`, station: "extrusion", productId, quantityPlanned: 10, specs: { color: "Azul" } },
+      data: { orderNumber: `OP-TEST-${Date.now()}b`, station: "extrusion", productId, quantityPlanned: 10, specs: { color: "Rojo" } },
     });
     const derivedSinFuelles = await fetch(`${baseUrl}/api/production-orders/${parentSinFuelles.id}/derive`, {
       method: "POST",
@@ -1742,7 +1742,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       body: JSON.stringify({ station: "impresion" }),
     });
     const bodySinFuelles = (await derivedSinFuelles.json()) as { id: number; specs: any };
-    assert.equal(bodySinFuelles.specs.color, "Azul");
+    assert.equal(bodySinFuelles.specs.color, "Rojo");
     assert.equal(bodySinFuelles.specs.fuelles, undefined, "no se copia un campo que el padre no tenía cargado");
     await prisma.productionOrder.delete({ where: { id: bodySinFuelles.id } });
 
@@ -1757,6 +1757,87 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: bodyOverride.id } });
 
     await prisma.productionOrder.delete({ where: { id: parentSinFuelles.id } });
+  });
+
+  it("los campos de lista solo aceptan sus opciones: normaliza mayúsculas/tildes/sinónimos seguros y rechaza lo que no es ninguna opción", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
+    });
+    const patch = (specs: Record<string, unknown>) =>
+      fetch(`${baseUrl}/api/production-orders/${order.id}`, { method: "PATCH", headers: headersFor("produccion"), body: JSON.stringify({ specs }) });
+
+    const ok = await patch({ densidad: "alta", color: "trasparente", tratadoCaras: "ambas", fuelles: " si ", formaMaterial: "lam. ph", calibre: "0.6" });
+    assert.equal(ok.status, 200);
+    const okBody = (await ok.json()) as { specs: any };
+    assert.equal(okBody.specs.densidad, "ALTA", "mayúsculas/minúsculas no importan, se guarda la opción exacta");
+    assert.equal(okBody.specs.color, "Transparente", "error de tipeo conocido");
+    assert.equal(okBody.specs.tratadoCaras, "2", "'ambas' caras son las 2");
+    assert.equal(okBody.specs.fuelles, "SI");
+    assert.equal(okBody.specs.formaMaterial, "Lám. PH", "sin tilde ni mayúsculas igual cae en la opción real");
+    assert.equal(okBody.specs.calibre, "0.6", "los campos que no son de lista no se tocan");
+
+    const abreviado = await patch({ color: "TRANSP" });
+    assert.equal(((await abreviado.json()) as { specs: any }).specs.color, "Transparente", "TRANSP es la abreviatura del papel");
+
+    const bad = await patch({ color: "Natural", fuelles: "2" });
+    assert.equal(bad.status, 400, "un valor que no es ninguna opción se rechaza, no se adivina");
+    const badBody = (await bad.json()) as { error: string };
+    assert.match(badBody.error, /Color = "Natural"/);
+    assert.match(badBody.error, /Fuelles = "2"/);
+    const unchanged = await prisma.productionOrder.findUniqueOrThrow({ where: { id: order.id } });
+    assert.equal((unchanged.specs as any).color, "Transparente", "el PATCH rechazado no guarda nada");
+
+    const badMaterialPara = await fetch(`${baseUrl}/api/production-orders/${order.id}/material-para`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ materialPara: "LAMINADO" }),
+    });
+    assert.equal(badMaterialPara.status, 400);
+    const goodMaterialPara = await fetch(`${baseUrl}/api/production-orders/${order.id}/material-para`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ materialPara: "sellado" }),
+    });
+    assert.equal(goodMaterialPara.status, 200);
+    assert.equal(((await goodMaterialPara.json()) as { specs: any }).specs.materialPara, "SELLADO");
+
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("al derivar, lo heredado se lleva a la opción exacta de la hija y un valor viejo fuera de lista no se copia; specs inválido en el body da 400", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: {
+        orderNumber: `OP-TEST-${Date.now()}`,
+        station: "extrusion",
+        productId,
+        quantityPlanned: 40,
+        status: "en_proceso",
+        // Guardado directo (como los datos viejos de producción), sin pasar por la validación nueva.
+        specs: { densidad: "baja", color: "Natural", tratadoCaras: "ambas", fuelles: "no" },
+      },
+    });
+
+    const badBody = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado", specs: { impreso: "tal vez" } }),
+    });
+    assert.equal(badBody.status, 400, "lo que manda el body se valida contra la plantilla de la hija");
+
+    const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "sellado" }),
+    });
+    assert.equal(res.status, 201, "un dato viejo del padre no traba la derivación");
+    const child = (await res.json()) as { id: number; specs: any };
+    assert.equal(child.specs.materialDensidad, "BAJA");
+    assert.equal(child.specs.caras, "2");
+    assert.equal(child.specs.fuelles, "NO");
+    assert.equal(child.specs.color, undefined, "'Natural' no es un color de la lista: no se copia a la hija");
+
+    await prisma.productionOrder.delete({ where: { id: child.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
 
   it("editar specs de una OP ya derivada propaga los campos heredables a la(s) hija(s) existentes, en cascada, pisando lo que ya tuvieran", async () => {
@@ -1797,14 +1878,14 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const patchRes = await fetch(`${baseUrl}/api/production-orders/${root.id}`, {
       method: "PATCH",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ specs: { formaMaterial: "Tubular", ancho: "25", color: "Azul" } }),
+      body: JSON.stringify({ specs: { formaMaterial: "Tubular", ancho: "25", color: "Rojo" } }),
     });
     assert.equal(patchRes.status, 200);
 
     const precorteAfter = await fetch(`${baseUrl}/api/production-orders/${precorte.id}`, { headers: headersFor("produccion") });
     const precorteBody = (await precorteAfter.json()) as { specs: any };
     assert.equal(precorteBody.specs.ancho, "25", "el cambio en el padre pisa el valor que ya tenía la hija");
-    assert.equal(precorteBody.specs.color, "Azul");
+    assert.equal(precorteBody.specs.color, "Rojo");
 
     const selladoAfter = await fetch(`${baseUrl}/api/production-orders/${sellado.id}`, { headers: headersFor("produccion") });
     const selladoBody = (await selladoAfter.json()) as { specs: any };
@@ -1818,7 +1899,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
   it('PATCH /:id/material-para: el operario de la estación lo puede editar (no otros campos), un operario de otra estación no', async () => {
     const order = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10, specs: { color: "Natural" } },
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10, specs: { color: "Blanco" } },
     });
 
     const wrongStation = await fetch(`${baseUrl}/api/production-orders/${order.id}/material-para`, {
@@ -1836,7 +1917,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     assert.equal(res.status, 200);
     const updated = (await res.json()) as { specs: { materialPara: string; color: string } };
     assert.equal(updated.specs.materialPara, "SELLADO");
-    assert.equal(updated.specs.color, "Natural", "no toca ningún otro campo de specs ya cargado");
+    assert.equal(updated.specs.color, "Blanco", "no toca ningún otro campo de specs ya cargado");
 
     // Un operario no puede colarse otros campos por acá — el schema del
     // endpoint solo acepta `materialPara`.
@@ -1847,7 +1928,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     });
     assert.equal(smuggle.status, 200);
     const afterSmuggle = (await smuggle.json()) as { specs: { color: string } };
-    assert.equal(afterSmuggle.specs.color, "Natural", "el color se ignora, solo se actualiza materialPara");
+    assert.equal(afterSmuggle.specs.color, "Blanco", "el color se ignora, solo se actualiza materialPara");
 
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
@@ -1906,7 +1987,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const patch = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
       method: "PATCH",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ specs: { color: "Natural" } }),
+      body: JSON.stringify({ specs: { color: "Blanco" } }),
     });
     assert.equal(patch.status, 200, "specs se pueden editar mientras la OP está en borrador");
 
@@ -3073,27 +3154,27 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
   it("editar specs del padre NO pisa las specs de una hija ya finalizada/cancelada (solo hijas abiertas/borrador)", async () => {
     const parent = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40, specs: { color: "Natural" } },
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40, specs: { color: "Blanco" } },
     });
     const childFinalizada = await prisma.productionOrder.create({
-      data: { orderNumber: parent.orderNumber, station: "sellado", productId, quantityPlanned: 40, parentOrderId: parent.id, status: "finalizada", specs: { color: "Natural" } },
+      data: { orderNumber: parent.orderNumber, station: "sellado", productId, quantityPlanned: 40, parentOrderId: parent.id, status: "finalizada", specs: { color: "Blanco" } },
     });
     const childAbierta = await prisma.productionOrder.create({
-      data: { orderNumber: parent.orderNumber, station: "precorte", productId, quantityPlanned: 40, parentOrderId: parent.id, specs: { color: "Natural" } },
+      data: { orderNumber: parent.orderNumber, station: "precorte", productId, quantityPlanned: 40, parentOrderId: parent.id, specs: { color: "Blanco" } },
     });
 
     const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}`, {
       method: "PATCH",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ specs: { color: "Azul" } }),
+      body: JSON.stringify({ specs: { color: "Rojo" } }),
     });
     assert.equal(res.status, 200);
 
     const finalizadaAfter = await prisma.productionOrder.findUnique({ where: { id: childFinalizada.id } });
-    assert.equal((finalizadaAfter!.specs as any).color, "Natural", "una hija finalizada no se toca (su PDF ya se imprimió/archivó)");
+    assert.equal((finalizadaAfter!.specs as any).color, "Blanco", "una hija finalizada no se toca (su PDF ya se imprimió/archivó)");
 
     const abiertaAfter = await prisma.productionOrder.findUnique({ where: { id: childAbierta.id } });
-    assert.equal((abiertaAfter!.specs as any).color, "Azul", "una hija todavía abierta sí sigue recibiendo la cascada");
+    assert.equal((abiertaAfter!.specs as any).color, "Rojo", "una hija todavía abierta sí sigue recibiendo la cascada");
 
     await prisma.productionOrder.delete({ where: { id: childFinalizada.id } });
     await prisma.productionOrder.delete({ where: { id: childAbierta.id } });

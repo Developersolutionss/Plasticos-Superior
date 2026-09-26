@@ -245,7 +245,7 @@ async function main() {
             anchoUnidad: "Pulgadas",
             calibre: "0.45",
             densidad: "ALTA",
-            color: "TRANSP",
+            color: "Transparente",
             tratado: "NO",
             grafilado: "NO",
             maquina: "Extrusora 1",

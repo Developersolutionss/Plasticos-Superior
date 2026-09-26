@@ -355,9 +355,91 @@ const SPEC_INHERITANCE: Partial<Record<string, Record<string, string>>> = {
   },
 };
 
+/** Compara sin importar mayúsculas, tildes ni espacios de más: "trasparente",
+ * " ALTA " y "Lám. PH" tienen que caer en la opción real de la lista. */
+function foldOption(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+/**
+ * Sinónimos que NO son solo diferencias de mayúsculas/tildes, por campo. Solo
+ * los que son inequívocamente la misma opción: "ambas" caras son las 2 caras,
+ * "trasparente" es un error de tipeo y "TRANSP" la abreviatura del papel de
+ * "Transparente". Lo dudoso (ej. color
+ * "Natural", fuelles "2") NO se traduce acá — se rechaza para que Gestión
+ * elija la opción correcta, en vez de que el sistema adivine.
+ */
+const OPTION_ALIASES: Record<string, Record<string, string>> = {
+  color: { trasparente: "Transparente", transp: "Transparente" },
+  caras: { ambas: "2", "ambas caras": "2", una: "1", "una cara": "1" },
+  tratadoCaras: { ambas: "2", "ambas caras": "2", una: "1", "una cara": "1" },
+};
+
+/** Un campo de lista con un valor que no es ninguna de sus opciones. */
+export interface SpecOptionIssue {
+  key: string;
+  label: string;
+  value: unknown;
+  options: string[];
+}
+
+/** Opción canónica de `options` para `value`, o null si no corresponde a ninguna. */
+function matchOption(key: string, value: unknown, options: string[]): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const folded = foldOption(String(value));
+  const direct = options.find((o) => foldOption(o) === folded);
+  if (direct) return direct;
+  const alias = OPTION_ALIASES[key]?.[folded];
+  return alias && options.includes(alias) ? alias : null;
+}
+
+/**
+ * Lleva cada campo de lista (kind "options") de la plantilla de `station` a
+ * su opción exacta ("alta" → "ALTA", "trasparente" → "Transparente") y
+ * devuelve aparte los que no corresponden a ninguna opción. Los campos
+ * vacíos y los que no son de lista no se tocan.
+ *
+ * Existe porque la base tiene valores cargados como texto libre (antes de que
+ * esos campos fueran listas cerradas, o por API directa) que el <select> de
+ * la hoja muestra en blanco, y que al derivar se copiaban tal cual a la OP
+ * hija — la hija terminaba mostrando otro campo vacío en vez del dato real.
+ */
+export function normalizeSpecOptions(
+  station: OpStation,
+  specs: Record<string, unknown>
+): { specs: Record<string, unknown>; issues: SpecOptionIssue[] } {
+  const result = { ...specs };
+  const issues: SpecOptionIssue[] = [];
+  for (const section of OP_TEMPLATES[station].sections) {
+    for (const field of section.fields) {
+      if (field.kind !== "options" || !field.options) continue;
+      const value = result[field.key];
+      if (value == null || value === "") continue;
+      const match = matchOption(field.key, value, field.options);
+      if (match) result[field.key] = match;
+      else issues.push({ key: field.key, label: field.label, value, options: field.options });
+    }
+  }
+  return { specs: result, issues };
+}
+
+/** Mensaje para el 400 cuando `normalizeSpecOptions` encontró valores inválidos. */
+export function specOptionIssuesMessage(station: OpStation, issues: SpecOptionIssue[]): string {
+  const detail = issues.map((i) => `${i.label} = "${String(i.value)}" (opciones: ${i.options.join(", ")})`).join("; ");
+  return `Valores que no están en la lista de ${STATION_LABELS[station]}: ${detail}`;
+}
+
 /** Arma el `specs` inicial de la OP hija copiando del padre lo que aplique
  * (ver SPEC_INHERITANCE) — se ignoran los campos vacíos/no cargados del
- * padre, no tiene sentido pisar con "" algo que Gestión todavía no llenó. */
+ * padre, no tiene sentido pisar con "" algo que Gestión todavía no llenó.
+ * Cada valor se lleva a la opción exacta de la lista de la HIJA; uno que no
+ * corresponde a ninguna opción de la hija no se copia (antes se copiaba tal
+ * cual y la hija lo mostraba en blanco). */
 export function inheritSpecs(
   parentStation: OpStation,
   childStation: OpStation,
@@ -365,10 +447,23 @@ export function inheritSpecs(
 ): Record<string, unknown> {
   const mapping = SPEC_INHERITANCE[`${parentStation}>${childStation}`];
   if (!mapping || !parentSpecs) return {};
+  const childOptions = new Map<string, string[]>();
+  for (const section of OP_TEMPLATES[childStation].sections) {
+    for (const field of section.fields) {
+      if (field.kind === "options" && field.options) childOptions.set(field.key, field.options);
+    }
+  }
   const result: Record<string, unknown> = {};
   for (const [fromKey, toKey] of Object.entries(mapping)) {
     const value = parentSpecs[fromKey];
-    if (value != null && value !== "") result[toKey] = value;
+    if (value == null || value === "") continue;
+    const options = childOptions.get(toKey);
+    if (!options) {
+      result[toKey] = value;
+      continue;
+    }
+    const match = matchOption(toKey, value, options);
+    if (match) result[toKey] = match;
   }
   return result;
 }

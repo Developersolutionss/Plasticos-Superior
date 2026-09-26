@@ -14,7 +14,17 @@ import { applyRawMaterialMovement } from "../services/rawMaterialStockService";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
 import { notifyRoles } from "../services/notify";
 import { buildOpPdf } from "../services/opPdf";
-import { DERIVATIONS, FINAL_STATIONS, OP_TEMPLATES, OpStation, STATION_LABELS, ROLL_CODE_PREFIX, inheritSpecs } from "../services/opTemplates";
+import {
+  DERIVATIONS,
+  FINAL_STATIONS,
+  OP_TEMPLATES,
+  OpStation,
+  STATION_LABELS,
+  ROLL_CODE_PREFIX,
+  inheritSpecs,
+  normalizeSpecOptions,
+  specOptionIssuesMessage,
+} from "../services/opTemplates";
 import {
   Allocation,
   InsufficientSourceRollError,
@@ -427,6 +437,15 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
     if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
   }
 
+  // Sin proceso asignado todavía no hay plantilla contra la cual validar las
+  // listas — se validan recién al derivar a Extrusión (ver POST /:id/derive).
+  let specs = parsed.data.specs;
+  if (specs && parsed.data.station) {
+    const normalized = normalizeSpecOptions(parsed.data.station, specs);
+    if (normalized.issues.length) return res.status(400).json({ error: specOptionIssuesMessage(parsed.data.station, normalized.issues) });
+    specs = normalized.specs;
+  }
+
   const order = await withSequentialNumberRetry(() =>
     prisma.$transaction(async (tx) => {
       const orderNumber = await nextOrderNumber(tx);
@@ -447,7 +466,7 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
           clientId: parsed.data.clientId,
           quantityPlanned: parsed.data.quantityPlanned,
           measure: parsed.data.measure ?? product.measure,
-          specs: parsed.data.specs as Prisma.InputJsonValue | undefined,
+          specs: specs as Prisma.InputJsonValue | undefined,
           notes: parsed.data.notes,
           createdById: req.user!.userId,
         },
@@ -604,13 +623,25 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
     if (parsed.data.station !== "extrusion") {
       return res.status(400).json({ error: "El primer proceso de una OP siempre es Extrusión" });
     }
+    // Lo que manda el body se valida estricto (400 si trae un valor fuera de
+    // la lista); lo que ya estaba guardado de antes solo se normaliza, sin
+    // trabar la derivación por un dato viejo — la hoja lo va a mostrar
+    // marcado como inválido para que Gestión lo corrija al guardar.
+    let firstSpecs: Record<string, unknown> | undefined;
+    if (parsed.data.specs) {
+      const normalized = normalizeSpecOptions("extrusion", parsed.data.specs);
+      if (normalized.issues.length) return res.status(400).json({ error: specOptionIssuesMessage("extrusion", normalized.issues) });
+      firstSpecs = normalized.specs;
+    } else if (parent.specs && typeof parent.specs === "object") {
+      firstSpecs = normalizeSpecOptions("extrusion", parent.specs as Record<string, unknown>).specs;
+    }
     const updated = await prisma.productionOrder.update({
       where: { id },
       data: {
         station: "extrusion",
         quantityPlanned: parsed.data.quantityPlanned ?? parent.quantityPlanned,
         measure: parsed.data.measure ?? parent.measure,
-        specs: (parsed.data.specs as Prisma.InputJsonValue | undefined) ?? (parent.specs as Prisma.InputJsonValue | undefined),
+        specs: firstSpecs as Prisma.InputJsonValue | undefined,
         notes: parsed.data.notes ?? parent.notes,
       },
     });
@@ -659,7 +690,13 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
   // ya se sabe. Si además viene `specs` explícito en el body, se mergea
   // encima (lo explícito gana sobre lo heredado).
   const inherited = inheritSpecs(parent.station as OpStation, parsed.data.station, parent.specs as Record<string, unknown> | null);
-  const specs = { ...inherited, ...(parsed.data.specs ?? {}) };
+  let bodySpecs: Record<string, unknown> = {};
+  if (parsed.data.specs) {
+    const normalized = normalizeSpecOptions(parsed.data.station, parsed.data.specs);
+    if (normalized.issues.length) return res.status(400).json({ error: specOptionIssuesMessage(parsed.data.station, normalized.issues) });
+    bodySpecs = normalized.specs;
+  }
+  const specs = { ...inherited, ...bodySpecs };
 
   // La meta (quantityPlanned) de la hija tiene que ser lo que el padre
   // REALMENTE produjo (suma de sus rollos), no lo que el padre tenía como
@@ -824,11 +861,22 @@ productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) 
     }
   }
 
+  // Cada campo de lista tiene que ser una de sus opciones ("alta" se guarda
+  // como "ALTA"; "Natural" en Color se rechaza) — antes se guardaba
+  // cualquier texto y la hoja lo mostraba en blanco, y al derivar la OP hija
+  // heredaba un valor que su propio <select> tampoco podía mostrar.
+  let specs = parsed.data.specs;
+  if (specs && order.station) {
+    const normalized = normalizeSpecOptions(order.station as OpStation, specs);
+    if (normalized.issues.length) return res.status(400).json({ error: specOptionIssuesMessage(order.station as OpStation, normalized.issues) });
+    specs = normalized.specs;
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const result = await tx.productionOrder.update({
       where: { id },
       data: {
-        specs: parsed.data.specs as Prisma.InputJsonValue | undefined,
+        specs: specs as Prisma.InputJsonValue | undefined,
         measure: parsed.data.measure,
         quantityPlanned: parsed.data.quantityPlanned,
         clientId: parsed.data.clientId,
@@ -872,10 +920,19 @@ productionOrdersRouter.patch("/:id/material-para", requireOperarios, async (req,
     return res.status(403).json({ error: `Tu rol solo puede editar OPs de: ${allowedStations.join(", ")}` });
   }
 
+  // Misma regla de listas que el PATCH general: solo una de las opciones de
+  // la plantilla (IMPRESION/SELLADO/PRECORTE), en su forma exacta.
+  let materialPara = parsed.data.materialPara;
+  if (materialPara && order.station) {
+    const normalized = normalizeSpecOptions(order.station as OpStation, { materialPara });
+    if (normalized.issues.length) return res.status(400).json({ error: specOptionIssuesMessage(order.station as OpStation, normalized.issues) });
+    materialPara = normalized.specs.materialPara as string;
+  }
+
   const currentSpecs = order.specs && typeof order.specs === "object" ? (order.specs as object) : {};
   const updated = await prisma.productionOrder.update({
     where: { id },
-    data: { specs: { ...currentSpecs, materialPara: parsed.data.materialPara } as Prisma.InputJsonValue },
+    data: { specs: { ...currentSpecs, materialPara } as Prisma.InputJsonValue },
   });
   res.json(updated);
 });

@@ -1697,19 +1697,36 @@ export default function OrdenProduccionDetalle() {
                   <div key={field.key} className={`${cellBorder} p-2`}>
                     <span className={cellLabel}>{field.label}</span>
                     {field.kind === "options" ? (
-                      <select
-                        className={sheetInput}
-                        value={specsDraft[field.key] ?? ""}
-                        disabled={!canEditThis}
-                        onChange={(e) => (isMaterialPara ? handleMaterialParaChange(e.target.value) : setSpec(field.key, e.target.value))}
-                      >
-                        <option value="">—</option>
-                        {field.options!.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
+                      (() => {
+                        // Un valor guardado que no es ninguna de las opciones
+                        // (texto libre viejo, ej. "Natural" en Color) antes se
+                        // veía en blanco, como si el campo estuviera vacío. Se
+                        // muestra tal cual, marcado, para que Gestión elija la
+                        // opción correcta — el servidor ya no deja guardarlo así.
+                        const current = specsDraft[field.key];
+                        const invalid = current != null && current !== "" && !field.options!.includes(String(current));
+                        return (
+                          <select
+                            className={`${sheetInput} ${invalid ? "text-red-600 dark:text-red-400 ring-1 ring-red-400" : ""}`}
+                            value={current ?? ""}
+                            disabled={!canEditThis}
+                            title={invalid ? `"${current}" no es una opción válida de ${field.label} — elegí una de la lista` : undefined}
+                            onChange={(e) => (isMaterialPara ? handleMaterialParaChange(e.target.value) : setSpec(field.key, e.target.value))}
+                          >
+                            <option value="">—</option>
+                            {invalid && (
+                              <option value={String(current)} disabled>
+                                {String(current)} (no válido)
+                              </option>
+                            )}
+                            {field.options!.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        );
+                      })()
                     ) : (
                       <input
                         className={sheetInput}
