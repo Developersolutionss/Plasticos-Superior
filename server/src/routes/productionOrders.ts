@@ -37,6 +37,7 @@ import { generatePossessionToken, hashPossessionToken, verifyPossessionToken } f
 import { checkRateLimit } from "../services/rateLimiter";
 import { LEGACY_ROLL_CODE_RE, PREFIX_TO_STATION, ROLL_CODE_RE } from "../services/rollCode";
 import { localDayBoundary } from "../services/dateRange";
+import { getRollLocation, rollLocationBlock } from "../services/rollLocation";
 
 /** 50 verificaciones de token por minuto y por usuario -- ver
  * rateLimiter.ts: es un freno de rendimiento para un cliente en loop, no un
@@ -314,9 +315,20 @@ productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
   // escanearlo para saber cuánto más puede sacarle antes de tener que montar
   // el siguiente (antes esa cuenta la llevaban a mano en el papel).
   const remainingKg = await remainingSourceKg(prisma, roll.id);
+  // Dónde está físicamente (ver services/rollLocation.ts). Con
+  // `?forStation=` (la estación de la OP que lo quiere consumir) se avisa ya
+  // al escanear si no está en esa bodega, en vez de dejar llenar toda la fila
+  // y rechazarla recién al guardar — el chequeo que manda sigue siendo el de
+  // POST /:id/rolls.
+  const location = await getRollLocation(prisma, roll);
+  const forStation = typeof req.query.forStation === "string" ? req.query.forStation : undefined;
+  if (forStation && (STATIONS as readonly string[]).includes(forStation)) {
+    const block = rollLocationBlock(sourceRollCode(roll), location, forStation as OpStation);
+    if (block) return res.status(400).json({ error: block });
+  }
   // El hash nunca sale del servidor (se pidió arriba solo para verificar).
   const { possessionTokenHash, ...rollWithoutHash } = roll;
-  res.json({ ...rollWithoutHash, remainingKg });
+  res.json({ ...rollWithoutHash, remainingKg, location });
 });
 
 /**
@@ -1063,6 +1075,8 @@ const REOPENABLE_STATUSES: ProductionOrderStatus[] = ["finalizada", "pendiente_c
 class StatusRaceError extends Error {}
 class BultoLabelUnavailableError extends Error {}
 class RollAlreadyConsumedError extends Error {}
+/** El rollo madre escaneado no está en la bodega de esta estación (ver services/rollLocation.ts). */
+class RollNotHereError extends Error {}
 
 productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
@@ -1285,20 +1299,6 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     if (!tokenVisible || !verifyPossessionToken(code, tokenVisible, source.possessionTokenHash)) {
       return res.status(403).json({ error: `Falta demostrar posesión física del rollo ${code} — escaneá su QR` });
     }
-    // Si el rollo está "en tránsito" (ver rollTransfers.ts) hacia otra
-    // bodega, todavía no llegó de verdad a donde sea que esté físicamente
-    // parado ahora mismo — tener el QR (y hasta el rollo en la mano, si
-    // alguien lo escaneó antes de que saliera) no alcanza para consumirlo acá
-    // sin que primero alguien confirme la recepción del lado de destino. Sin
-    // este chequeo, "Recibir" quedaba en los hechos opcional: el despacho
-    // podía seguir "en_transito" para siempre en el historial mientras el
-    // rollo ya se consumía río abajo.
-    const openTransfer = await prisma.rollTransfer.findFirst({ where: { rollId: sourceRollId, status: "en_transito" } });
-    if (openTransfer) {
-      return res.status(400).json({
-        error: `El rollo ${code} está en tránsito hacia ${STATION_LABELS[openTransfer.toStation as OpStation]} — hay que confirmar que llegó (Despacho a bodegas) antes de poder consumirlo`,
-      });
-    }
     sourceRollById.set(sourceRollId, { station: source.station as OpStation, stationSequence: source.stationSequence });
   }
 
@@ -1391,6 +1391,21 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
         allocations = template.consumesSourceByWeight
           ? await allocateFromSourceRolls(tx, sourceRollIds, parsed.data.weightKg)
           : await allocateWholeSourceRolls(tx, sourceRollIds);
+
+        // Un rollo solo se consume en la estación donde está físicamente
+        // (ver services/rollLocation.ts): despachado y recibido en la bodega
+        // de ESTA estación, o producido acá mismo. Se chequea recién acá,
+        // con los rollos madre ya bloqueados por la asignación de arriba
+        // (SELECT ... FOR UPDATE, el mismo lock que toma POST
+        // /roll-transfers al despachar) — chequearlo antes de la transacción
+        // dejaba una ventana en la que un despacho registrado en ese mismo
+        // instante se colaba igual.
+        for (const sourceRollId of sourceRollIds) {
+          const info = sourceRollById.get(sourceRollId)!;
+          const location = await getRollLocation(tx, { id: sourceRollId, station: info.station });
+          const block = rollLocationBlock(sourceRollCode(info), location, order.station as OpStation);
+          if (block) throw new RollNotHereError(block);
+        }
       }
 
       // Precorte tiene DOS pares ETIQUETA R / PESO R en el papel — son
@@ -1479,6 +1494,9 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
   } catch (err) {
     if (err instanceof BultoLabelUnavailableError) {
       return res.status(400).json({ error: "Esa etiqueta de bulto no existe o ya fue usada" });
+    }
+    if (err instanceof RollNotHereError) {
+      return res.status(400).json({ error: err.message });
     }
     if (err instanceof SourceRollExhaustedError) {
       return res.status(400).json({ error: "Este rollo ya fue consumido como insumo en otra fila — no se puede volver a escanear" });

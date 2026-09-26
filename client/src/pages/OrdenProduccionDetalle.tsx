@@ -937,7 +937,7 @@ export default function OrdenProduccionDetalle() {
    * Tira (ApiError con status, o un Error si ya estaba escaneado) — lo usa
    * `handleScanAny` para decidir si sigue probando como etiqueta de bulto. */
   async function applyScannedSourceRoll(code: string, token: string): Promise<void> {
-    const roll = await api.getProductionRollByCode(code, token);
+    const roll = await api.getProductionRollByCode(code, token, station);
     const chip: SourceRollChip = {
       id: roll.id,
       code,

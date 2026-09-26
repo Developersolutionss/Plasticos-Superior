@@ -9,6 +9,8 @@ import { verifyPossessionToken } from "../services/rollPossessionToken";
 import { checkRateLimit } from "../services/rateLimiter";
 import { rollWhereFromCode } from "../services/rollCode";
 import { localDayBoundary } from "../services/dateRange";
+import { getRollLocation } from "../services/rollLocation";
+import { notifyRoles } from "../services/notify";
 
 /**
  * Despacho de rollos entre las bodegas internas de planta (ver
@@ -54,6 +56,25 @@ const clientClockSchema = {
   clientTimezone: z.string().trim().min(1).max(64).refine(isValidTimeZone, "Zona horaria del celular inválida"),
   clientUtcOffsetMinutes: z.number().int().min(-840).max(840),
 };
+
+/**
+ * Nombre de quien se lleva el rollo, tipeado a mano en modo `entrega`: se
+ * guarda siempre con la misma forma (espacios de más afuera, cada palabra con
+ * mayúscula inicial) para que "juan  camionero" y "Juan Camionero" no queden
+ * como dos transportistas distintos en el historial. Ver también
+ * GET /carriers, que le sugiere a la pantalla los nombres ya usados.
+ */
+function normalizeCarrierName(name: string): string {
+  return name
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("es")
+    .replace(/(^|[\s'-])(\p{L})/gu, (_m, sep: string, letter: string) => sep + letter.toLocaleUpperCase("es"));
+}
+
+/** Diferencia máxima (kg) entre lo que salió y lo que pesó al llegar antes de
+ * avisarle a Gestión — por debajo de esto es ruido de balanza. */
+const RECEIVE_WEIGHT_TOLERANCE_KG = 0.5;
 
 function rollCode(roll: { station: string; stationSequence: number }): string {
   return `${ROLL_CODE_PREFIX[roll.station as OpStation]}-${roll.stationSequence}`;
@@ -138,6 +159,19 @@ rollTransfersRouter.get("/", async (req, res) => {
   res.json(transfers.map(withRollCode));
 });
 
+/** Nombres de transportistas ya usados (los más recientes primero), para que
+ * la pantalla los sugiera al despachar en modo `entrega` en vez de que cada
+ * operario los tipee a su manera. */
+rollTransfersRouter.get("/carriers", async (_req, res) => {
+  const rows = await prisma.rollTransfer.groupBy({
+    by: ["carrierName"],
+    _max: { createdAt: true },
+    orderBy: { _max: { createdAt: "desc" } },
+    take: 50,
+  });
+  res.json(rows.map((r) => r.carrierName));
+});
+
 /**
  * Lo que la pantalla necesita saber apenas se escanea un rollo: qué es,
  * cuánto le queda, a qué bodegas puede ir y si ya hay un despacho en
@@ -219,7 +253,7 @@ rollTransfersRouter.post("/", async (req, res) => {
     });
   }
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.userId }, select: { name: true } });
-  const carrierName = data.mode === "retiro" ? user.name : data.carrierName!;
+  const carrierName = data.mode === "retiro" ? user.name : normalizeCarrierName(data.carrierName!);
 
   // El chequeo de "ya está en tránsito" va dentro de la transacción: dos
   // escaneos casi simultáneos del mismo QR (operario y camionero a la vez)
@@ -231,13 +265,15 @@ rollTransfersRouter.post("/", async (req, res) => {
     if (open) return { open, transfer: null, error: null };
     // Dentro del lock, igual que el chequeo de arriba: un consumo que entra
     // justo ahora no debe dejar despachar un rollo que ya se agotó.
-    if ((await remainingSourceKg(tx, roll.id)) <= 0) {
+    const remainingKg = await remainingSourceKg(tx, roll.id);
+    if (remainingKg <= 0) {
       return { open: null, transfer: null, error: `El rollo ${code} ya se consumió entero — no queda nada que despachar` };
     }
-    // Sale de donde está AHORA: la bodega del último despacho recibido, o su
-    // estación de origen si nunca se movió -- no siempre de roll.station.
-    const lastReceived = await tx.rollTransfer.findFirst({ where: { rollId: roll.id, status: "recibido" }, orderBy: { id: "desc" } });
-    const fromStation = lastReceived?.toStation ?? roll.station;
+    // Sale de donde está AHORA (ver services/rollLocation.ts): la bodega del
+    // último despacho recibido, o su estación de origen si nunca se movió --
+    // no siempre de roll.station. (El caso "en tránsito" ya salió arriba.)
+    const location = await getRollLocation(tx, roll);
+    const fromStation = location.status === "en_bodega" ? location.station : roll.station;
     if (fromStation === data.toStation) {
       return { open: null, transfer: null, error: `El rollo ${code} ya está en la bodega de ${STATION_LABELS[data.toStation]}` };
     }
@@ -252,6 +288,10 @@ rollTransfersRouter.post("/", async (req, res) => {
         clientTimezone: data.clientTimezone,
         clientUtcOffsetMinutes: data.clientUtcOffsetMinutes,
         notes: data.notes || null,
+        // Lo que sale es el saldo real del rollo en este momento (ya
+        // bloqueado arriba), no su peso original: un rollo madre del que
+        // Sellado ya sacó 20 kg sale con lo que le queda.
+        dispatchedKg: remainingKg,
       },
       include: transferInclude,
     });
@@ -271,6 +311,8 @@ const receiveSchema = z.object({
   code: z.string().trim().min(1),
   token: z.string().trim().min(1),
   notes: z.string().trim().max(500).optional(),
+  /** Peso que marcó la balanza de la bodega destino (opcional). */
+  receivedKg: z.number().positive().max(100000).optional(),
   ...clientClockSchema,
 });
 
@@ -304,13 +346,29 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
       receivedAt: new Date(),
       receivedTimezone: data.clientTimezone,
       receivedUtcOffsetMinutes: data.clientUtcOffsetMinutes,
+      receivedKg: data.receivedKg,
       ...(data.notes ? { notes: transfer.notes ? `${transfer.notes}\nRecepción: ${data.notes}` : `Recepción: ${data.notes}` } : {}),
     },
   });
   if (updated.count === 0) return res.status(409).json({ error: "Este despacho ya fue recibido" });
 
   const full = await prisma.rollTransfer.findUniqueOrThrow({ where: { id }, include: transferInclude });
-  res.json(withRollCode(full));
+  const response = withRollCode(full);
+
+  // Llegó con otro peso del que salió: se registra igual (la recepción es un
+  // hecho físico) pero se le avisa a Gestión — es justo el desbalance de
+  // kilos entre bodegas que antes no quedaba en ningún lado.
+  if (data.receivedKg != null && full.dispatchedKg != null) {
+    const diff = Math.round((data.receivedKg - Number(full.dispatchedKg)) * 100) / 100;
+    if (Math.abs(diff) > RECEIVE_WEIGHT_TOLERANCE_KG) {
+      await notifyRoles(ROLES.PRODUCCION_GESTION, {
+        type: "despacho_diferencia_peso",
+        message: `El rollo ${response.rollCode} salió de ${STATION_LABELS[full.fromStation as OpStation]} con ${Number(full.dispatchedKg)} kg y llegó a ${STATION_LABELS[full.toStation as OpStation]} con ${data.receivedKg} kg (${diff > 0 ? "+" : ""}${diff} kg). Lo llevó ${full.carrierName}.`,
+        link: "/produccion/despacho-bodegas",
+      });
+    }
+  }
+  res.json(response);
 });
 
 /** Anula un despacho registrado por error (solo Gestión). Solo mientras está

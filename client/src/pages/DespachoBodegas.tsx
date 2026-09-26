@@ -61,6 +61,29 @@ const STATUS_COLORS: Record<RollTransfer["status"], string> = {
 
 const inputClass = "border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100";
 
+/** Misma tolerancia que RECEIVE_WEIGHT_TOLERANCE_KG en el servidor: por
+ * debajo de esto la diferencia entre lo que salió y lo que llegó es ruido de
+ * balanza y no se resalta. */
+const WEIGHT_TOLERANCE_KG = 0.5;
+
+/** Kilos de diferencia entre lo que llegó y lo que salió (negativo = llegó
+ * menos), o null si falta alguno de los dos pesos. */
+function weightDiff(t: RollTransfer): number | null {
+  if (t.dispatchedKg == null || t.receivedKg == null) return null;
+  return Math.round((Number(t.receivedKg) - Number(t.dispatchedKg)) * 100) / 100;
+}
+
+function ReceivedWeight({ t }: { t: RollTransfer }) {
+  if (t.receivedKg == null) return null;
+  const diff = weightDiff(t);
+  const off = diff != null && Math.abs(diff) > WEIGHT_TOLERANCE_KG;
+  return (
+    <p className={`text-xs ${off ? "text-red-600 dark:text-red-400 font-medium" : "text-slate-500 dark:text-slate-400"}`}>
+      Llegó con {Number(t.receivedKg)} kg{off ? ` (${diff! > 0 ? "+" : ""}${diff} kg)` : ""}
+    </p>
+  );
+}
+
 export default function DespachoBodegas() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -73,6 +96,7 @@ export default function DespachoBodegas() {
   const [mode, setMode] = useState<"entrega" | "retiro">("entrega");
   const [carrierName, setCarrierName] = useState("");
   const [notes, setNotes] = useState("");
+  const [receivedKg, setReceivedKg] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -92,12 +116,17 @@ export default function DespachoBodegas() {
       }),
   });
 
+  // Nombres ya usados, sugeridos al tipear quién se lleva el rollo: así el
+  // mismo transportista no queda escrito de tres formas distintas.
+  const carriersQuery = useQuery({ queryKey: ["rollTransferCarriers"], queryFn: api.getRollTransferCarriers });
+
   function resetForm() {
     setScanned(null);
     setToStation("");
     setMode("entrega");
     setCarrierName("");
     setNotes("");
+    setReceivedKg("");
   }
 
   async function handleScan(raw: string) {
@@ -134,9 +163,12 @@ export default function DespachoBodegas() {
         notes: notes.trim() || undefined,
         ...clientClock(),
       });
-      setSuccess(`Rollo ${transfer.rollCode} despachado a ${stationLabel(transfer.toStation)} — lo lleva ${transfer.carrierName}`);
+      setSuccess(
+        `Rollo ${transfer.rollCode} despachado a ${stationLabel(transfer.toStation)} con ${Number(transfer.dispatchedKg)} kg — lo lleva ${transfer.carrierName}`
+      );
       resetForm();
       queryClient.invalidateQueries({ queryKey: ["rollTransfers"] });
+      queryClient.invalidateQueries({ queryKey: ["rollTransferCarriers"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo registrar el despacho");
     } finally {
@@ -147,6 +179,11 @@ export default function DespachoBodegas() {
   async function handleReceive() {
     const open = scanned?.info.openTransfer;
     if (!scanned || !open) return;
+    const weighed = receivedKg.trim() ? Number(receivedKg) : undefined;
+    if (weighed !== undefined && !(weighed > 0)) {
+      setError("El peso al recibir tiene que ser mayor a 0 (o dejalo vacío si no lo pesaste)");
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
@@ -154,9 +191,16 @@ export default function DespachoBodegas() {
         code: scanned.code,
         token: scanned.token,
         notes: notes.trim() || undefined,
+        receivedKg: weighed,
         ...clientClock(),
       });
-      setSuccess(`Rollo ${transfer.rollCode} recibido en la bodega de ${stationLabel(transfer.toStation)}`);
+      const diff = weightDiff(transfer);
+      setSuccess(
+        `Rollo ${transfer.rollCode} recibido en la bodega de ${stationLabel(transfer.toStation)}` +
+          (diff != null && Math.abs(diff) > WEIGHT_TOLERANCE_KG
+            ? ` — llegó con ${diff > 0 ? "+" : ""}${diff} kg de diferencia contra lo que salió, se le avisó a Gestión`
+            : "")
+      );
       resetForm();
       queryClient.invalidateQueries({ queryKey: ["rollTransfers"] });
     } catch (err) {
@@ -225,10 +269,27 @@ export default function DespachoBodegas() {
             <div className="space-y-3">
               <div className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950 p-3 text-sm text-amber-800 dark:text-amber-300">
                 En tránsito hacia <strong>{stationLabel(open.toStation)}</strong> — lo lleva <strong>{open.carrierName}</strong>, salió el{" "}
-                {formatInZone(open.createdAt, open.clientTimezone, open.clientUtcOffsetMinutes)}.
+                {formatInZone(open.createdAt, open.clientTimezone, open.clientUtcOffsetMinutes)}
+                {open.dispatchedKg != null && (
+                  <>
+                    {" "}
+                    con <strong>{Number(open.dispatchedKg)} kg</strong>
+                  </>
+                )}
+                .
               </div>
               {canReceiveOpen ? (
                 <>
+                  <input
+                    className={inputClass}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    placeholder="Peso al recibir (kg, opcional — si lo pesaste)"
+                    value={receivedKg}
+                    onChange={(e) => setReceivedKg(e.target.value)}
+                  />
                   <input className={inputClass} placeholder="Observaciones (opcional)" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} />
                   <button
                     type="button"
@@ -295,6 +356,7 @@ export default function DespachoBodegas() {
                   <input
                     className={`${inputClass} mt-2`}
                     placeholder="Nombre de quien se lo lleva"
+                    list="carrier-suggestions"
                     value={carrierName}
                     onChange={(e) => setCarrierName(e.target.value)}
                     maxLength={100}
@@ -306,6 +368,11 @@ export default function DespachoBodegas() {
                     Queda a nombre de tu cuenta: <strong className="text-slate-700 dark:text-slate-200">{user?.name}</strong>
                   </p>
                 )}
+                <datalist id="carrier-suggestions">
+                  {(carriersQuery.data ?? []).map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </div>
 
               <input className={inputClass} placeholder="Observaciones (opcional)" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} />
@@ -386,7 +453,10 @@ export default function DespachoBodegas() {
                       </td>
                       <td className="p-3">
                         <p>{formatInZone(t.createdAt, t.clientTimezone, t.clientUtcOffsetMinutes)}</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{t.clientTimezone}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {t.dispatchedKg != null ? `Salió con ${Number(t.dispatchedKg)} kg · ` : ""}
+                          {t.clientTimezone}
+                        </p>
                       </td>
                       <td className="p-3">
                         <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[t.status]}`}>{STATUS_LABELS[t.status]}</span>
@@ -398,6 +468,7 @@ export default function DespachoBodegas() {
                             <p className="text-xs text-slate-500 dark:text-slate-400">
                               {formatInZone(t.receivedAt, t.receivedTimezone, t.receivedUtcOffsetMinutes)}
                             </p>
+                            <ReceivedWeight t={t} />
                           </>
                         ) : (
                           "—"
@@ -427,12 +498,14 @@ export default function DespachoBodegas() {
                     Lo lleva {t.carrierName}
                     {t.mode === "entrega" ? ` (entregado por ${t.registeredBy.name})` : ""} ·{" "}
                     {formatInZone(t.createdAt, t.clientTimezone, t.clientUtcOffsetMinutes)}
+                    {t.dispatchedKg != null ? ` · salió con ${Number(t.dispatchedKg)} kg` : ""}
                   </p>
                   {t.receivedAt && (
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                       Recibió {t.receivedBy?.name ?? "—"} · {formatInZone(t.receivedAt, t.receivedTimezone, t.receivedUtcOffsetMinutes)}
                     </p>
                   )}
+                  <ReceivedWeight t={t} />
                   {canGestion && <DeleteTransferButton onConfirm={() => handleDelete(t.id)} />}
                 </div>
               ))}

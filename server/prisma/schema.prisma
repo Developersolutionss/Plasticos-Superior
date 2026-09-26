@@ -823,6 +823,9 @@ model RollTransfer {
   clientUtcOffsetMinutes Int               @map("client_utc_offset_minutes")
   notes                  String?
   createdAt              DateTime          @default(now()) @map("created_at")
+  /// Saldo del rollo (kg sin consumir) al momento de despachar, lo pone el
+  /// servidor. Null solo en despachos anteriores a esta columna.
+  dispatchedKg           Decimal?          @map("dispatched_kg") @db.Decimal(12, 2)
 
   status                   RollTransferStatus @default(en_transito)
   receivedById             Int?               @map("received_by")
@@ -830,6 +833,9 @@ model RollTransfer {
   receivedAt               DateTime?          @map("received_at")
   receivedTimezone         String?            @map("received_timezone")
   receivedUtcOffsetMinutes Int?               @map("received_utc_offset_minutes")
+  /// Peso que la bodega destino midió al recibirlo (opcional). Si difiere de
+  /// `dispatchedKg` más de la tolerancia, se avisa a Gestión.
+  receivedKg               Decimal?           @map("received_kg") @db.Decimal(12, 2)
 
   @@index([rollId])
   @@index([toStation, createdAt])

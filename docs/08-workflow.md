@@ -81,6 +81,10 @@ Extrusión → Impresión → Sellado → Precorte
 
 Cada rollo lleva un código de QR con el prefijo de su proceso: `EXT-1`, `IMP-1`, `SELL-1`, `PRE-1`. Cada estación numera **su propia secuencia**, empezando en 1 (`ProductionRoll.station` + `stationSequence`). Antes todos los rollos compartían un único autoincrement de toda la tabla: sacar un rollo de Extrusión después de uno de Precorte podía saltar de `EXT-70` a `PRE-71` en vez de arrancar en 1, porque las cuatro estaciones se veían intercaladas en un mismo conteo. Etiquetas físicas viejas con el formato anterior (`RL-<id>`) se siguen resolviendo al escanear, para no romper rollos que sigan circulando en planta.
 
+#### Ubicación física del rollo (despacho a bodegas)
+
+Un rollo solo se consume en la estación donde está físicamente: en la bodega del último despacho recibido, o en su estación de origen si nunca se movió (`services/rollLocation.ts`). Para usar un rollo de Extrusión en Impresión, Sellado o Precorte primero hay que despacharlo a esa bodega y que allá lo reciban (pantalla Despacho a bodegas, `/api/roll-transfers`); un rollo en camino tampoco se puede consumir. Al despachar queda el saldo con que salió; al recibir se puede pesar y, si llega con más de 0,5 kg de diferencia, se avisa a Gestión.
+
 #### Rollo madre con saldo vivo (Sellado y Precorte)
 
 En Sellado y Precorte, un rollo grande de Extrusión (o Impresión) se monta en la máquina y de él salen varios rollos chicos — no se consume entero de una vez. Cada rollo chico descuenta kilos del saldo del rollo madre, hasta agotarlo:

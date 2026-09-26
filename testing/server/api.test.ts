@@ -59,6 +59,30 @@ async function loginAs(email: string): Promise<string> {
   return body.token;
 }
 
+/** Deja un rollo "recibido en la bodega de `station`" (despacho + recepción,
+ * directo por Prisma) — un rollo solo se puede consumir en la estación donde
+ * está físicamente (ver server/src/services/rollLocation.ts), así que los
+ * tests que consumen un rollo madre en otra estación lo mueven primero. */
+async function placeRollAt(rollId: number, station: "impresion" | "sellado" | "precorte") {
+  const roll = await prisma.productionRoll.findUniqueOrThrow({ where: { id: rollId }, select: { station: true } });
+  const user = await prisma.user.findUniqueOrThrow({ where: { email: "produccion@empresa.com" }, select: { id: true } });
+  await prisma.rollTransfer.create({
+    data: {
+      rollId,
+      fromStation: roll.station,
+      toStation: station,
+      mode: "retiro",
+      carrierName: "Test",
+      registeredById: user.id,
+      clientTimezone: "America/Bogota",
+      clientUtcOffsetMinutes: -300,
+      status: "recibido",
+      receivedById: user.id,
+      receivedAt: new Date(),
+    },
+  });
+}
+
 /** Crea un rollo directo por Prisma (sin pasar por el endpoint), completando
  * `station`/`stationSequence` a mano -- son NOT NULL en el schema (numeración
  * propia por estación, ver migración roll_per_station_numbering) y el
@@ -2119,6 +2143,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 20 },
     });
     const source = await createTestRoll(parent.id, { weightKg: 20 });
+    await placeRollAt(source.id, "impresion");
     const child = await prisma.productionOrder.create({
       data: { orderNumber: parent.orderNumber, station: "impresion", productId, quantityPlanned: 20, parentOrderId: parent.id },
     });
@@ -2138,6 +2163,50 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     assert.equal(second.status, 400, "un segundo escaneo del mismo rollo de origen se rechaza");
     const secondBody = (await second.json()) as { error: string };
     assert.match(secondBody.error, /ya fue consumido/);
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: child.id } });
+    await prisma.productionOrder.delete({ where: { id: child.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: parent.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
+  it("un rollo solo se consume en la estación donde está: sin despachar, o recibido en otra bodega, se rechaza (también al escanear)", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
+    });
+    const source = await createTestRoll(parent.id, { weightKg: 20 });
+    const code = `${ROLL_CODE_PREFIX.extrusion}-${source.stationSequence}`;
+    const child = await prisma.productionOrder.create({
+      data: { orderNumber: parent.orderNumber, station: "sellado", productId, quantityPlanned: 40, parentOrderId: parent.id },
+    });
+    const cargar = () =>
+      fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ weightKg: 5, sourceRollIds: [source.id], sourceRollTokens: { [source.id]: source.possessionToken } }),
+      });
+    const escanear = () =>
+      fetch(`${baseUrl}/api/production-orders/rolls/by-code/${code}?token=${source.possessionToken}&forStation=sellado`, { headers: headersFor("produccion") });
+
+    // Nunca salió de Extrusión.
+    const sinDespachar = await cargar();
+    assert.equal(sinDespachar.status, 400);
+    assert.match(((await sinDespachar.json()) as { error: string }).error, /está en la bodega de Extrusión/);
+    const escaneoSinDespachar = await escanear();
+    assert.equal(escaneoSinDespachar.status, 400, "el escaneo ya avisa, antes de llenar la fila");
+
+    // Lo recibieron en Precorte: tampoco se puede consumir en Sellado.
+    await placeRollAt(source.id, "precorte");
+    const otraBodega = await cargar();
+    assert.equal(otraBodega.status, 400);
+    assert.match(((await otraBodega.json()) as { error: string }).error, /está en la bodega de Precorte/);
+
+    // Recibido en la bodega de Sellado: ahora sí.
+    await placeRollAt(source.id, "sellado");
+    const escaneoOk = await escanear();
+    assert.equal(escaneoOk.status, 200);
+    assert.deepEqual(((await escaneoOk.json()) as { location: unknown }).location, { status: "en_bodega", station: "sellado" });
+    assert.equal((await cargar()).status, 201);
 
     await prisma.productionRoll.deleteMany({ where: { productionOrderId: child.id } });
     await prisma.productionOrder.delete({ where: { id: child.id } });
@@ -2173,7 +2242,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     });
     assert.equal(blocked.status, 400, "el rollo sigue en tránsito, no se puede consumir todavía");
     const blockedBody = (await blocked.json()) as { error: string };
-    assert.match(blockedBody.error, /en tránsito/);
+    assert.match(blockedBody.error, /en camino a la bodega de Impresión/);
 
     // Una vez recibido, sí se puede consumir normalmente.
     await prisma.rollTransfer.update({ where: { id: transfer.id }, data: { status: "recibido", receivedAt: new Date() } });
@@ -2199,7 +2268,9 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     });
     const madres = [];
     for (const weightKg of pesos) {
-      madres.push(await createTestRoll(parent.id, { weightKg }));
+      const madre = await createTestRoll(parent.id, { weightKg });
+      await placeRollAt(madre.id, station);
+      madres.push(madre);
     }
     const child = await prisma.productionOrder.create({
       data: { orderNumber: parent.orderNumber, station, productId, quantityPlanned: 500, parentOrderId: parent.id },
@@ -2328,6 +2399,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 20 },
     });
     const madre = await createTestRoll(parent.id, { weightKg: 20 });
+    await placeRollAt(madre.id, "precorte");
     const child = await prisma.productionOrder.create({
       data: { orderNumber: parent.orderNumber, station: "precorte", productId, quantityPlanned: 10, parentOrderId: parent.id },
     });
@@ -5554,6 +5626,50 @@ describe("despacho de rollos a bodegas internas", () => {
 
     await prisma.rollTransfer.deleteMany({ where: { rollId: otherRoll.id } });
     await prisma.productionRoll.delete({ where: { id: otherRoll.id } });
+  });
+
+  it("guarda los kilos con que sale el rollo y avisa a Gestión si llega con otro peso", async () => {
+    const madre = await createTestRoll(orderId, { weightKg: 30 });
+    const code = `${ROLL_CODE_PREFIX.extrusion}-${madre.stationSequence}`;
+    const salida = await post("operario_extrusion", "", { code, token: madre.possessionToken, toStation: "sellado", mode: "retiro", ...clock });
+    assert.equal(salida.status, 201);
+    const transfer = (await salida.json()) as any;
+    assert.equal(Number(transfer.dispatchedKg), 30, "sale con el saldo real del rollo");
+
+    const recibido = await post("operario_sellado", `/${transfer.id}/receive`, { code, token: madre.possessionToken, receivedKg: 27.5, ...clock });
+    assert.equal(recibido.status, 200);
+    assert.equal(Number(((await recibido.json()) as any).receivedKg), 27.5);
+    const aviso = await prisma.notification.findFirst({ where: { type: "despacho_diferencia_peso", message: { contains: code } } });
+    assert.ok(aviso, "2,5 kg de diferencia genera un aviso para Gestión");
+    assert.match(aviso!.message, /-2\.5 kg/);
+
+    // Dentro de la tolerancia (0,5 kg) no se avisa.
+    const otro = await createTestRoll(orderId, { weightKg: 10 });
+    const otroCode = `${ROLL_CODE_PREFIX.extrusion}-${otro.stationSequence}`;
+    const salidaOtro = (await (await post("operario_extrusion", "", { code: otroCode, token: otro.possessionToken, toStation: "sellado", mode: "retiro", ...clock })).json()) as any;
+    await post("operario_sellado", `/${salidaOtro.id}/receive`, { code: otroCode, token: otro.possessionToken, receivedKg: 9.8, ...clock });
+    assert.equal(await prisma.notification.count({ where: { type: "despacho_diferencia_peso", message: { contains: otroCode } } }), 0);
+
+    await prisma.notification.deleteMany({ where: { type: "despacho_diferencia_peso", message: { contains: code } } });
+    await prisma.productionRoll.deleteMany({ where: { id: { in: [madre.id, otro.id] } } });
+  });
+
+  it("el nombre de quien se lleva el rollo se guarda normalizado y se sugiere en /carriers", async () => {
+    const r = await createTestRoll(orderId, { weightKg: 12 });
+    const code = `${ROLL_CODE_PREFIX.extrusion}-${r.stationSequence}`;
+    const res = await post("operario_extrusion", "", {
+      code,
+      token: r.possessionToken,
+      toStation: "impresion",
+      mode: "entrega",
+      carrierName: "  josé   de la PEÑA ",
+      ...clock,
+    });
+    assert.equal(res.status, 201);
+    assert.equal(((await res.json()) as any).carrierName, "José De La Peña");
+    const carriers = (await (await fetch(`${baseUrl}/api/roll-transfers/carriers`, { headers: headersFor("operario_extrusion") })).json()) as string[];
+    assert.ok(carriers.includes("José De La Peña"));
+    await prisma.productionRoll.delete({ where: { id: r.id } });
   });
 
   it("retiro: queda a nombre de la cuenta que escanea; el historial filtra por bodega", async () => {

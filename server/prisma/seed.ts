@@ -373,11 +373,13 @@ async function main() {
           registeredById: opImpresion.id,
           clientTimezone: "America/Bogota",
           clientUtcOffsetMinutes: -300,
+          dispatchedKg: 48,
           status: "recibido",
           receivedById: opImpresion.id,
           receivedAt: new Date(),
           receivedTimezone: "America/Bogota",
           receivedUtcOffsetMinutes: -300,
+          receivedKg: 47.8,
         },
       });
       await prisma.rollTransfer.create({
@@ -394,6 +396,7 @@ async function main() {
           // manualmente contra data de seed, sin tener que crear un rollo
           // nuevo desde cero.
           status: "en_transito",
+          dispatchedKg: 52,
         },
       });
     }

@@ -92,11 +92,15 @@ export interface RollTransfer {
   clientUtcOffsetMinutes: number;
   notes: string | null;
   createdAt: string;
+  /** Saldo del rollo al despachar (lo pone el servidor). Null en despachos viejos. */
+  dispatchedKg: string | null;
   status: "en_transito" | "recibido";
   receivedBy: { name: string } | null;
   receivedAt: string | null;
   receivedTimezone: string | null;
   receivedUtcOffsetMinutes: number | null;
+  /** Peso que midió la bodega destino al recibir (opcional). */
+  receivedKg: string | null;
   roll: {
     id: number;
     station: ProductionStation;
@@ -421,8 +425,13 @@ export const api = {
    * matchea, el servidor responde 403 (feedback inmediato de QR falso; el
    * chequeo real es el de `createProductionRoll`, este es solo para avisar
    * antes de terminar de llenar la fila). */
-  getProductionRollByCode: (code: string, token?: string) =>
-    request<any>(`/production-orders/rolls/by-code/${encodeURIComponent(code)}${token ? `?token=${encodeURIComponent(token)}` : ""}`),
+  getProductionRollByCode: (code: string, token?: string, forStation?: string) => {
+    // `forStation`: estación de la OP que lo quiere consumir — el servidor
+    // avisa ya al escanear si el rollo está en otra bodega (o en camino).
+    const params = new URLSearchParams(Object.entries({ token, forStation }).filter(([, v]) => v) as [string, string][]);
+    const qs = params.toString();
+    return request<any>(`/production-orders/rolls/by-code/${encodeURIComponent(code)}${qs ? `?${qs}` : ""}`);
+  },
   // ---- Despacho de rollos entre bodegas internas (Extrusión/Impresión ->
   // Impresión/Sellado/Precorte), ver server/src/routes/rollTransfers.ts ----
   /** Qué rollo se escaneó, a dónde puede ir y si ya hay un despacho en
@@ -446,8 +455,10 @@ export const api = {
   }) => request<RollTransfer>("/roll-transfers", { method: "POST", body: JSON.stringify(data) }),
   receiveRollTransfer: (
     id: number,
-    data: { code: string; token: string; notes?: string; clientTimezone: string; clientUtcOffsetMinutes: number }
+    data: { code: string; token: string; notes?: string; receivedKg?: number; clientTimezone: string; clientUtcOffsetMinutes: number }
   ) => request<RollTransfer>(`/roll-transfers/${id}/receive`, { method: "POST", body: JSON.stringify(data) }),
+  /** Nombres de transportistas ya usados, para sugerirlos al despachar. */
+  getRollTransferCarriers: () => request<string[]>("/roll-transfers/carriers"),
   deleteRollTransfer: (id: number) => request<void>(`/roll-transfers/${id}`, { method: "DELETE" }),
   // ---- Etiquetas de bulto (Sellado/Precorte): pre-impresas por Gestión,
   // el operario escanea la que le tocó en vez de tipear E. BULTO. ----
