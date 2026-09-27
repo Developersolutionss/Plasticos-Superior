@@ -115,6 +115,7 @@ Cada estación (`services/opTemplates.ts`, con espejo en el frontend) define qu�
   - si tenía un control **rechazado**, solo borra el control;
   - si es una OP de Extrusión, revierte la materia prima que se había descontado al cerrarla.
   - **No se puede reabrir** si Calidad ya generó un despacho para esa OP y ese despacho sigue vivo (no cancelado) — primero hay que cancelarlo (`POST /dispatches/:id/cancel`), para no descontar o duplicar el stock.
+  - **Tampoco se puede** si al revertir la entrada de producto terminado, ese stock ya no está completo sin ubicar: si está ubicado en un estante, el error pide sacarlo de ahí en Almacén primero; si falta por otro motivo, avisa que probablemente se despachó por otro lado. Son dos causas distintas de la misma clase de error (`applyMovement`, `services/stockService.ts`), y cada una lleva su propia indicación.
 
 ### Inventario, almacén y avisos (revisión 2026-09-26)
 
@@ -123,7 +124,7 @@ Cada estación (`services/opTemplates.ts`, con espejo en el frontend) define qu�
 - Los errores de stock insuficiente nombran el producto o la materia prima (y la ubicación, si aplica).
 - Avisos de **stock bajo el mínimo**: al cruzar el mínimo (no en cada salida posterior), a Almacén y Gestión para producto terminado (`stock_bajo_minimo`) y a Gestión/Planeación para materia prima (`materia_prima_bajo_minimo`). Se guardan dentro de la misma transacción del movimiento.
 - Un aviso que falla **después** de guardar una operación ya no la convierte en error para el usuario (se registra en el log del servidor).
-- Trazabilidad: `GET /api/production-orders/trace/by-code/:code` resuelve el QR de un rollo, una etiqueta de bulto o un número de OP a su OP/rollo.
+- Trazabilidad: `GET /api/production-orders/trace/by-code/:code` resuelve el QR de un rollo, una etiqueta de bulto o un número de OP a su OP/rollo, con la misma regla de visibilidad que `GET /:id` — un operario puro tampoco confirma por esta vía que una OP en `borrador` existe (`404`).
 
 ### Control de calidad
 

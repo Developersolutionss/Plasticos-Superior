@@ -374,7 +374,9 @@ Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía r
 
 ### `Trazabilidad.tsx`
 - Selector de OP (`api.getProductionOrders`) + detalle de solo lectura (`api.getProductionOrder(id)`).
-- Muestra el producto y la cantidad planificada, el **origen** (pedido/cliente si vino de Planeación, o "Producción a stock"), la lista de pasos por estación y el **resultado de Calidad** (aprobado/rechazado con observaciones y quién lo registró).
+- **Búsqueda por código físico** (`api.traceByCode`, `GET /production-orders/trace/by-code/:code`): campo de texto o botón "Escanear" (`BarcodeScanner`) que acepta el QR de un rollo (con o sin token de posesión), una etiqueta de bulto o el número de OP, y selecciona la OP encontrada resaltando el rollo (`highlightRollId`).
+- Muestra el código real del rollo (`EXT-3`, no el id interno), el producto y la cantidad planificada, el **origen** (pedido/cliente si vino de Planeación, o "Producción a stock"), la **cadena de derivación completa** (todas las OPs emparentadas, con profundidad y kg), el resultado de Calidad (aprobado/rechazado con observaciones y quién lo registró), los **lotes de materia prima de Extrusión** de toda la cadena y el **despacho a cliente** que generó la OP.
+- Por rollo: sus rollos madre con los kg consumidos de cada uno y sus despachos entre bodegas (kg al salir/llegar).
 
 ### `Auditoria.tsx`
 - Bitácora forense (`api.getAuditLog`) con filtro **por tabla** (Client, Dispatch, ProductionEntry, InventoryMovement) y paginado.
@@ -413,6 +415,7 @@ Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía r
 
 ### `Movimientos.tsx`
 - Historial paginado de `InventoryMovement` (`api.getInventoryMovements`), filtro por tipo de movimiento, paginación de 50, badges de color por tipo y signo (+/−) según sea entrada o salida.
+- Columna **Origen**: etiqueta armada por el servidor (OP aprobada en Calidad, reversión por reapertura, despacho, ajuste manual...), con link a la hoja de la OP cuando el rol que la ve puede abrirla — para Almacén, que no tiene acceso a esa pantalla, va sin link en vez de un link que lo manda al inicio.
 
 ### `DashboardEjecutivo.tsx`
 - KPIs (`api.getDashboardResumen`): ventas del mes con variación %, cartera pendiente, **cartera vencida** (resaltada en rojo si es mayor a 0), facturas con saldo, OPs en curso, pedidos en producción, cotizaciones abiertas.

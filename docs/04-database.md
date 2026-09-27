@@ -204,7 +204,7 @@ Productos que un cliente pide, cargados a mano por Ventas — aparte de los que 
 | productId | Int | FK → products |
 | movementType | `MovementType` | `entrada_produccion` / `salida_despacho` / `ajuste` / `devolucion` |
 | quantity | Decimal | positivo = entrada, negativo = salida |
-| referenceType | `ReferenceType` | `production_entry` / `dispatch_item` / `manual_adjustment` |
+| referenceType | `ReferenceType` | `production_entry` / `dispatch_item` / `manual_adjustment` / `production_order` |
 | referenceId | Int? | id del registro que originó el movimiento |
 | productionEntryId | Int? | FK → production_entries |
 | createdById | Int? | FK → users |
@@ -309,6 +309,7 @@ Fila del **registro acumulativo de rollos/bultos** de una OP (la tabla inferior 
 | details | Json? | pruebas, color, densidad, etc. según la estación |
 | notes / createdById | String? / Int? | |
 | sourceRollId | Int? | `@map("source_roll_id")`. Self-FK → production_rolls. Rollo madre **principal** (el primero escaneado) del que salió este rollo — ya **no es `@unique`**: en Sellado/Precorte un mismo rollo de Extrusión alimenta muchas filas hasta agotarse. El reparto real en kilos vive en `roll_consumptions`; esto queda como atajo para mostrar "de dónde salió" sin tener que cargar el ledger completo |
+| possessionTokenHash | String | `@map("possession_token_hash")`. Hash del token de posesión física impreso en el QR — lo valida `GET /rolls/by-code` para confirmar que quien escanea tiene el rollo en mano, no solo el número |
 | createdAt | DateTime | `@map("created_at")` |
 
 Relaciones adicionales: `consumptions` (kilos que este rollo le sacó a cada rollo madre) y `consumedAsSource` (kilos que le sacaron a este rollo cuando actúa como rollo madre) — ver `roll_consumptions` abajo. `bultoLabel` (1:1 opcional) enlaza con la etiqueta física de bulto escaneada, si la hubo.
@@ -358,8 +359,10 @@ Despacho de un rollo de su estación a la bodega de otra estación (ver `/api/ro
 | notes | String? | |
 | createdAt | DateTime | Hora del servidor en la salida |
 | status | `RollTransferStatus` | `en_transito` / `recibido` |
+| dispatchedKg | Decimal? | `@map("dispatched_kg")`. Saldo real del rollo al salir, lo calcula el servidor. Nullable: despachos de antes de esta columna no tienen el dato |
 | receivedById | Int? | `@map("received_by")`. FK → users, quién lo recibió en destino |
 | receivedAt | DateTime? | Hora del servidor en la recepción |
+| receivedKg | Decimal? | `@map("received_kg")`. Peso opcional que carga la bodega destino al recibir; si difiere del `dispatchedKg` en más de 0,5 kg, avisa a Gestión |
 | receivedTimezone / receivedUtcOffsetMinutes | String? / Int? | Zona horaria del celular en la recepción |
 
 ### `production_order_attachments`
@@ -479,7 +482,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `ProductionStatus` | `pendiente`, `en_transito`, `recibido`, `rechazado` |
 | `ProductionSource` | `manual`, `excel_import`, `whatsapp_bot` |
 | `MovementType` | `entrada_produccion`, `salida_despacho`, `ajuste`, `devolucion` |
-| `ReferenceType` | `production_entry`, `dispatch_item`, `manual_adjustment` |
+| `ReferenceType` | `production_entry`, `dispatch_item`, `manual_adjustment`, `production_order` |
 | `RawMaterialMovementType` | `compra`, `consumo_produccion`, `ajuste` |
 | `DispatchStatus` | `pendiente`, `en_proceso`, `despachado`, `cancelada` |
 | `ImportSource` | `manual_upload`, `whatsapp_bot` |
@@ -538,6 +541,10 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260915150135_pedidos_despachos_clientes_audit_fixes` | `dispatches`: `notified_at`/`notify_error` (constancia del aviso de WhatsApp); `pedidos.cotizacion_id` pasa a `@unique` (una cotización solo se convierte en pedido una vez) |
 | `20260917170714_roll_consumption_ledger` | Quita el `@unique` de `production_rolls.source_roll_id` (vuelve a admitir varias filas por rollo madre) y crea `roll_consumptions`: el ledger del saldo vivo de un rollo madre en Sellado/Precorte |
 | `20260917235750_roll_per_station_numbering` | `production_rolls`: `station` + `station_sequence` (`@@unique([station, station_sequence])`), con backfill de los rollos existentes — numeración del código QR independiente por estación |
+| `20260924064142_add_roll_possession_token` / `20260924065119_require_roll_possession_token` | `production_rolls`: `possession_token_hash`, nullable y luego `NOT NULL` — token de posesión física del rollo |
+| `20260925120000_add_roll_transfers` | Tabla `roll_transfers` y enums `RollTransferMode`/`RollTransferStatus` (despacho de rollos entre bodegas de estación) |
+| `20260926120000_roll_transfer_kg` | `roll_transfers`: `dispatched_kg`/`received_kg` (nullable, despachos anteriores no tienen el dato) |
+| `20260926130000_reference_type_production_order` / `20260926130100_relink_quality_inventory_movements` | Suma `production_order` a `ReferenceType` y reetiqueta los movimientos existentes de Calidad/reapertura, que antes quedaban como `manual_adjustment` |
 
 Para aplicar cambios nuevos:
 
