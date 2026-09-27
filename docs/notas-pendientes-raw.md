@@ -112,12 +112,22 @@ Alcance — no todo exige el token:
   `allocateFromSourceRolls` en el flujo de `OrdenProduccionDetalle.tsx`) — ahí se escanea el QR
   completo (código + token), no solo el código.
 
+Hechas desde entonces:
+
+- **Límite de intentos por usuario en el endpoint que valida el token**: `checkPossessionTokenRateLimit`
+  (`services/rateLimiter.ts`, usado en `GET /rolls/by-code/:code` de `productionOrders.ts`) corta a 50
+  escaneos por minuto y devuelve `429`. Es por **usuario**, no por IP como pedía la nota original, y
+  está pensado como freno de performance ante un escaneo descontrolado, no como control de seguridad
+  contra fuerza bruta del token.
+- **Endpoint de reemisión** (solo Gestión/Calidad) para etiquetas dañadas o perdidas: `POST
+  /production-orders/:id/rolls/:rollId/reissue-label`, restringido a `ROLES.PRODUCCION_GESTION` +
+  `ROLES.CALIDAD`, genera un token nuevo e invalida el anterior.
+
 Pendiente de implementar además:
 
-- Límite de intentos fallidos por IP/usuario en el endpoint que valida el token (defensa adicional
-  a los 80 bits).
-- Endpoint de reemisión (solo Gestión/Calidad) para etiquetas dañadas o perdidas: genera un
-  `random`/`token_hash` nuevo e invalida el anterior.
-- Rotación de `SERVER_SECRET` queda como limitación conocida por ahora (rotarlo invalida todo lo ya
-  impreso); si hace falta a futuro, versionar el secreto (`possessionTokenVersion` por rollo) con
+- Límite de intentos fallidos **por IP** en el endpoint que valida el token, como defensa adicional a
+  los 80 bits — hoy el límite existente es por usuario, no por IP (ver arriba).
+- Rotación de `SERVER_SECRET` (hoy la variable de entorno es `ROLL_TOKEN_SECRET`, ver
+  `services/rollPossessionToken.ts`) queda como limitación conocida por ahora (rotarlo invalida todo
+  lo ya impreso); si hace falta a futuro, versionar el secreto (`possessionTokenVersion` por rollo) con
   una ventana de transición que acepte el secreto viejo y el nuevo.
