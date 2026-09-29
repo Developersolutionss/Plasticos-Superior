@@ -310,6 +310,19 @@ export default function OrdenProduccionDetalle() {
   // Para poder editar el destino (Estantería/Cliente) desde la hoja.
   const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: api.getClients });
 
+  // Sugerencia de specs para este cliente+producto+estación -- mismo criterio
+  // de "sugerido a mano + sugerido por frecuencia" que la medida/cantidad al
+  // crear la OP (ver OrdenesProduccion.tsx) y que "Sugeridos"/"Pide seguido"
+  // al elegir productos de un cliente (ver GET /production-orders/suggestions).
+  // Antes del early-return de "sin estación" de abajo porque los hooks no
+  // pueden llamarse condicionalmente.
+  const suggestionsEnabled = !!order?.station && !!order?.clientId && !!order?.productId;
+  const { data: specSuggestions, refetch: refetchSpecSuggestions } = useQuery({
+    queryKey: ["productionOrderSuggestions", order?.clientId, order?.productId, order?.station],
+    queryFn: () => api.getProductionOrderSuggestions(order!.clientId, order!.productId, order!.station),
+    enabled: suggestionsEnabled,
+  });
+
   // Sincroniza los borradores locales cuando llega/cambia la OP del server.
   useEffect(() => {
     if (!order) return;
@@ -536,6 +549,43 @@ export default function OrdenProduccionDetalle() {
   function setSpec(key: string, value: string) {
     setSpecsDraft((prev) => ({ ...prev, [key]: value }));
     markDirty();
+  }
+
+  // La manual gana campo por campo sobre la calculada por frecuencia (mismo
+  // criterio que "Sugeridos"/"Pide seguido" en Pedidos.tsx/Cotizaciones.tsx).
+  const suggestedSpecs: Record<string, string> = {
+    ...(specSuggestions?.frequent.specs ?? {}),
+    ...(specSuggestions?.manual?.specs ?? {}),
+  } as Record<string, string>;
+
+  /** Solo completa los campos que todavía están vacíos -- nunca pisa algo
+   * que Gestión ya haya tipeado a mano. */
+  function handleApplySpecSuggestion() {
+    setSpecsDraft((prev) => {
+      const next = { ...prev };
+      for (const [key, value] of Object.entries(suggestedSpecs)) {
+        if (!next[key]) next[key] = value;
+      }
+      return next;
+    });
+    markDirty();
+  }
+
+  async function handleSaveSpecSuggestion() {
+    if (!order?.clientId || !order?.productId || !order?.station) return;
+    await api.saveProductionOrderPreset({
+      clientId: order.clientId,
+      productId: order.productId,
+      station: order.station,
+      specs: specsDraft,
+    });
+    refetchSpecSuggestions();
+  }
+
+  async function handleDeleteSpecSuggestion() {
+    if (!specSuggestions?.manual) return;
+    await api.deleteProductionOrderPreset(specSuggestions.manual.id);
+    refetchSpecSuggestions();
   }
 
   async function handleSaveSpecs() {
@@ -1673,6 +1723,31 @@ export default function OrdenProduccionDetalle() {
               </tbody>
             </table>
           </>
+        )}
+
+        {canEditSpecs && Object.keys(suggestedSpecs).length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 my-2">
+            <span className="text-slate-500 dark:text-slate-400">
+              {specSuggestions?.manual ? "Sugerido para este cliente + producto:" : "Este cliente suele pedirlo así:"}
+            </span>
+            <button
+              type="button"
+              onClick={handleApplySpecSuggestion}
+              className="border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 rounded-full px-2.5 py-1 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+            >
+              Aplicar sugerencia
+            </button>
+            <span className="grow" />
+            {specSuggestions?.manual ? (
+              <button type="button" onClick={handleDeleteSpecSuggestion} className="text-red-600 dark:text-red-400 hover:underline">
+                Quitar sugerencia
+              </button>
+            ) : (
+              <button type="button" onClick={handleSaveSpecSuggestion} className="text-sky-700 dark:text-sky-400 hover:underline">
+                Guardar lo actual como sugerencia
+              </button>
+            )}
+          </div>
         )}
 
         {/* Secciones de specs de la estación */}

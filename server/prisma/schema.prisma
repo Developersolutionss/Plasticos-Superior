@@ -219,6 +219,7 @@ model User {
   bultoLabelsUsed       BultoLabel[] @relation("BultoLabelUsedBy")
   bultoLabelsCreated    BultoLabel[] @relation("BultoLabelCreatedBy")
   clientManualProducts  ClientManualProduct[]
+  productionOrderPresets ProductionOrderPreset[]
   rollTransfers         RollTransfer[] @relation("RollTransferRegisteredBy")
   rollTransfersReceived RollTransfer[] @relation("RollTransferReceivedBy")
 
@@ -276,6 +277,7 @@ model Product {
   facturaItems       FacturaItem[]
   stockLocations     StockLocation[]
   clientManualProducts ClientManualProduct[]
+  productionOrderPresets ProductionOrderPreset[]
 
   @@map("products")
 }
@@ -311,6 +313,7 @@ model Client {
   facturas          Factura[]
   productionOrders  ProductionOrder[]
   manualProducts    ClientManualProduct[]
+  productionOrderPresets ProductionOrderPreset[]
 
   @@map("clients")
 }
@@ -337,6 +340,42 @@ model ClientManualProduct {
   /// fila existente en vez de duplicarla (ver POST /:id/manual-products).
   @@unique([clientId, productId])
   @@map("client_manual_products")
+}
+
+/// Sugerencia curada a mano para armar una Orden de Producción de un
+/// cliente+producto puntual -- mismo criterio de "sugerido a mano" que
+/// ClientManualProduct, pero aplicado a los campos de la OP (medida,
+/// cantidad planeada y las specs propias de cada plantilla de estación) en
+/// vez de a la lista de productos. Conviven con la sugerencia automática por
+/// frecuencia (agregada sobre ProductionOrder en GET
+/// /production-orders/suggestions), sin mezclarse: la manual gana campo por
+/// campo cuando hay las dos.
+/// `station` es "root" para medida/cantidad al crear la OP en blanco (antes
+/// de elegir estación) o el nombre de una ProductionStation para las specs
+/// de su plantilla. No se usa el enum ProductionStation porque necesita el
+/// valor adicional "root", y una columna nullable rompería el @@unique de
+/// abajo (Postgres permite más de un NULL en una unique).
+model ProductionOrderPreset {
+  id              Int      @id @default(autoincrement())
+  clientId        Int      @map("client_id")
+  client          Client   @relation(fields: [clientId], references: [id])
+  productId       Int      @map("product_id")
+  product         Product  @relation(fields: [productId], references: [id])
+  station         String
+  measure         String?
+  quantityPlanned Decimal? @map("quantity_planned") @db.Decimal(12, 2)
+  specs           Json?
+  notes           String?
+  createdById     Int?     @map("created_by")
+  createdBy       User?    @relation(fields: [createdById], references: [id])
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  /// Cargar la misma combinación cliente+producto+estación dos veces
+  /// actualiza la fila existente en vez de duplicarla (ver POST
+  /// /production-orders/presets).
+  @@unique([clientId, productId, station])
+  @@map("production_order_presets")
 }
 
 /// Direcciones de entrega del cliente (un cliente puede tener varias

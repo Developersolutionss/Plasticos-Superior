@@ -218,6 +218,35 @@ export default function OrdenesProduccion() {
     queryFn: () => api.getProductionOrders(station ? { station } : undefined),
   });
 
+  // Sugerencia de medida/cantidad para este cliente+producto -- mismo
+  // criterio de "sugerido a mano + sugerido por frecuencia" que ya usan
+  // Pedidos.tsx/Cotizaciones.tsx para elegir productos, acá aplicado a los
+  // campos de la OP en sí (ver GET /production-orders/suggestions).
+  const hasSuggestionContext = destino === "cliente" && !!clientId && !!productId;
+  const { data: suggestions, refetch: refetchSuggestions } = useQuery({
+    queryKey: ["productionOrderSuggestions", clientId, productId, "root"],
+    queryFn: () => api.getProductionOrderSuggestions(Number(clientId), Number(productId), "root"),
+    enabled: hasSuggestionContext,
+  });
+
+  async function handleSaveSuggestion() {
+    if (!hasSuggestionContext || !quantityPlanned) return;
+    await api.saveProductionOrderPreset({
+      clientId: Number(clientId),
+      productId: Number(productId),
+      station: "root",
+      measure: measure || undefined,
+      quantityPlanned: Number(quantityPlanned),
+    });
+    refetchSuggestions();
+  }
+
+  async function handleDeleteSuggestion() {
+    if (!suggestions?.manual) return;
+    await api.deleteProductionOrderPreset(suggestions.manual.id);
+    refetchSuggestions();
+  }
+
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -334,6 +363,49 @@ export default function OrdenesProduccion() {
             onChange={(e) => setNotes(e.target.value)}
           />
         </div>
+
+        {/* Sugerencia de medida/cantidad para este cliente+producto: la
+            manual (cargada a mano por Gestión) gana campo por campo sobre la
+            calculada por frecuencia -- igual criterio que "Sugeridos"/"Pide
+            seguido" en Pedidos.tsx/Cotizaciones.tsx, sin mezclarlas. */}
+        {hasSuggestionContext && suggestions && (suggestions.manual || suggestions.frequent.sampleSize > 0) && (
+          <div className="flex flex-wrap items-center gap-2 text-xs bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded px-3 py-2">
+            <span className="text-slate-500 dark:text-slate-400">
+              {suggestions.manual ? "Sugerido:" : "Este cliente suele pedir:"}
+            </span>
+            {(suggestions.manual?.measure ?? suggestions.frequent.measure) && (
+              <button
+                type="button"
+                onClick={() => setMeasure(String(suggestions.manual?.measure ?? suggestions.frequent.measure))}
+                className="border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 rounded-full px-2.5 py-1 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+              >
+                Medida {suggestions.manual?.measure ?? suggestions.frequent.measure}
+              </button>
+            )}
+            {(suggestions.manual?.quantityPlanned ?? suggestions.frequent.quantityPlanned) != null && (
+              <button
+                type="button"
+                onClick={() => setQuantityPlanned(String(suggestions.manual?.quantityPlanned ?? suggestions.frequent.quantityPlanned))}
+                className="border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 rounded-full px-2.5 py-1 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+              >
+                {suggestions.manual?.quantityPlanned ?? suggestions.frequent.quantityPlanned} kg
+              </button>
+            )}
+            <span className="grow" />
+            {suggestions.manual ? (
+              <button type="button" onClick={handleDeleteSuggestion} className="text-red-600 dark:text-red-400 hover:underline">
+                Quitar sugerencia
+              </button>
+            ) : (
+              !!quantityPlanned && (
+                <button type="button" onClick={handleSaveSuggestion} className="text-sky-700 dark:text-sky-400 hover:underline">
+                  Guardar como sugerencia
+                </button>
+              )
+            )}
+          </div>
+        )}
+
         <button className="bg-slate-800 text-white text-sm px-4 py-2 rounded" type="submit">
           Crear OP y abrir su hoja
         </button>

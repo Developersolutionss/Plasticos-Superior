@@ -383,6 +383,93 @@ productionOrdersRouter.get("/trace/by-code/:code", async (req, res) => {
 });
 
 /**
+ * Sugerencias para armar una OP de un cliente+producto puntual — mismo
+ * criterio de "sugerido a mano + sugerido por frecuencia" que ya existe para
+ * productos de un cliente (ver ClientManualProduct/top-products en
+ * clients.ts), aplicado acá a los campos propios de la OP: medida y cantidad
+ * planeada (station="root", antes de elegir estación) o las specs de la
+ * plantilla de una estación puntual (station="extrusion"/"impresion"/...).
+ * Nunca se mezclan los dos orígenes: la manual se devuelve aparte y gana
+ * campo por campo si el frontend decide aplicar ambas (ver POST /presets
+ * abajo para cargar/actualizar la manual).
+ */
+const PRESET_STATIONS = ["root", ...STATIONS] as const;
+type PresetStation = (typeof PRESET_STATIONS)[number];
+
+/** Valor más frecuente de una lista (ignora null/undefined/""). Empate: gana
+ * el primero que alcanzó el conteo más alto (orden estable de Map). */
+function mostFrequent<T extends string | number>(values: (T | null | undefined)[]): T | null {
+  const counts = new Map<T, number>();
+  for (const v of values) {
+    if (v === null || v === undefined || v === ("" as unknown as T)) continue;
+    counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  let best: T | null = null;
+  let bestCount = 0;
+  for (const [v, count] of counts) {
+    if (count > bestCount) {
+      best = v;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+productionOrdersRouter.get("/suggestions", requireProduccionGestion, async (req, res) => {
+  const clientId = Number(req.query.clientId);
+  const productId = Number(req.query.productId);
+  const station = (req.query.station as string) || "root";
+  if (!Number.isInteger(clientId) || !Number.isInteger(productId)) {
+    return res.status(400).json({ error: "clientId y productId son obligatorios" });
+  }
+  if (!PRESET_STATIONS.includes(station as PresetStation)) {
+    return res.status(400).json({ error: `station inválida: ${PRESET_STATIONS.join(", ")}` });
+  }
+
+  const manual = await prisma.productionOrderPreset.findUnique({
+    where: { clientId_productId_station: { clientId, productId, station } },
+  });
+
+  if (station === "root") {
+    // parentOrderId null = la fila raíz de cada cadena de derivación (ver
+    // comentario en POST /:id/derive): ahí quedó la medida/cantidad que
+    // Gestión tipeó al crear la OP, sin importar a qué estación haya
+    // avanzado después.
+    const roots = await prisma.productionOrder.findMany({
+      where: { clientId, productId, parentOrderId: null },
+      select: { measure: true, quantityPlanned: true },
+    });
+    const frequent = {
+      sampleSize: roots.length,
+      measure: mostFrequent(roots.map((r) => r.measure)),
+      quantityPlanned: mostFrequent(roots.map((r) => (r.quantityPlanned != null ? Number(r.quantityPlanned) : null))),
+    };
+    return res.json({ manual, frequent });
+  }
+
+  const stationOrders = await prisma.productionOrder.findMany({
+    where: { clientId, productId, station: station as OpStation },
+    select: { specs: true },
+  });
+  const specsByKey = new Map<string, (string | number)[]>();
+  for (const order of stationOrders) {
+    const specs = order.specs as Record<string, unknown> | null;
+    if (!specs || typeof specs !== "object") continue;
+    for (const [key, value] of Object.entries(specs)) {
+      if (typeof value !== "string" && typeof value !== "number") continue;
+      if (!specsByKey.has(key)) specsByKey.set(key, []);
+      specsByKey.get(key)!.push(value);
+    }
+  }
+  const frequentSpecs: Record<string, string | number> = {};
+  for (const [key, values] of specsByKey) {
+    const value = mostFrequent(values);
+    if (value !== null) frequentSpecs[key] = value;
+  }
+  res.json({ manual, frequent: { sampleSize: stationOrders.length, specs: frequentSpecs } });
+});
+
+/**
  * Detalle completo de una OP: sus rollos, adjuntos, cadena de derivación
  * (padre e hijas), el resultado de Calidad (si ya se registró) y el
  * pedido/cliente de origen (si vino de Planeación).
@@ -828,6 +915,73 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
   });
 
   res.status(201).json(order);
+});
+
+
+const presetSchema = z.object({
+  clientId: z.number().int(),
+  productId: z.number().int(),
+  station: z.enum(PRESET_STATIONS),
+  measure: z.string().optional(),
+  quantityPlanned: z.number().positive().optional(),
+  specs: z.record(z.string(), z.any()).optional(),
+  notes: z.string().optional(),
+});
+
+/** Cargar la misma combinación cliente+producto+estación dos veces
+ * actualiza la sugerencia existente en vez de duplicarla (ver @@unique del
+ * modelo). */
+productionOrdersRouter.post("/presets", requireProduccionGestion, async (req, res) => {
+  const parsed = presetSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { clientId, productId, station } = parsed.data;
+  const [client, product] = await Promise.all([
+    prisma.client.findUnique({ where: { id: clientId } }),
+    prisma.product.findUnique({ where: { id: productId } }),
+  ]);
+  if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+  if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+
+  let specs = parsed.data.specs;
+  if (specs && station !== "root") {
+    const normalized = normalizeSpecOptions(station as OpStation, specs);
+    if (normalized.issues.length) return res.status(400).json({ error: specOptionIssuesMessage(station as OpStation, normalized.issues) });
+    specs = normalized.specs;
+  }
+
+  const preset = await prisma.productionOrderPreset.upsert({
+    where: { clientId_productId_station: { clientId, productId, station } },
+    create: {
+      clientId,
+      productId,
+      station,
+      measure: parsed.data.measure,
+      quantityPlanned: parsed.data.quantityPlanned,
+      specs: specs as Prisma.InputJsonValue | undefined,
+      notes: parsed.data.notes,
+      createdById: req.user!.userId,
+    },
+    update: {
+      measure: parsed.data.measure,
+      quantityPlanned: parsed.data.quantityPlanned,
+      specs: specs as Prisma.InputJsonValue | undefined,
+      notes: parsed.data.notes,
+      createdById: req.user!.userId,
+    },
+  });
+  res.status(201).json(preset);
+});
+
+productionOrdersRouter.delete("/presets/:id", requireProduccionGestion, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
+
+  const preset = await prisma.productionOrderPreset.findUnique({ where: { id } });
+  if (!preset) return res.status(404).json({ error: "Sugerencia no encontrada" });
+
+  await prisma.productionOrderPreset.delete({ where: { id } });
+  res.status(204).end();
 });
 
 const updateOrderSchema = z.object({

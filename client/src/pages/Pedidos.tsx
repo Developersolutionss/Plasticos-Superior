@@ -72,6 +72,11 @@ export default function Pedidos() {
     queryFn: () => api.getClientTopProducts(Number(clientId)),
     enabled: !!clientId,
   });
+  const { data: manualProducts } = useQuery({
+    queryKey: ["clientManualProducts", clientId],
+    queryFn: () => api.getClientManualProducts(Number(clientId)),
+    enabled: !!clientId,
+  });
 
   const selectedPedido = pedidos?.find((p: any) => p.id === selectedPedidoId);
   const latestVersion = versions?.[versions.length - 1];
@@ -295,6 +300,26 @@ export default function Pedidos() {
               </option>
             ))}
           </select>
+          {/* Sugeridos a mano (ClientManualProduct) van primero -- son una
+              decisión deliberada de un usuario con permiso, no un cálculo
+              automático. No se mezclan con "Pide seguido": mismo criterio
+              de "dos secciones separadas" que ya usa la ficha del cliente
+              (Clients.tsx). */}
+          {!!clientId && manualProducts && manualProducts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-slate-500 dark:text-slate-400">Sugeridos:</span>
+              {manualProducts.map((mp) => (
+                <button
+                  key={mp.product.id}
+                  type="button"
+                  onClick={() => addTopProductShortcut(mp.product.id)}
+                  className="text-xs border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 rounded-full px-2.5 py-1 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+                >
+                  + {mp.product.name}
+                </button>
+              ))}
+            </div>
+          )}
           {!!clientId && topProducts && topProducts.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-slate-500 dark:text-slate-400">Pide seguido:</span>

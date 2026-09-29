@@ -390,6 +390,24 @@ export const api = {
   },
   createProductionOrderFromPedidoItem: (pedidoVersionItemId: number) =>
     request<any>(`/production-orders/from-pedido-item/${pedidoVersionItemId}`, { method: "POST" }),
+  /** `station` es "root" para medida/cantidad al armar la OP en blanco, o el
+   * nombre de una estación para las specs de su plantilla (ver GET
+   * /production-orders/suggestions). */
+  getProductionOrderSuggestions: (clientId: number, productId: number, station: string) =>
+    request<{
+      manual: { id: number; measure: string | null; quantityPlanned: number | null; specs: Record<string, unknown> | null; notes: string | null } | null;
+      frequent: { sampleSize: number; measure?: string | null; quantityPlanned?: number | null; specs?: Record<string, string | number> };
+    }>(`/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=${station}`),
+  saveProductionOrderPreset: (data: {
+    clientId: number;
+    productId: number;
+    station: string;
+    measure?: string;
+    quantityPlanned?: number;
+    specs?: Record<string, unknown>;
+    notes?: string;
+  }) => request<any>("/production-orders/presets", { method: "POST", body: JSON.stringify(data) }),
+  deleteProductionOrderPreset: (id: number) => request<void>(`/production-orders/presets/${id}`, { method: "DELETE" }),
   closeProductionOrder: (id: number) => request<any>(`/production-orders/${id}/close`, { method: "POST" }),
   reopenProductionOrder: (id: number) => request<any>(`/production-orders/${id}/reopen`, { method: "POST" }),
   releaseProductionOrder: (id: number) => request<any>(`/production-orders/${id}/release`, { method: "POST" }),

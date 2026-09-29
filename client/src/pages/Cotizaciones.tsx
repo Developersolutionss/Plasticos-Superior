@@ -44,6 +44,11 @@ export default function Cotizaciones() {
     queryFn: () => api.getClientTopProducts(Number(clientId)),
     enabled: !!clientId,
   });
+  const { data: manualProducts } = useQuery({
+    queryKey: ["clientManualProducts", clientId],
+    queryFn: () => api.getClientManualProducts(Number(clientId)),
+    enabled: !!clientId,
+  });
 
   function productPrice(productId: string) {
     return products?.find((p: any) => p.id === Number(productId))?.unitPrice ?? "";
@@ -152,6 +157,24 @@ export default function Cotizaciones() {
           />
         </div>
 
+        {/* Sugeridos a mano primero, mismo criterio de "dos secciones
+            separadas" que la ficha del cliente (Clients.tsx) -- no se
+            mezclan con "Pide seguido". */}
+        {!!clientId && manualProducts && manualProducts.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-slate-500 dark:text-slate-400">Sugeridos:</span>
+            {manualProducts.map((mp) => (
+              <button
+                key={mp.product.id}
+                type="button"
+                onClick={() => addTopProductShortcut(mp.product.id)}
+                className="text-xs border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 rounded-full px-2.5 py-1 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+              >
+                + {mp.product.name}
+              </button>
+            ))}
+          </div>
+        )}
         {!!clientId && topProducts && topProducts.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-slate-500 dark:text-slate-400">Pide seguido:</span>
