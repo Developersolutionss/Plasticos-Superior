@@ -34,6 +34,13 @@ Pendiente a propósito (Gestión, 2026-09-26: "dejalo como está por ahora"):
   la OP registre unidades) — el punto a tocar es `POST /production-orders/:id/quality-check` (y su reversión en
   `POST /:id/reopen`), en `server/src/routes/productionOrders.ts`.
 
+Decisiones abiertas del bloque de kilos (2026-09-29):
+
+- Derivar a varias estaciones: la primera hija toma todo lo disponible y la segunda se rechaza hasta que
+  Gestión baje la meta de la primera. Propuesta: que "Derivar a…" pregunte los kilos al derivar.
+- El peso medido al recibir un rollo en otra bodega queda registrado (y avisa si difiere), pero no cambia
+  el saldo del rollo: ¿debería bajarlo a lo que realmente llegó?
+
 Quedaron fuera de esta ronda (no se decidió todavía):
 
 - Ajuste manual de stock de producto terminado tras un conteo físico (la materia prima sí lo tiene).

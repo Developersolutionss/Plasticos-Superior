@@ -330,3 +330,128 @@ describe("OrdenProduccionDetalle · Material para (regresión efcc680)", () => {
     expect(calibreInput).toHaveValue("0.045");
   });
 });
+
+function madre(weight: number, id = 10, code = "EXT-1") {
+  return { id, code, label: null, weightKg: String(weight), remainingKg: String(weight), createdBy: { name: "Luis" } };
+}
+
+/** Escanea y espera a que el rollo quede cargado. El botón se titula
+ * "Escanear: …" o "Escaneá el …" según la estación (Impresión solo escanea
+ * rollo), por eso el prefijo común "Escane". */
+async function scanMadre(code: string, weight: number) {
+  const user = userEvent.setup();
+  await user.click(screen.getByTitle(/^Escane/));
+  await user.type(screen.getByPlaceholderText("código escaneado"), code);
+  await user.click(screen.getByRole("button", { name: "Usar código" }));
+  // Sellado lo muestra "50 kg" (saldo) e Impresión "(50 kg)" (se consume entero).
+  expect((await screen.findAllByText(new RegExp(weight + " kg"))).length).toBeGreaterThan(0);
+}
+
+async function addRow(container: HTMLElement) {
+  const user = userEvent.setup();
+  await user.click(within(mobileCard(container)).getByRole("button", { name: "+ Añadir rollo" }));
+}
+
+describe("OrdenProduccionDetalle · bloque de kilos (merma, cuadre de Impresión, escaneo obligatorio)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // clearAllMocks no descarta respuestas "Once" que otro test dejó sin
+    // consumir: sin este reset, el escaneo de acá podía recibir el rollo de
+    // un test anterior.
+    vi.mocked(api.getProductionRollByCode).mockReset();
+    vi.mocked(api.getClients).mockResolvedValue([]);
+  });
+
+  it("Sellado: el desperdicio también sale del rollo madre (saldo y 'Faltan' cuentan peso + merma)", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado());
+    const { container } = renderOrden();
+    await screen.findByText("OP-00005");
+    const user = userEvent.setup();
+
+    vi.mocked(api.getProductionRollByCode).mockResolvedValueOnce(madre(50));
+    await scanMadre("EXT-1", 50);
+
+    await user.type(draftField(container, "PESO (KG)"), "20");
+    await user.type(draftField(container, "DESPERD"), "5");
+    await addRow(container);
+    expect((await screen.findAllByText(/Fila 1 por confirmar · Peso 20 kg · Desp\. 5 kg/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("25 kg")).length).toBeGreaterThan(0); // 50 − (20 + 5)
+
+    await user.type(draftField(container, "PESO (KG)"), "20");
+    await user.type(draftField(container, "DESPERD"), "6");
+    await addRow(container);
+    expect(await screen.findByText(/Faltan 1 kg para cubrir esta fila \(peso \+ desperdicio\)/)).toBeInTheDocument();
+  });
+
+  it("Impresión: no deja añadir una fila que no cuadra con el rollo de entrada, y sí una que cuadra", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado({ station: "impresion" }));
+    const { container } = renderOrden(5, { id: 1, name: "Ana Operaria", role: "operario_impresion", email: "ana@empresa.com" });
+    await screen.findByText("OP-00005");
+    const user = userEvent.setup();
+
+    vi.mocked(api.getProductionRollByCode).mockResolvedValueOnce(madre(50));
+    await scanMadre("EXT-1", 50);
+
+    await user.type(draftField(container, "P. IMP (KG)"), "30");
+    await addRow(container);
+    expect(await screen.findByText(/Entraron 50 kg y salen 30 kg \(peso \+ desperdicio\): faltan 20 kg/)).toBeInTheDocument();
+
+    const peso = draftField(container, "P. IMP (KG)");
+    await user.clear(peso);
+    await user.type(peso, "60");
+    await addRow(container);
+    expect(await screen.findByText(/sobran 10 kg/)).toBeInTheDocument();
+
+    await user.clear(peso);
+    await user.type(peso, "48");
+    await user.type(draftField(container, "DESP."), "2");
+    await addRow(container);
+    expect((await screen.findAllByText(/Fila 1 por confirmar · Peso 48 kg · Desp\. 2 kg/)).length).toBeGreaterThan(0);
+  });
+
+  it("una OP derivada no deja añadir la fila sin escanear el rollo de origen (Impresión incluida)", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado({ station: "impresion" }));
+    const { container } = renderOrden(5, { id: 1, name: "Ana Operaria", role: "operario_impresion", email: "ana@empresa.com" });
+    await screen.findByText("OP-00005");
+    const user = userEvent.setup();
+
+    await user.type(draftField(container, "P. IMP (KG)"), "20");
+    await addRow(container);
+    expect(await screen.findByText(/Escaneá el QR del rollo que estás tomando como insumo/)).toBeInTheDocument();
+    expect(api.createProductionRoll).not.toHaveBeenCalled();
+  });
+
+  it("si el servidor rechaza 'Guardar cambios', la hoja muestra el motivo real (ej. meta que se pasa del reparto entre hermanas)", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado());
+    vi.mocked(api.updateProductionOrder).mockRejectedValueOnce(
+      new ApiError("La meta se pasa de lo disponible: el padre tiene 180 kg y sus otras derivadas ya tienen 120 kg — como máximo 60 kg", 400)
+    );
+    const { container } = renderOrden(5, { id: 1, name: "Gestión", role: "gerente_produccion", email: "g@empresa.com" });
+    await screen.findByText("OP-00005");
+    const user = userEvent.setup();
+    const cantidad = container.querySelectorAll("input[type='number']")[0] as HTMLInputElement;
+    await user.clear(cantidad);
+    await user.type(cantidad, "70");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    expect(await screen.findByText(/No se pudieron guardar los cambios: La meta se pasa de lo disponible.*como máximo 60 kg/)).toBeInTheDocument();
+  });
+
+  it("la tabla de materia prima calcula los kg sobre lo producido real en cuanto hay rollos", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(
+      baseExtrusion({
+        quantityPlanned: 1000,
+        specs: { materiaPrima: [{ ref: "ALTA", pct: 70 }, { ref: "LINEAL", pct: 30 }] },
+        rolls: [
+          { id: 1, station: "extrusion", stationSequence: 1, weightKg: "10", wasteKg: "2", details: {}, date: "2026-09-20T10:00:00Z", operatorName: "Ana" },
+          { id: 2, station: "extrusion", stationSequence: 2, weightKg: "8", wasteKg: "0", details: {}, date: "2026-09-20T11:00:00Z", operatorName: "Ana" },
+        ],
+      })
+    );
+    renderOrden(8, { id: 1, name: "Gestión", role: "gerente_produccion", email: "g@empresa.com" });
+    await screen.findByText("OP-00008");
+    expect(screen.getByText("Kg (real)")).toBeInTheDocument();
+    // 70% y 30% de 20 kg reales (10 + 2 de merma + 8), no de la meta de 1000.
+    expect(screen.getByText("14")).toBeInTheDocument();
+    expect(screen.getByText("6")).toBeInTheDocument();
+  });
+});

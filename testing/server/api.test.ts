@@ -534,7 +534,8 @@ describe("materia prima", () => {
         station: "extrusion",
         productId,
         quantityPlanned: 10,
-        specs: { materiaPrima: [{ ref: code, pct: 100, kg: 8 }, { ref: "NO-EXISTE-REF", pct: 0, kg: 3 }] },
+        // Se descuenta el % sobre lo producido real (10 kg de rollos): 80% → 8 kg.
+        specs: { materiaPrima: [{ ref: code, pct: 80 }, { ref: "NO-EXISTE-REF", pct: 20 }] },
       },
     });
     await createTestRoll(order.id, { weightKg: 10 });
@@ -584,7 +585,7 @@ describe("materia prima", () => {
     // referenceId ya trae la consumición original Y su reversión — hay que
     // devolver solo el neto pendiente de este segundo cierre, no volver a
     // sumar la reversión de la primera vuelta encima.
-    await prisma.productionOrder.update({ where: { id: order.id }, data: { specs: { materiaPrima: [{ ref: code, pct: 100, kg: 6 }] } } });
+    await prisma.productionOrder.update({ where: { id: order.id }, data: { specs: { materiaPrima: [{ ref: code, pct: 60 }, { ref: "NO-EXISTE-REF", pct: 40 }] } } });
 
     const close2 = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
       method: "POST",
@@ -1590,14 +1591,47 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const derived = (await res.json()) as { id: number; quantityPlanned: unknown };
     assert.equal(Number(derived.quantityPlanned), 37, "la meta de la hija es lo real producido (10+27), no los 40kg planificados del padre");
 
-    // Un `quantityPlanned` explícito en el body sigue pisando el default.
+    // Los 37 kg ya quedaron asignados a Sellado: una segunda hija no puede
+    // pedir más (antes cada hija recibía el 100% y se duplicaba el material).
+    const sinDisponible = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "precorte", quantityPlanned: 20 }),
+    });
+    assert.equal(sinDisponible.status, 400);
+    assert.match(((await sinDisponible.json()) as { error: string }).error, /quedan 0 kg/);
+
+    // Gestión reparte: baja Sellado a 17 y le da 20 a Precorte.
+    const baja = await fetch(`${baseUrl}/api/production-orders/${derived.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ quantityPlanned: 17 }),
+    });
+    assert.equal(baja.status, 200);
     const derivedOverride = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
       body: JSON.stringify({ station: "precorte", quantityPlanned: 20 }),
     });
+    assert.equal(derivedOverride.status, 201);
     const overrideBody = (await derivedOverride.json()) as { id: number; quantityPlanned: unknown };
     assert.equal(Number(overrideBody.quantityPlanned), 20, "quantityPlanned explícito en el body gana sobre el default calculado");
+
+    // Ya está todo repartido (17 + 20 = 37): derivar otra sin meta se rechaza,
+    // y subir la meta de una hija por encima de lo libre también.
+    const tercera = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "impresion" }),
+    });
+    assert.equal(tercera.status, 400);
+    assert.match(((await tercera.json()) as { error: string }).error, /Ya se asignaron los 37 kg/);
+    const subeDeMas = await fetch(`${baseUrl}/api/production-orders/${derived.id}`, {
+      method: "PATCH",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ quantityPlanned: 18 }),
+    });
+    assert.equal(subeDeMas.status, 400, "17 + 20 ya son los 37 kg del padre");
 
     await prisma.productionOrder.delete({ where: { id: overrideBody.id } });
     await prisma.productionOrder.delete({ where: { id: derived.id } });
@@ -1668,14 +1702,14 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const derivePrecorte = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "precorte" }),
+      body: JSON.stringify({ station: "precorte", quantityPlanned: 20 }),
     });
     const precorte = (await derivePrecorte.json()) as { id: number };
 
     const deriveSellado = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "sellado" }),
+      body: JSON.stringify({ station: "sellado", quantityPlanned: 20 }),
     });
     const sellado = (await deriveSellado.json()) as { id: number };
 
@@ -1706,7 +1740,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const res = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "sellado" }),
+      body: JSON.stringify({ station: "sellado", quantityPlanned: 20 }),
     });
     assert.equal(res.status, 201);
     const derived = (await res.json()) as { id: number; specs: any };
@@ -1749,7 +1783,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const derivedPrecorte = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "precorte" }),
+      body: JSON.stringify({ station: "precorte", quantityPlanned: 20 }),
     });
     assert.equal(derivedPrecorte.status, 201);
     const precorteBody = (await derivedPrecorte.json()) as { id: number; specs: any };
@@ -1765,7 +1799,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const derivedSinFuelles = await fetch(`${baseUrl}/api/production-orders/${parentSinFuelles.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "impresion" }),
+      body: JSON.stringify({ station: "impresion", quantityPlanned: 5 }),
     });
     const bodySinFuelles = (await derivedSinFuelles.json()) as { id: number; specs: any };
     assert.equal(bodySinFuelles.specs.color, "Rojo");
@@ -1776,7 +1810,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const derivedOverride = await fetch(`${baseUrl}/api/production-orders/${parentSinFuelles.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "sellado", specs: { color: "Verde" } }),
+      body: JSON.stringify({ station: "sellado", quantityPlanned: 5, specs: { color: "Verde" } }),
     });
     const bodyOverride = (await derivedOverride.json()) as { id: number; specs: any };
     assert.equal(bodyOverride.specs.color, "Verde", "el specs explícito del body gana sobre lo heredado");
@@ -1885,7 +1919,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const deriveRes = await fetch(`${baseUrl}/api/production-orders/${root.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "precorte" }),
+      body: JSON.stringify({ station: "precorte", quantityPlanned: 20 }),
     });
     const precorte = (await deriveRes.json()) as { id: number; specs: any };
     assert.equal(precorte.specs.ancho, "10");
@@ -1896,7 +1930,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const impRes = await fetch(`${baseUrl}/api/production-orders/${root.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "impresion" }),
+      body: JSON.stringify({ station: "impresion", quantityPlanned: 20 }),
     });
     const impresion = (await impRes.json()) as { id: number };
     const selRes = await fetch(`${baseUrl}/api/production-orders/${impresion.id}/derive`, {
@@ -2005,7 +2039,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const createRes = await fetch(`${baseUrl}/api/production-orders`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "extrusion", productId, quantityPlanned: 15 }),
+      body: JSON.stringify({ station: "extrusion", productId, quantityPlanned: 15, specs: { materiaPrima: [{ ref: "ALTA", pct: 100 }] } }),
     });
     const order = (await createRes.json()) as { id: number; status: string };
     assert.equal(order.status, "borrador");
@@ -2023,7 +2057,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const patch = await fetch(`${baseUrl}/api/production-orders/${order.id}`, {
       method: "PATCH",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ specs: { color: "Blanco" } }),
+      body: JSON.stringify({ specs: { color: "Blanco", materiaPrima: [{ ref: "ALTA", pct: 100 }] } }),
     });
     assert.equal(patch.status, 200, "specs se pueden editar mientras la OP está en borrador");
 
@@ -2061,7 +2095,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const createRes = await fetch(`${baseUrl}/api/production-orders`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ productId, quantityPlanned: 20 }),
+      body: JSON.stringify({ productId, quantityPlanned: 20, specs: { materiaPrima: [{ ref: "ALTA", pct: 100 }] } }),
     });
     assert.equal(createRes.status, 201);
     const order = (await createRes.json()) as { id: number; orderNumber: string; station: string | null; status: string };
@@ -2147,13 +2181,14 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const source = await createTestRoll(parent.id, { weightKg: 20 });
     await placeRollAt(source.id, "impresion");
     const child = await prisma.productionOrder.create({
-      data: { orderNumber: parent.orderNumber, station: "impresion", productId, quantityPlanned: 20, parentOrderId: parent.id },
+      // Meta holgada: el segundo escaneo tiene que frenar por "rollo ya consumido", no por meta completa.
+      data: { orderNumber: parent.orderNumber, station: "impresion", productId, quantityPlanned: 40, parentOrderId: parent.id },
     });
 
     const first = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ weightKg: 5, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
+      body: JSON.stringify({ weightKg: 20, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
     });
     assert.equal(first.status, 201, "el primer escaneo del rollo de origen se acepta");
 
@@ -2240,7 +2275,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const blocked = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ weightKg: 5, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
+      body: JSON.stringify({ weightKg: 20, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
     });
     assert.equal(blocked.status, 400, "el rollo sigue en tránsito, no se puede consumir todavía");
     const blockedBody = (await blocked.json()) as { error: string };
@@ -2251,7 +2286,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const allowed = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ weightKg: 5, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
+      body: JSON.stringify({ weightKg: 20, sourceRollId: source.id, sourceRollTokens: { [source.id]: source.possessionToken } }),
     });
     assert.equal(allowed.status, 201, "una vez recibido, el rollo se puede consumir");
 
@@ -2451,7 +2486,15 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
   it("cerrar una OP de extrusión la finaliza directo sin mover stock; sin rollos se rechaza", async () => {
     const order = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 10 },
+      data: {
+        orderNumber: `OP-TEST-${Date.now()}`,
+        station: "extrusion",
+        productId,
+        quantityPlanned: 10,
+        // Cerrar Extrusión exige la fórmula completa; una ref que no está en
+        // el catálogo no mueve stock (solo se avisa).
+        specs: { materiaPrima: [{ ref: "TEST-NO-EXISTE", pct: 100 }] },
+      },
     });
 
     const sinRollos = await fetch(`${baseUrl}/api/production-orders/${order.id}/close`, {
@@ -2524,7 +2567,8 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
         station: "extrusion",
         productId,
         quantityPlanned: 10,
-        specs: { materiaPrima: [{ ref: material.code, kg: 5 }] },
+        // 50% sobre 10 kg producidos = 5 kg.
+        specs: { materiaPrima: [{ ref: material.code, pct: 50 }, { ref: "TEST-NO-EXISTE", pct: 50 }] },
       },
     });
     await createTestRoll(order.id, { weightKg: 10 });
@@ -3267,7 +3311,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
 
   it("no se puede derivar una segunda vez mientras el padre sigue en borrador (sin liberar)", async () => {
     const parent = await prisma.productionOrder.create({
-      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 40, status: "borrador" },
+      data: { orderNumber: `OP-TEST-${Date.now()}`, productId, quantityPlanned: 40, status: "borrador", specs: { materiaPrima: [{ ref: "ALTA", pct: 100 }] } },
     });
     const toExtrusion = await fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
       method: "POST",
@@ -6057,7 +6101,8 @@ describe("órdenes de producción · sugerencias (manual + por frecuencia)", () 
       await fetch(`${baseUrl}/api/production-orders`, {
         method: "POST",
         headers: headersFor("produccion"),
-        body: JSON.stringify({ productId, clientId, quantityPlanned: 20, notes: "Nota del cliente" }),
+        // La fórmula de materia prima es obligatoria para liberar Extrusión.
+        body: JSON.stringify({ productId, clientId, quantityPlanned: 20, notes: "Nota del cliente", specs: { materiaPrima: [{ ref: "ALTA", pct: 100 }] } }),
       })
     ).json()) as { id: number };
 
@@ -6087,3 +6132,281 @@ describe("órdenes de producción · sugerencias (manual + por frecuencia)", () 
   });
 });
 
+describe("bloque de kilos: merma, cuadre de Impresión, materia prima real y reparto entre hermanas", () => {
+  let productId = 0;
+  const stamp = Date.now();
+  const cleanup: (() => Promise<unknown>)[] = [];
+
+  before(async () => {
+    productId = (await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } })).id;
+  });
+
+  after(async () => {
+    for (const fn of cleanup.reverse()) await fn();
+  });
+
+  /** OP de Extrusión con rollos propios + OP derivada en `station`, con los
+   * rollos madre ya recibidos en la bodega de esa estación. */
+  async function cadena(station: "impresion" | "sellado" | "precorte", pesos: number[], childPlanned = 500) {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-KG-${stamp}-${Math.random()}`, station: "extrusion", productId, quantityPlanned: 500 },
+    });
+    const madres = [];
+    for (const weightKg of pesos) {
+      const m = await createTestRoll(parent.id, { weightKg });
+      await placeRollAt(m.id, station);
+      madres.push(m);
+    }
+    const child = await prisma.productionOrder.create({
+      data: { orderNumber: parent.orderNumber, station, productId, quantityPlanned: childPlanned, parentOrderId: parent.id },
+    });
+    cleanup.push(async () => {
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: child.id } });
+      await prisma.productionOrder.delete({ where: { id: child.id } });
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: parent.id } });
+      await prisma.productionOrder.delete({ where: { id: parent.id } });
+    });
+    return { parent, child, madres };
+  }
+
+  function fila(childId: number, weightKg: number, wasteKg: number, madres: { id: number; possessionToken: string }[], extra: object = {}) {
+    return fetch(`${baseUrl}/api/production-orders/${childId}/rolls`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({
+        weightKg,
+        wasteKg,
+        sourceRollIds: madres.map((m) => m.id),
+        sourceRollTokens: Object.fromEntries(madres.map((m) => [String(m.id), m.possessionToken])),
+        ...extra,
+      }),
+    });
+  }
+
+  async function saldo(m: { stationSequence: number }) {
+    const res = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/EXT-${m.stationSequence}`, { headers: headersFor("produccion") });
+    return ((await res.json()) as { remainingKg: number }).remainingKg;
+  }
+
+  // ---------------- escaneo obligatorio ----------------
+
+  it("una OP derivada no acepta filas sin escanear el rollo de origen (Impresión incluida)", async () => {
+    for (const station of ["impresion", "sellado", "precorte"] as const) {
+      const { child } = await cadena(station, [20]);
+      const res = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ weightKg: 5 }),
+      });
+      assert.equal(res.status, 400, `${station} sin escaneo`);
+      assert.match(((await res.json()) as { error: string }).error, /Escaneá el QR del rollo/);
+    }
+  });
+
+  // ---------------- merma contra el rollo madre ----------------
+
+  it("Sellado: del rollo madre sale el peso MÁS el desperdicio, y alcanzar o no se mide contra ese total", async () => {
+    const { child, madres } = await cadena("sellado", [50, 30]);
+    const [a, b] = madres;
+
+    assert.equal((await fila(child.id, 20, 5, [a])).status, 201);
+    assert.equal(await saldo(a), 25, "50 − (20 + 5 de merma)");
+
+    const noAlcanza = await fila(child.id, 20, 6, [a]);
+    assert.equal(noAlcanza.status, 400, "25 kg no cubren 20 + 6");
+    assert.match(((await noAlcanza.json()) as { error: string }).error, /Faltan 1 kg/);
+
+    const conOtro = await fila(child.id, 20, 6, [a, b]);
+    assert.equal(conOtro.status, 201, "con el siguiente madre sí alcanza");
+    const creado = (await conOtro.json()) as { id: number };
+    assert.equal(await saldo(a), 0);
+    assert.equal(await saldo(b), 29, "del segundo sale 1 kg (el resto de los 26)");
+    const reparto = await prisma.rollConsumption.findMany({ where: { rollId: creado.id }, orderBy: { id: "asc" } });
+    assert.deepEqual(reparto.map((r) => Number(r.quantityKg)), [25, 1]);
+
+    // Borrar la fila devuelve peso Y merma a los madres.
+    const del = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls/${creado.id}`, { method: "DELETE", headers: headersFor("produccion") });
+    assert.equal(del.status, 204);
+    assert.equal(await saldo(a), 25);
+    assert.equal(await saldo(b), 30);
+  });
+
+  it("Precorte: el segundo par ETIQUETA R / PESO R lleva solo peso; la merma se toma al final y no cuenta como producido", async () => {
+    const { child, madres } = await cadena("precorte", [10, 50]);
+    const [a, b] = madres;
+
+    // Peso 15 + merma 3 = 18: A da 10 (todo peso), B da 8 (5 de peso + 3 de merma).
+    const r1 = await fila(child.id, 15, 3, [a, b]);
+    assert.equal(r1.status, 201);
+    const row1 = (await r1.json()) as { id: number; weightKg: string; details: any };
+    assert.equal(Number(row1.weightKg), 10);
+    assert.equal(row1.details.pesoR2, 5, "el segundo par es solo el peso que faltó, no la merma");
+    assert.equal(row1.details.etiquetaR2, `EXT-${b.stationSequence}`);
+    assert.equal(await saldo(b), 42);
+
+    // Peso que entra en el madre pero la merma lo desborda: no hay segundo par.
+    const { child: c2, madres: m2 } = await cadena("precorte", [10, 50]);
+    const r2 = await fila(c2.id, 8, 4, m2);
+    assert.equal(r2.status, 201);
+    const row2 = (await r2.json()) as { weightKg: string; details: any };
+    assert.equal(Number(row2.weightKg), 8);
+    assert.equal(row2.details?.pesoR2, undefined, "la merma que salió del segundo madre no genera PESO R2");
+    assert.equal(await saldo(m2[0]), 0);
+    assert.equal(await saldo(m2[1]), 48);
+
+    // Lo producido de la OP es el peso (10 + 5), la merma va aparte.
+    const detalle = (await (await fetch(`${baseUrl}/api/production-orders/${child.id}`, { headers: headersFor("produccion") })).json()) as any;
+    const r = detalle.rolls.find((x: any) => x.id === row1.id);
+    assert.equal(Number(r.weightKg) + Number(r.details.pesoR2), 15);
+    assert.equal(Number(r.wasteKg), 3);
+  });
+
+  // ---------------- cuadre de Impresión ----------------
+
+  it("Impresión: peso + desperdicio tiene que cuadrar con el rollo que entra (2% o 0,5 kg de tolerancia)", async () => {
+    const casos: { entra: number; peso: number; merma: number; ok: boolean; msg?: RegExp }[] = [
+      { entra: 40, peso: 38, merma: 2, ok: true },
+      { entra: 40, peso: 39.3, merma: 0, ok: true }, // diferencia 0,7 ≤ 0,8 (2% de 40)
+      { entra: 40, peso: 39, merma: 0, ok: false, msg: /faltan 1 kg/ }, // 1 > 0,8
+      { entra: 40, peso: 15, merma: 0, ok: false, msg: /faltan 25 kg\. Si es merma, cargala en desperdicio/ },
+      { entra: 40, peso: 45, merma: 0, ok: false, msg: /sobran 5 kg/ },
+      { entra: 10, peso: 9.6, merma: 0, ok: true }, // 0,4 ≤ 0,5 (mínimo)
+      { entra: 10, peso: 9.4, merma: 0, ok: false, msg: /faltan 0\.6 kg/ },
+    ];
+    for (const c of casos) {
+      const { child, madres } = await cadena("impresion", [c.entra]);
+      const res = await fila(child.id, c.peso, c.merma, madres);
+      assert.equal(res.status, c.ok ? 201 : 400, `entra ${c.entra}, sale ${c.peso} + ${c.merma}`);
+      if (!c.ok) {
+        assert.match(((await res.json()) as { error: string }).error, c.msg!);
+        assert.equal(await saldo(madres[0]), c.entra, "rechazada: el rollo no queda consumido");
+      } else {
+        assert.equal(await saldo(madres[0]), 0, "aceptada: el rollo queda consumido entero");
+      }
+    }
+  });
+
+  it("Impresión con dos rollos de origen: cuadra contra la suma de los dos", async () => {
+    const { child, madres } = await cadena("impresion", [20, 20]);
+    const mal = await fila(child.id, 30, 0, madres);
+    assert.equal(mal.status, 400);
+    assert.match(((await mal.json()) as { error: string }).error, new RegExp(`Entraron 40 kg \\(EXT-${madres[0].stationSequence} \\+ EXT-${madres[1].stationSequence}\\)`));
+    assert.equal((await fila(child.id, 38, 2, madres)).status, 201);
+    assert.equal(await saldo(madres[0]), 0);
+    assert.equal(await saldo(madres[1]), 0);
+  });
+
+  // ---------------- materia prima ----------------
+
+  it("materia prima: sin fórmula al 100% no se libera ni se cierra; al cerrar se descuenta el % sobre lo producido real (peso + desperdicio)", async () => {
+    const m1 = await prisma.rawMaterial.create({ data: { code: `TKG1-${stamp}` } });
+    const m2 = await prisma.rawMaterial.create({ data: { code: `TKG2-${stamp}` } });
+    for (const m of [m1, m2]) {
+      await prisma.$transaction((tx) => applyRawMaterialMovement(tx, { rawMaterialId: m.id, quantity: 100, movementType: "compra" }));
+    }
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-MP-${stamp}`, station: "extrusion", productId, quantityPlanned: 50, status: "borrador" },
+    });
+    cleanup.push(async () => {
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+      await prisma.productionOrder.delete({ where: { id: order.id } });
+      for (const m of [m1, m2]) {
+        await prisma.rawMaterialMovement.deleteMany({ where: { rawMaterialId: m.id } });
+        await prisma.rawMaterialStock.deleteMany({ where: { rawMaterialId: m.id } });
+        await prisma.rawMaterial.delete({ where: { id: m.id } });
+      }
+    });
+    const liberar = () => fetch(`${baseUrl}/api/production-orders/${order.id}/release`, { method: "POST", headers: headersFor("produccion") });
+    const cerrar = () => fetch(`${baseUrl}/api/production-orders/${order.id}/close`, { method: "POST", headers: headersFor("operario_extrusion") });
+    const formula = (materiaPrima: object[]) =>
+      fetch(`${baseUrl}/api/production-orders/${order.id}`, { method: "PATCH", headers: headersFor("produccion"), body: JSON.stringify({ specs: { materiaPrima } }) });
+
+    const sinFormula = await liberar();
+    assert.equal(sinFormula.status, 400);
+    assert.match(((await sinFormula.json()) as { error: string }).error, /Cargá la fórmula de materia prima/);
+
+    await formula([{ ref: m1.code, pct: 70 }, { ref: m2.code, pct: 20 }]);
+    const incompleta = await liberar();
+    assert.equal(incompleta.status, 400);
+    assert.match(((await incompleta.json()) as { error: string }).error, /suma 90%/);
+
+    await formula([{ ref: m1.code, pct: 70 }, { ref: m2.code, pct: 30 }]);
+    assert.equal((await liberar()).status, 200);
+
+    // Meta 50 kg, pero lo real es 10 + 2 de merma + 8 = 20 kg.
+    await createTestRoll(order.id, { weightKg: 10, wasteKg: 2 });
+    await createTestRoll(order.id, { weightKg: 8 });
+
+    // Si alguien rompe la fórmula después de liberar, tampoco se cierra.
+    await prisma.productionOrder.update({ where: { id: order.id }, data: { specs: { materiaPrima: [{ ref: m1.code, pct: 70 }] } } });
+    assert.equal((await cerrar()).status, 400);
+    await prisma.productionOrder.update({
+      where: { id: order.id },
+      data: { specs: { materiaPrima: [{ ref: m1.code, pct: 70 }, { ref: m2.code, pct: 30 }] } },
+    });
+
+    assert.equal((await cerrar()).status, 200);
+    const stock = async (id: number) => Number((await prisma.rawMaterialStock.findUniqueOrThrow({ where: { rawMaterialId: id } })).currentQuantity);
+    assert.equal(await stock(m1.id), 86, "70% de 20 kg reales = 14 (no 35 sobre la meta de 50)");
+    assert.equal(await stock(m2.id), 94, "30% de 20 kg = 6");
+  });
+
+  // ---------------- reparto entre hermanas ----------------
+
+  it("reparto entre hermanas: sin producción la base es la meta del padre; una hermana cancelada libera su meta", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-REP-${stamp}`, station: "extrusion", productId, quantityPlanned: 40, status: "en_proceso" },
+    });
+    const derive = (station: string, quantityPlanned?: number) =>
+      fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ station, quantityPlanned }),
+      });
+
+    const a = (await (await derive("sellado", 25)).json()) as { id: number; quantityPlanned: string };
+    const b = await derive("precorte");
+    assert.equal(b.status, 201);
+    const bBody = (await b.json()) as { id: number; quantityPlanned: string };
+    assert.equal(Number(bBody.quantityPlanned), 15, "sin meta explícita toma lo que queda: 40 − 25");
+    assert.equal((await derive("impresion")).status, 400, "ya no queda nada");
+
+    await prisma.productionOrder.update({ where: { id: a.id }, data: { status: "cancelada" } });
+    const c = await derive("impresion");
+    assert.equal(c.status, 201, "la cancelada no cuenta");
+    const cBody = (await c.json()) as { id: number; quantityPlanned: string };
+    assert.equal(Number(cBody.quantityPlanned), 25);
+
+    for (const id of [cBody.id, bBody.id, a.id, parent.id]) await prisma.productionOrder.delete({ where: { id } });
+  });
+
+  it("con varias hijas, cargar más rollos en el padre NO les cambia la meta (el reparto es de Gestión); con una sola, sí la sigue", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-SYNC-${stamp}`, station: "extrusion", productId, quantityPlanned: 100, status: "en_proceso" },
+    });
+    await createTestRoll(parent.id, { weightKg: 30 });
+    const derive = (station: string, quantityPlanned?: number) =>
+      fetch(`${baseUrl}/api/production-orders/${parent.id}/derive`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ station, quantityPlanned }),
+      });
+    const cargarEnPadre = (weightKg: number) =>
+      fetch(`${baseUrl}/api/production-orders/${parent.id}/rolls`, { method: "POST", headers: headersFor("produccion"), body: JSON.stringify({ weightKg }) });
+
+    const unica = (await (await derive("sellado")).json()) as { id: number };
+    assert.equal((await cargarEnPadre(10)).status, 201);
+    assert.equal(Number((await prisma.productionOrder.findUniqueOrThrow({ where: { id: unica.id } })).quantityPlanned), 40, "hija única sigue al padre");
+
+    await prisma.productionOrder.update({ where: { id: unica.id }, data: { quantityPlanned: 20 } });
+    const otra = (await (await derive("precorte", 20)).json()) as { id: number };
+    assert.equal((await cargarEnPadre(10)).status, 201);
+    for (const id of [unica.id, otra.id]) {
+      assert.equal(Number((await prisma.productionOrder.findUniqueOrThrow({ where: { id } })).quantityPlanned), 20, "con dos hijas nadie se sube solo al 100%");
+    }
+
+    for (const id of [otra.id, unica.id]) await prisma.productionOrder.delete({ where: { id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: parent.id } });
+    await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+});

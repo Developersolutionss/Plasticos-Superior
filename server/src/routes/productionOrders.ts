@@ -785,6 +785,10 @@ productionOrdersRouter.post("/:id/release", requireProduccionGestion, async (req
   if (order.station === null) {
     return res.status(400).json({ error: "Primero derivá la OP a Extrusión antes de liberarla a planta" });
   }
+  if (order.station === "extrusion") {
+    const falta = materiaPrimaIncompleta(order.specs);
+    if (falta) return res.status(400).json({ error: `No se puede liberar: ${falta}` });
+  }
 
   const updated = await prisma.productionOrder.update({ where: { id }, data: { status: "pendiente" } });
   res.json(updated);
@@ -825,7 +829,7 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
 
   const parent = await prisma.productionOrder.findUnique({
     where: { id },
-    include: { rolls: { select: { weightKg: true } } },
+    include: { rolls: { select: { weightKg: true, details: true } } },
   });
   if (!parent) return res.status(404).json({ error: "OP no encontrada" });
   if (parent.status === "cancelada") return res.status(400).json({ error: "No se puede derivar de una OP cancelada" });
@@ -917,8 +921,22 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
   // para siempre, sin ningún rollo que escanear para completarlo. Cae al
   // quantityPlanned del padre solo si todavía no produjo nada (ej. derivar
   // antes de cargar el primer rollo).
-  const parentProducedKg = parent.rolls.reduce((acc, r) => acc + Number(r.weightKg), 0);
-  const defaultQuantityPlanned = parentProducedKg > 0 ? Math.round(parentProducedKg * 100) / 100 : Number(parent.quantityPlanned);
+  //
+  // Y con varias hijas, cada una recibe solo lo que queda sin asignar entre
+  // sus hermanas (ver siblingAllocation) — Gestión reparte bajando la meta de
+  // una para darle a otra.
+  const alloc = await siblingAllocation(prisma, parent);
+  if (parsed.data.quantityPlanned == null && alloc.availableKg <= 0.005) {
+    return res.status(400).json({
+      error: `Ya se asignaron los ${alloc.baseKg} kg del padre entre sus derivadas (${alloc.detail}) — bajá la meta de alguna antes de derivar otra`,
+    });
+  }
+  if (parsed.data.quantityPlanned != null && parsed.data.quantityPlanned > alloc.availableKg + 0.005) {
+    return res.status(400).json({
+      error: `La meta se pasa de lo disponible: el padre tiene ${alloc.baseKg} kg y ya hay ${alloc.assignedKg} kg asignados (${alloc.detail}) — quedan ${alloc.availableKg} kg`,
+    });
+  }
+  const defaultQuantityPlanned = alloc.availableKg;
 
   const order = await prisma.productionOrder.create({
     data: {
@@ -1075,9 +1093,14 @@ async function syncQuantityPlannedToChildren(tx: TxClient, orderId: number) {
   const newPlanned = Math.round(producedKg * 100) / 100;
 
   const children = await tx.productionOrder.findMany({
-    where: { parentOrderId: orderId },
+    where: { parentOrderId: orderId, status: { not: "cancelada" } },
     include: { rolls: { select: { id: true } } },
   });
+  // Con varias hijas, lo producido se reparte entre ellas (ver
+  // siblingAllocation) y el reparto lo decide Gestión: si cada una se
+  // sincronizara sola al total, volverían a quedar todas con el 100%. Solo
+  // una hija única sigue automáticamente a su padre.
+  if (children.length !== 1) return;
   for (const child of children) {
     if (child.rolls.length > 0) continue;
     if (Number(child.quantityPlanned) === newPlanned) continue;
@@ -1123,6 +1146,23 @@ productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) 
       return res.status(400).json({
         error: `La meta no puede ser menor a lo ya cargado (${Math.round(yaCargado * 100) / 100} kg entre peso y desperdicio)`,
       });
+    }
+  }
+
+  // Una OP derivada no puede pedir más de lo que su padre produjo, contando
+  // lo ya asignado a sus hermanas (ver siblingAllocation).
+  if (parsed.data.quantityPlanned != null && order.parentOrderId) {
+    const parent = await prisma.productionOrder.findUnique({
+      where: { id: order.parentOrderId },
+      include: { rolls: { select: { weightKg: true, details: true } } },
+    });
+    if (parent) {
+      const alloc = await siblingAllocation(prisma, parent, order.id);
+      if (parsed.data.quantityPlanned > alloc.availableKg + 0.005) {
+        return res.status(400).json({
+          error: `La meta se pasa de lo disponible: el padre tiene ${alloc.baseKg} kg y sus otras derivadas ya tienen ${alloc.assignedKg} kg (${alloc.detail || "ninguna"}) — como máximo ${alloc.availableKg} kg`,
+        });
+      }
     }
   }
 
@@ -1230,11 +1270,15 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
 
   const order = await prisma.productionOrder.findUnique({
     where: { id },
-    include: { rolls: { select: { id: true } } },
+    include: { rolls: { select: { id: true, weightKg: true, wasteKg: true, details: true } } },
   });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
   if (!OPEN_STATUSES.includes(order.status)) {
     return res.status(400).json({ error: "Esta OP ya no está abierta" });
+  }
+  if (order.station === "extrusion") {
+    const falta = materiaPrimaIncompleta(order.specs);
+    if (falta) return res.status(400).json({ error: `No se puede cerrar: ${falta}` });
   }
 
   const allowedStations = OPERARIO_STATIONS[req.user!.role];
@@ -1271,10 +1315,16 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
       if (claimed.count === 0) throw new StatusRaceError();
 
       if (order.station === "extrusion") {
-        const rows = ((order.specs as any)?.materiaPrima as { ref?: string; kg?: unknown }[] | undefined) ?? [];
-        for (const row of rows) {
-          const kg = Number(row.kg);
-          if (!row.ref || !Number.isFinite(kg) || kg <= 0) continue;
+        // Lo que de verdad pasó por la extrusora: peso de los rollos más su
+        // desperdicio. Cada insumo se descuenta con su % sobre ese total —
+        // antes se descontaba el kg de la tabla, calculado sobre la meta
+        // PLANIFICADA al momento de guardar (si después cambiaba la meta, o
+        // se producía más o menos, el inventario de materia prima quedaba
+        // descuadrado contra la producción real).
+        const procesadoKg = order.rolls.reduce((acc, r) => acc + rollProducedKg("extrusion", r) + Number(r.wasteKg), 0);
+        for (const row of materiaPrimaRows(order.specs)) {
+          const kg = Math.round(((row.pct / 100) * procesadoKg) * 100) / 100;
+          if (kg <= 0) continue;
           const material = await tx.rawMaterial.findUnique({ where: { code: row.ref } });
           if (!material) {
             skippedRefs.push(row.ref);
@@ -1343,6 +1393,61 @@ class BultoLabelUnavailableError extends Error {}
 class RollAlreadyConsumedError extends Error {}
 /** El rollo madre escaneado no está en la bodega de esta estación (ver services/rollLocation.ts). */
 class RollNotHereError extends Error {}
+/** En una estación que consume el insumo entero (Impresión), lo que sale
+ * (peso + desperdicio) no cuadra con lo que entró. */
+class MassBalanceError extends Error {}
+
+/** Tolerancia del cuadre entrada/salida en estaciones que consumen el insumo
+ * entero (Impresión): la tinta suma algo de peso y la balanza tiene su error,
+ * así que se acepta hasta 2% del insumo o 0,5 kg, lo que sea mayor. */
+function massBalanceToleranceKg(entradaKg: number): number {
+  return Math.max(0.5, entradaKg * 0.02);
+}
+
+/**
+ * Cuánto material de una OP padre queda sin asignar entre sus OPs derivadas.
+ * La base es lo que el padre produjo de verdad (o su meta, si todavía no
+ * produjo nada), y la suma de las metas de TODAS sus hijas no puede pasarla:
+ * antes cada hija recibía el 100% de lo producido, y con dos hijas el
+ * sistema dejaba cargar el doble del material que existía.
+ */
+async function siblingAllocation(
+  db: TxClient | typeof prisma,
+  parent: { id: number; station: string | null; quantityPlanned: unknown; rolls: { weightKg: unknown; details?: unknown }[] },
+  excludeChildId?: number
+) {
+  const producedKg = parent.rolls.reduce((acc, r) => acc + rollProducedKg(parent.station as OpStation, r), 0);
+  const baseKg = producedKg > 0 ? Math.round(producedKg * 100) / 100 : Number(parent.quantityPlanned);
+  const siblings = await db.productionOrder.findMany({
+    where: { parentOrderId: parent.id, status: { not: "cancelada" }, ...(excludeChildId ? { id: { not: excludeChildId } } : {}) },
+    select: { station: true, quantityPlanned: true },
+  });
+  const assignedKg = Math.round(siblings.reduce((acc, s) => acc + Number(s.quantityPlanned), 0) * 100) / 100;
+  const detail = siblings.map((s) => `${STATION_LABELS[s.station as OpStation] ?? s.station} ${Number(s.quantityPlanned)} kg`).join(", ");
+  return { baseKg, assignedKg, availableKg: Math.round((baseKg - assignedKg) * 100) / 100, detail };
+}
+
+/** Filas de materia prima de Extrusión (specs.materiaPrima) con su % — el
+ * kg que se descuenta ya no sale de la tabla (que se calculaba sobre la meta
+ * planificada), sino del % sobre lo producido real al cerrar. */
+function materiaPrimaRows(specs: unknown): { ref: string; pct: number }[] {
+  const rows = (specs as any)?.materiaPrima;
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((r: any) => ({ ref: typeof r?.ref === "string" ? r.ref : "", pct: Number(r?.pct) }))
+    .filter((r) => r.ref && Number.isFinite(r.pct) && r.pct > 0);
+}
+
+/** null si la fórmula de materia prima está completa (suma 100%), o el
+ * mensaje para Gestión. Extrusión no puede salir a planta ni cerrarse sin
+ * fórmula: al cerrar no se descontaría nada del inventario de materia prima. */
+function materiaPrimaIncompleta(specs: unknown): string | null {
+  const total = Math.round(materiaPrimaRows(specs).reduce((acc, r) => acc + r.pct, 0) * 100) / 100;
+  if (Math.abs(total - 100) <= 0.01) return null;
+  return total === 0
+    ? "Cargá la fórmula de materia prima (los % de cada insumo) antes de seguir: sin eso no se descuenta nada del inventario"
+    : `La materia prima suma ${total}% — tiene que sumar 100% antes de seguir`;
+}
 
 productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req, res) => {
   const id = Number(req.params.id);
@@ -1550,6 +1655,14 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     return res.status(400).json({ error: "Se escaneó el mismo rollo madre dos veces en la misma fila" });
   }
   const template = OP_TEMPLATES[order.station as OpStation];
+  // Una OP derivada (Impresión/Sellado/Precorte) transforma material de su
+  // OP padre: cada fila tiene que decir de qué rollo salió, escaneando su QR.
+  // Sin eso no hay nada contra qué cuadrar los kilos — en Impresión, además,
+  // el rollo de Extrusión nunca quedaba consumido y seguía figurando
+  // disponible. (Antes Impresión dejaba cargar la fila sin escanear.)
+  if (order.parentOrderId && sourceRollIds.length === 0) {
+    return res.status(400).json({ error: "Escaneá el QR del rollo que estás tomando como insumo antes de registrar la fila" });
+  }
   const sourceRollById = new Map<number, SourceRollInfo>();
   for (const sourceRollId of sourceRollIds) {
     const source = await prisma.productionRoll.findUnique({ where: { id: sourceRollId } });
@@ -1660,9 +1773,15 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
       // para las siguientes; en el resto de las estaciones el insumo
       // escaneado se consume entero, como siempre.
       let allocations: Allocation[] = [];
+      const wasteKg = Number(parsed.data.wasteKg ?? 0);
       if (sourceRollIds.length > 0) {
+        // Del rollo madre sale el rollo chico MÁS su desperdicio: la merma
+        // también es material de ese rollo. Antes solo se descontaba el
+        // peso, y el saldo del madre quedaba inflado justo en lo que se fue
+        // a merma.
+        const toConsumeKg = Math.round((parsed.data.weightKg + wasteKg) * 100) / 100;
         allocations = template.consumesSourceByWeight
-          ? await allocateFromSourceRolls(tx, sourceRollIds, parsed.data.weightKg)
+          ? await allocateFromSourceRolls(tx, sourceRollIds, toConsumeKg)
           : await allocateWholeSourceRolls(tx, sourceRollIds);
 
         // Un rollo solo se consume en la estación donde está físicamente
@@ -1679,6 +1798,24 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
           const block = rollLocationBlock(sourceRollCode(info), location, order.station as OpStation);
           if (block) throw new RollNotHereError(block);
         }
+
+        // Estaciones que consumen el insumo entero (Impresión): lo que entra
+        // tiene que salir como producto o como desperdicio. Antes un rollo de
+        // 40 kg podía dar 15 kg impresos sin desperdicio y los otros 25 kg
+        // desaparecían sin registro.
+        if (!template.consumesSourceByWeight) {
+          const entradaKg = Math.round(allocations.reduce((acc, a) => acc + a.quantityKg, 0) * 100) / 100;
+          const salidaKg = Math.round((parsed.data.weightKg + wasteKg) * 100) / 100;
+          const diffKg = Math.round((entradaKg - salidaKg) * 100) / 100;
+          if (Math.abs(diffKg) > massBalanceToleranceKg(entradaKg)) {
+            const codes = allocations.map((a) => sourceRollCode(sourceRollById.get(a.sourceRollId))).join(" + ");
+            throw new MassBalanceError(
+              diffKg > 0
+                ? `Entraron ${entradaKg} kg (${codes}) y salen ${parsed.data.weightKg} kg + ${wasteKg} kg de desperdicio = ${salidaKg} kg: faltan ${diffKg} kg. Si es merma, cargala en desperdicio.`
+                : `Salen ${salidaKg} kg (peso + desperdicio) pero solo entraron ${entradaKg} kg (${codes}): sobran ${-diffKg} kg. Revisá el peso.`
+            );
+          }
+        }
       }
 
       // Precorte tiene DOS pares ETIQUETA R / PESO R en el papel — son
@@ -1687,13 +1824,18 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
       // campos base y el segundo en `details`, que es donde la plantilla los
       // lee (ver rollProducedKg: para Precorte el total de la fila es
       // weightKg + pesoR2, así que el reparto no cambia el total).
+      //
+      // El reparto de arriba incluye el desperdicio, tomado DESPUÉS del peso
+      // (FIFO): el primer par lleva lo que el primer madre aportó al peso, y
+      // el segundo par el resto del peso — la merma no cuenta como peso
+      // producido, aunque haya salido de algún madre.
       let weightKg = parsed.data.weightKg;
       if (template.consumesSourceByWeight && order.station === "precorte" && allocations.length > 0) {
-        weightKg = allocations[0].quantityKg;
-        const spill = allocations.slice(1);
-        if (spill.length > 0) {
-          const spillKg = Math.round(spill.reduce((acc, a) => acc + a.quantityKg, 0) * 100) / 100;
-          details = { ...details, etiquetaR2: sourceRollCode(sourceRollById.get(spill[0].sourceRollId)), pesoR2: spillKg };
+        const firstKg = Math.round(Math.min(allocations[0].quantityKg, parsed.data.weightKg) * 100) / 100;
+        const spillKg = Math.round((parsed.data.weightKg - firstKg) * 100) / 100;
+        weightKg = firstKg;
+        if (spillKg > 0.005) {
+          details = { ...details, etiquetaR2: sourceRollCode(sourceRollById.get(allocations[1].sourceRollId)), pesoR2: spillKg };
         }
       }
 
@@ -1768,7 +1910,7 @@ productionOrdersRouter.post("/:id/rolls", requireOperarios, async (req, res) => 
     if (err instanceof BultoLabelUnavailableError) {
       return res.status(400).json({ error: "Esa etiqueta de bulto no existe o ya fue usada" });
     }
-    if (err instanceof RollNotHereError) {
+    if (err instanceof RollNotHereError || err instanceof MassBalanceError) {
       return res.status(400).json({ error: err.message });
     }
     if (err instanceof SourceRollExhaustedError) {

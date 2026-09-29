@@ -220,6 +220,20 @@ function previewAllocation(rolls: SourceRollChip[], quantityKg: number) {
   return { allocations, missingKg: pending > 0.005 ? pending : 0 };
 }
 
+/** Mismo criterio que massBalanceToleranceKg en el servidor: en Impresión
+ * (insumo que se consume entero) lo que sale más el desperdicio tiene que
+ * coincidir con lo que entró, con hasta 2% o 0,5 kg de tolerancia. */
+function massBalanceToleranceKg(entradaKg: number): number {
+  return Math.max(0.5, entradaKg * 0.02);
+}
+
+/** Kilos que una fila le saca a sus rollos madre: el rollo chico MÁS su
+ * desperdicio (la merma también sale del madre — mismo cálculo que el
+ * servidor al guardar). */
+function rowConsumedKg(weight: unknown, waste: unknown): number {
+  return Math.round(((Number(weight) || 0) + (Number(waste) || 0)) * 100) / 100;
+}
+
 /** Cómo mostrar el rollo madre de un rollo ya guardado (campo "Insumo: rollo
  * X" bajo cada fila): su etiqueta manual si la tiene, o si no el código de
  * QR numerado dentro de SU estación (EXT-3, PRE-1...) — antes caía a "#<id>
@@ -518,6 +532,11 @@ export default function OrdenProduccionDetalle() {
 
   const totalKg = order.rolls.reduce((acc: number, r: any) => acc + rollTotalWeightKg(r), 0);
   const totalWaste = order.rolls.reduce((acc: number, r: any) => acc + Number(r.wasteKg), 0);
+  // Base de la tabla de materia prima: lo producido real (peso + desperdicio)
+  // en cuanto hay rollos — es lo que el servidor descuenta al cerrar
+  // Extrusión —, o la meta mientras todavía no se produjo nada.
+  const mpBaseIsReal = totalKg + totalWaste > 0;
+  const mpBaseKg = mpBaseIsReal ? Math.round((totalKg + totalWaste) * 100) / 100 : Number(headerDraft.quantityPlanned) || 0;
   // Los que están en la lista "por confirmar" todavía no son filas reales de
   // la OP (no llegaron al servidor), pero ya van a pesar en la meta apenas se
   // confirmen -- sin esto, alguien podría seguir agregando a la lista más
@@ -686,8 +705,12 @@ export default function OrdenProduccionDetalle() {
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
       setMessage("Cambios guardados.");
-    } catch {
-      setError("No se pudieron guardar los cambios");
+    } catch (err) {
+      // El servidor dice el motivo real (meta que se pasa de lo disponible
+      // entre OPs hermanas, valor fuera de la lista de un campo, meta menor a
+      // lo ya cargado...) — antes se tapaba con un genérico y Gestión no
+      // sabía qué corregir.
+      setError(err instanceof Error && err.message ? `No se pudieron guardar los cambios: ${err.message}` : "No se pudieron guardar los cambios");
     }
   }
 
@@ -727,17 +750,34 @@ export default function OrdenProduccionDetalle() {
     // esos valores sean confiables (podrían ser un resto de un escaneo que
     // se quitó con "Quitar" sin volver a escanear), así que se bloquea acá
     // además de en la UI.
-    if (!template.labelIsOwnRoll && !template.originRollFields && sourceRolls.length === 0) {
-      return { error: "Escaneá el rollo de origen antes de registrar la fila" };
+    // En una OP derivada (Impresión incluida) cada fila tiene que decir de
+    // qué rollo salió: sin eso no hay contra qué cuadrar los kilos. Mismo
+    // chequeo que el servidor.
+    if (order.parentOrderId && sourceRolls.length === 0) {
+      return { error: "Escaneá el QR del rollo que estás tomando como insumo antes de registrar la fila" };
     }
-    // El rollo chico no puede salir de la nada: si pesa más de lo que queda
-    // entre todos los rollos madre escaneados, falta montar el siguiente. El
-    // server lo vuelve a chequear (es el que manda), esto es para avisarle al
-    // operario antes de mandar la fila.
+    // El rollo chico (más su desperdicio, que también sale del madre) no
+    // puede salir de la nada: si pesa más de lo que queda entre todos los
+    // rollos madre escaneados, falta montar el siguiente. El server lo vuelve
+    // a chequear (es el que manda), esto es para avisarle al operario antes.
     if (template.consumesSourceByWeight) {
-      const { missingKg } = previewAllocation(sourceRolls, Number(rollDraft.weight));
+      const { missingKg } = previewAllocation(sourceRolls, rowConsumedKg(rollDraft.weight, rollDraft.waste));
       if (missingKg > 0) {
-        return { error: `Faltan ${missingKg} kg para cubrir esta fila — escaneá el siguiente rollo madre` };
+        return { error: `Faltan ${missingKg} kg para cubrir esta fila (peso + desperdicio) — escaneá el siguiente rollo madre` };
+      }
+    } else if (sourceRolls.length > 0) {
+      // Impresión: el insumo se consume entero, así que lo que sale (peso +
+      // desperdicio) tiene que cuadrar con lo que entró.
+      const entradaKg = Math.round(sourceRolls.reduce((acc, r) => acc + r.remainingKg, 0) * 100) / 100;
+      const salidaKg = rowConsumedKg(rollDraft.weight, rollDraft.waste);
+      const diffKg = Math.round((entradaKg - salidaKg) * 100) / 100;
+      if (Math.abs(diffKg) > massBalanceToleranceKg(entradaKg)) {
+        return {
+          error:
+            diffKg > 0
+              ? `Entraron ${entradaKg} kg y salen ${salidaKg} kg (peso + desperdicio): faltan ${diffKg} kg. Si es merma, cargala en desperdicio.`
+              : `Salen ${salidaKg} kg (peso + desperdicio) pero solo entraron ${entradaKg} kg: sobran ${-diffKg} kg. Revisá el peso.`,
+        };
       }
     }
     // E. BULTO no se tipea a mano — o se escanea la etiqueta física (se
@@ -814,7 +854,7 @@ export default function OrdenProduccionDetalle() {
     // pantalla, el servidor vuelve a validar todo esto recién al confirmar.
     let nextSourceRolls: SourceRollChip[] = [];
     if (template.consumesSourceByWeight) {
-      const { allocations } = previewAllocation(sourceRolls, Number(rollDraft.weight));
+      const { allocations } = previewAllocation(sourceRolls, rowConsumedKg(rollDraft.weight, rollDraft.waste));
       const takenById = new Map(allocations.map((a) => [a.roll.id, a.quantityKg]));
       nextSourceRolls = sourceRolls
         .map((r) => ({ ...r, remainingKg: Math.round((r.remainingKg - (takenById.get(r.id) ?? 0)) * 100) / 100 }))
@@ -911,7 +951,7 @@ export default function OrdenProduccionDetalle() {
       if (row.sourceRolls.length === 0) continue;
       const rowRolls = row.sourceRolls.map((r) => running.find((x) => x.id === r.id)).filter((r): r is SourceRollChip => r != null);
       if (rowRolls.length === 0) continue;
-      const { allocations } = previewAllocation(rowRolls, Number(row.body.weightKg));
+      const { allocations } = previewAllocation(rowRolls, rowConsumedKg(row.body.weightKg, row.body.wasteKg));
       const takenById = new Map(allocations.map((a) => [a.roll.id, a.quantityKg]));
       running = running.map((r) => (takenById.has(r.id) ? { ...r, remainingKg: Math.round((r.remainingKg - (takenById.get(r.id) ?? 0)) * 100) / 100 } : r));
     }
@@ -1697,13 +1737,18 @@ export default function OrdenProduccionDetalle() {
                 <tr className="text-left text-[10px] uppercase text-slate-500 dark:text-slate-400">
                   <th className={`${cellBorder} px-2 py-1`}>Ref.</th>
                   <th className={`${cellBorder} px-2 py-1 w-24`}>%</th>
-                  <th className={`${cellBorder} px-2 py-1 w-28`}>Kg</th>
+                  <th
+                    className={`${cellBorder} px-2 py-1 w-28`}
+                    title={mpBaseIsReal ? "Sobre lo producido real (peso + desperdicio): es lo que se descuenta al cerrar" : "Sobre la meta: se recalcula con lo producido real al cerrar"}
+                  >
+                    Kg {mpBaseIsReal ? "(real)" : "(meta)"}
+                  </th>
                   <th className={`${cellBorder} px-2 py-1 w-32`}>Lote</th>
                 </tr>
               </thead>
               <tbody>
                 {(() => {
-                  const totalPlanned = Number(headerDraft.quantityPlanned) || 0;
+                  const totalPlanned = mpBaseKg;
                   return materiaPrima.map((row, i) => {
                     const pct = Number(row.pct) || 0;
                     const kg = totalPlanned > 0 ? Math.round(((pct / 100) * totalPlanned) * 100) / 100 : 0;
@@ -1759,7 +1804,7 @@ export default function OrdenProduccionDetalle() {
                   </td>
                   <td className={`${cellBorder} px-2 py-1`}>
                     {(() => {
-                      const totalPlanned = Number(headerDraft.quantityPlanned) || 0;
+                      const totalPlanned = mpBaseKg;
                       const totalPct = materiaPrima.reduce((acc, r) => acc + (Number(r.pct) || 0), 0);
                       return totalPlanned > 0 ? Math.round(((totalPct / 100) * totalPlanned) * 100) / 100 : 0;
                     })()}
@@ -2460,7 +2505,7 @@ export default function OrdenProduccionDetalle() {
               ))}
             {hasScannedSourceRoll && template.consumesSourceByWeight && Number(rollDraft.weight) > 0 && (
               <div className="animate-toast-in text-[10px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg px-3 py-1.5 text-slate-600 dark:text-slate-300">
-                <SourceAllocationHint rolls={sourceRolls} weightKg={Number(rollDraft.weight)} />
+                <SourceAllocationHint rolls={sourceRolls} weightKg={rowConsumedKg(rollDraft.weight, rollDraft.waste)} />
               </div>
             )}
             {hasScannedBultoLabel && bultoLabel && (
