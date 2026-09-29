@@ -396,7 +396,7 @@ export const api = {
   getProductionOrderSuggestions: (clientId: number, productId: number, station: string) =>
     request<{
       manual: { id: number; measure: string | null; quantityPlanned: number | null; specs: Record<string, unknown> | null; notes: string | null } | null;
-      frequent: { sampleSize: number; measure?: string | null; quantityPlanned?: number | null; specs?: Record<string, string | number> };
+      frequent: { sampleSize: number; measure?: string | null; quantityPlanned?: number | null; specs?: Record<string, unknown> };
     }>(`/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=${station}`),
   saveProductionOrderPreset: (data: {
     clientId: number;

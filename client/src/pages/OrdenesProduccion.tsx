@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import { STATION_LABELS, OpStation } from "../opTemplates";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
+import { SuggestionSources } from "../components/SuggestionSources";
 
 const STATUS_LABELS: Record<string, string> = {
   borrador: "Borrador",
@@ -247,6 +248,45 @@ export default function OrdenesProduccion() {
     refetchSuggestions();
   }
 
+  function applyRootSuggestion(s: { measure?: string | null; quantityPlanned?: number | null }) {
+    if (s.measure) setMeasure(s.measure);
+    if (s.quantityPlanned != null) setQuantityPlanned(String(s.quantityPlanned));
+  }
+
+  function rootSuggestionDetail(s: { measure?: string | null; quantityPlanned?: number | null }) {
+    return [s.measure ? `Medida ${s.measure}` : null, s.quantityPlanned != null ? `${s.quantityPlanned} kg` : null]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  // La manual (cargada a mano por Gestión) y la calculada por frecuencia
+  // nunca se mezclan en un solo valor -- se listan como fuentes separadas: la
+  // primera queda visible, el resto bajo el menú "+N más" (ver
+  // SuggestionSources).
+  const rootSuggestionItems = [
+    ...(suggestions?.manual
+      ? [
+          {
+            key: "manual",
+            label: "Sugerido",
+            detail: rootSuggestionDetail(suggestions.manual),
+            onApply: () => applyRootSuggestion(suggestions.manual!),
+            onRemove: handleDeleteSuggestion,
+          },
+        ]
+      : []),
+    ...(suggestions?.frequent && (suggestions.frequent.measure || suggestions.frequent.quantityPlanned != null)
+      ? [
+          {
+            key: "frequent",
+            label: `Frecuente (${suggestions.frequent.sampleSize} OP${suggestions.frequent.sampleSize === 1 ? "" : "s"})`,
+            detail: rootSuggestionDetail(suggestions.frequent),
+            onApply: () => applyRootSuggestion(suggestions.frequent),
+          },
+        ]
+      : []),
+  ];
+
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -365,44 +405,15 @@ export default function OrdenesProduccion() {
         </div>
 
         {/* Sugerencia de medida/cantidad para este cliente+producto: la
-            manual (cargada a mano por Gestión) gana campo por campo sobre la
-            calculada por frecuencia -- igual criterio que "Sugeridos"/"Pide
-            seguido" en Pedidos.tsx/Cotizaciones.tsx, sin mezclarlas. */}
-        {hasSuggestionContext && suggestions && (suggestions.manual || suggestions.frequent.sampleSize > 0) && (
-          <div className="flex flex-wrap items-center gap-2 text-xs bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded px-3 py-2">
-            <span className="text-slate-500 dark:text-slate-400">
-              {suggestions.manual ? "Sugerido:" : "Este cliente suele pedir:"}
-            </span>
-            {(suggestions.manual?.measure ?? suggestions.frequent.measure) && (
-              <button
-                type="button"
-                onClick={() => setMeasure(String(suggestions.manual?.measure ?? suggestions.frequent.measure))}
-                className="border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 rounded-full px-2.5 py-1 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-              >
-                Medida {suggestions.manual?.measure ?? suggestions.frequent.measure}
-              </button>
-            )}
-            {(suggestions.manual?.quantityPlanned ?? suggestions.frequent.quantityPlanned) != null && (
-              <button
-                type="button"
-                onClick={() => setQuantityPlanned(String(suggestions.manual?.quantityPlanned ?? suggestions.frequent.quantityPlanned))}
-                className="border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 rounded-full px-2.5 py-1 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-              >
-                {suggestions.manual?.quantityPlanned ?? suggestions.frequent.quantityPlanned} kg
-              </button>
-            )}
-            <span className="grow" />
-            {suggestions.manual ? (
-              <button type="button" onClick={handleDeleteSuggestion} className="text-red-600 dark:text-red-400 hover:underline">
-                Quitar sugerencia
-              </button>
-            ) : (
-              !!quantityPlanned && (
-                <button type="button" onClick={handleSaveSuggestion} className="text-sky-700 dark:text-sky-400 hover:underline">
-                  Guardar como sugerencia
-                </button>
-              )
-            )}
+            manual (cargada a mano por Gestión) y la calculada por frecuencia
+            se muestran como fuentes separadas, nunca mezcladas -- la primera
+            visible, el resto bajo "+N más" (ver SuggestionSources). */}
+        {hasSuggestionContext && <SuggestionSources items={rootSuggestionItems} />}
+        {hasSuggestionContext && !suggestions?.manual && !!quantityPlanned && (
+          <div className="flex justify-end">
+            <button type="button" onClick={handleSaveSuggestion} className="text-xs text-sky-700 dark:text-sky-400 hover:underline">
+              Guardar como sugerencia
+            </button>
           </div>
         )}
 

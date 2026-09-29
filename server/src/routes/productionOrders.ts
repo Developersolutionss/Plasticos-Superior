@@ -452,20 +452,41 @@ productionOrdersRouter.get("/suggestions", requireProduccionGestion, async (req,
     select: { specs: true },
   });
   const specsByKey = new Map<string, (string | number)[]>();
+  // Materia Prima es una lista de filas ({ref, pct, lote}), no un valor
+  // simple -- se agrega aparte, por ref, y solo el % (lote es de un lote
+  // físico puntual, no algo reutilizable como sugerencia).
+  const materiaPrimaByRef = new Map<string, (string | number)[]>();
   for (const order of stationOrders) {
     const specs = order.specs as Record<string, unknown> | null;
     if (!specs || typeof specs !== "object") continue;
     for (const [key, value] of Object.entries(specs)) {
+      if (key === "materiaPrima") {
+        if (!Array.isArray(value)) continue;
+        for (const row of value) {
+          if (!row || typeof row !== "object") continue;
+          const { ref, pct } = row as { ref?: unknown; pct?: unknown };
+          if (typeof ref !== "string" || (typeof pct !== "string" && typeof pct !== "number")) continue;
+          if (!materiaPrimaByRef.has(ref)) materiaPrimaByRef.set(ref, []);
+          materiaPrimaByRef.get(ref)!.push(pct);
+        }
+        continue;
+      }
       if (typeof value !== "string" && typeof value !== "number") continue;
       if (!specsByKey.has(key)) specsByKey.set(key, []);
       specsByKey.get(key)!.push(value);
     }
   }
-  const frequentSpecs: Record<string, string | number> = {};
+  const frequentSpecs: Record<string, unknown> = {};
   for (const [key, values] of specsByKey) {
     const value = mostFrequent(values);
     if (value !== null) frequentSpecs[key] = value;
   }
+  const frequentMateriaPrima: { ref: string; pct: string | number }[] = [];
+  for (const [ref, values] of materiaPrimaByRef) {
+    const pct = mostFrequent(values);
+    if (pct !== null) frequentMateriaPrima.push({ ref, pct });
+  }
+  if (frequentMateriaPrima.length) frequentSpecs.materiaPrima = frequentMateriaPrima;
   res.json({ manual, frequent: { sampleSize: stationOrders.length, specs: frequentSpecs } });
 });
 

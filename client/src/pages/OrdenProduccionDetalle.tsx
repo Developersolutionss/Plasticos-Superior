@@ -10,6 +10,7 @@ import { splitScannedCode } from "../lib/rollQr";
 import { useConfirm } from "../components/ConfirmDialog";
 import ErrorToast from "../components/ErrorToast";
 import { SkeletonRows } from "../components/Skeleton";
+import { SuggestionSources } from "../components/SuggestionSources";
 import {
   DERIVATIONS,
   FINAL_STATIONS,
@@ -551,33 +552,58 @@ export default function OrdenProduccionDetalle() {
     markDirty();
   }
 
-  // La manual gana campo por campo sobre la calculada por frecuencia (mismo
-  // criterio que "Sugeridos"/"Pide seguido" en Pedidos.tsx/Cotizaciones.tsx).
-  const suggestedSpecs: Record<string, string> = {
-    ...(specSuggestions?.frequent.specs ?? {}),
-    ...(specSuggestions?.manual?.specs ?? {}),
-  } as Record<string, string>;
-
   /** Solo completa los campos que todavía están vacíos -- nunca pisa algo
-   * que Gestión ya haya tipeado a mano. */
-  function handleApplySpecSuggestion() {
+   * que Gestión ya haya tipeado a mano. Materia Prima es una lista de filas
+   * fijas (una por ref), no un valor simple -- se completa por ref, cada
+   * fila el % solo si esa fila todavía está vacía. */
+  function applySpecs(specs: Record<string, unknown>) {
     setSpecsDraft((prev) => {
       const next = { ...prev };
-      for (const [key, value] of Object.entries(suggestedSpecs)) {
-        if (!next[key]) next[key] = value;
+      for (const [key, value] of Object.entries(specs)) {
+        if (key === "materiaPrima") continue;
+        if (!next[key] && (typeof value === "string" || typeof value === "number")) next[key] = String(value);
       }
       return next;
     });
+    const materiaPrimaSuggested = specs.materiaPrima;
+    if (Array.isArray(materiaPrimaSuggested)) {
+      setMateriaPrima((prev) =>
+        prev.map((row) => {
+          if (row.pct) return row;
+          const suggested = materiaPrimaSuggested.find((r) => r && typeof r === "object" && (r as any).ref === row.ref);
+          return suggested ? { ...row, pct: String((suggested as any).pct ?? "") } : row;
+        })
+      );
+    }
     markDirty();
+  }
+
+  function specsPreview(specs: Record<string, unknown>) {
+    return Object.entries(specs)
+      .map(([key, value]) => {
+        if (key === "materiaPrima" && Array.isArray(value)) {
+          return value
+            .filter((r) => r && typeof r === "object")
+            .map((r: any) => `${r.ref} ${r.pct}%`)
+            .join(", ");
+        }
+        return `${key}: ${value}`;
+      })
+      .join(", ");
   }
 
   async function handleSaveSpecSuggestion() {
     if (!order?.clientId || !order?.productId || !order?.station) return;
+    const specs: Record<string, unknown> = { ...specsDraft };
+    if (template.materiaPrimaRefs) {
+      const rows = materiaPrima.filter((r) => r.pct).map((r) => ({ ref: r.ref, pct: Number(r.pct) }));
+      if (rows.length) specs.materiaPrima = rows;
+    }
     await api.saveProductionOrderPreset({
       clientId: order.clientId,
       productId: order.productId,
       station: order.station,
-      specs: specsDraft,
+      specs,
     });
     refetchSpecSuggestions();
   }
@@ -587,6 +613,33 @@ export default function OrdenProduccionDetalle() {
     await api.deleteProductionOrderPreset(specSuggestions.manual.id);
     refetchSpecSuggestions();
   }
+
+  // La manual (cargada a mano por Gestión) y la calculada por frecuencia se
+  // listan como fuentes separadas, nunca mezcladas en un solo valor -- la
+  // primera queda visible, el resto bajo "+N más" (ver SuggestionSources).
+  const specSuggestionItems = [
+    ...(specSuggestions?.manual?.specs && Object.keys(specSuggestions.manual.specs).length > 0
+      ? [
+          {
+            key: "manual",
+            label: "Sugerido para este cliente + producto",
+            detail: specsPreview(specSuggestions.manual.specs),
+            onApply: () => applySpecs(specSuggestions.manual!.specs as Record<string, unknown>),
+            onRemove: handleDeleteSpecSuggestion,
+          },
+        ]
+      : []),
+    ...(specSuggestions?.frequent.specs && Object.keys(specSuggestions.frequent.specs).length > 0
+      ? [
+          {
+            key: "frequent",
+            label: `Frecuente en esta estación (${specSuggestions.frequent.sampleSize} OP${specSuggestions.frequent.sampleSize === 1 ? "" : "s"})`,
+            detail: specsPreview(specSuggestions.frequent.specs),
+            onApply: () => applySpecs(specSuggestions.frequent.specs as Record<string, unknown>),
+          },
+        ]
+      : []),
+  ];
 
   async function handleSaveSpecs() {
     setError(null);
@@ -1725,28 +1778,12 @@ export default function OrdenProduccionDetalle() {
           </>
         )}
 
-        {canEditSpecs && Object.keys(suggestedSpecs).length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 text-xs bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 my-2">
-            <span className="text-slate-500 dark:text-slate-400">
-              {specSuggestions?.manual ? "Sugerido para este cliente + producto:" : "Este cliente suele pedirlo así:"}
-            </span>
-            <button
-              type="button"
-              onClick={handleApplySpecSuggestion}
-              className="border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 rounded-full px-2.5 py-1 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-            >
-              Aplicar sugerencia
+        {canEditSpecs && <SuggestionSources items={specSuggestionItems} />}
+        {canEditSpecs && !specSuggestions?.manual && (Object.keys(specsDraft).length > 0 || materiaPrima.some((r) => r.pct)) && (
+          <div className="flex justify-end my-1">
+            <button type="button" onClick={handleSaveSpecSuggestion} className="text-xs text-sky-700 dark:text-sky-400 hover:underline">
+              Guardar lo actual como sugerencia
             </button>
-            <span className="grow" />
-            {specSuggestions?.manual ? (
-              <button type="button" onClick={handleDeleteSpecSuggestion} className="text-red-600 dark:text-red-400 hover:underline">
-                Quitar sugerencia
-              </button>
-            ) : (
-              <button type="button" onClick={handleSaveSpecSuggestion} className="text-sky-700 dark:text-sky-400 hover:underline">
-                Guardar lo actual como sugerencia
-              </button>
-            )}
           </div>
         )}
 

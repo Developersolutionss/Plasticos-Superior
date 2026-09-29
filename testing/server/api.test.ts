@@ -5858,3 +5858,232 @@ describe("revisión trazabilidad / inventario / almacén / avisos", () => {
   });
 });
 
+describe("órdenes de producción · sugerencias (manual + por frecuencia)", () => {
+  let clientId = 0;
+  let productId = 0;
+
+  before(async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-OPSUGG-CLIENT-${Date.now()}` } });
+    clientId = client.id;
+    productId = (await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } })).id;
+  });
+
+  after(async () => {
+    await prisma.productionOrder.deleteMany({ where: { clientId, productId } });
+    await prisma.productionOrderPreset.deleteMany({ where: { clientId, productId } });
+    await prisma.client.delete({ where: { id: clientId } }).catch(() => {});
+  });
+
+  it("un rol sin acceso a Producción no puede ver ni cargar sugerencias (403)", async () => {
+    const get = await fetch(`${baseUrl}/api/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=root`, {
+      headers: headersFor("ventas"),
+    });
+    assert.equal(get.status, 403);
+
+    const post = await fetch(`${baseUrl}/api/production-orders/presets`, {
+      method: "POST",
+      headers: headersFor("ventas"),
+      body: JSON.stringify({ clientId, productId, station: "root", measure: "1x1" }),
+    });
+    assert.equal(post.status, 403);
+  });
+
+  it("sin historial ni sugerencia manual, devuelve manual null y frecuente en cero", async () => {
+    const res = await fetch(`${baseUrl}/api/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=root`, {
+      headers: headersFor("produccion"),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { manual: unknown; frequent: { sampleSize: number; measure: unknown; quantityPlanned: unknown } };
+    assert.equal(body.manual, null);
+    assert.equal(body.frequent.sampleSize, 0);
+    assert.equal(body.frequent.measure, null);
+    assert.equal(body.frequent.quantityPlanned, null);
+  });
+
+  it("station inválida en la consulta da 400", async () => {
+    const res = await fetch(
+      `${baseUrl}/api/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=no-existe`,
+      { headers: headersFor("produccion") }
+    );
+    assert.equal(res.status, 400);
+  });
+
+  it("clientId/productId faltantes o no numéricos dan 400, no un 500 ni una consulta vacía silenciosa", async () => {
+    const sinClientId = await fetch(`${baseUrl}/api/production-orders/suggestions?productId=${productId}&station=root`, {
+      headers: headersFor("produccion"),
+    });
+    assert.equal(sinClientId.status, 400);
+
+    const clientIdInvalido = await fetch(`${baseUrl}/api/production-orders/suggestions?clientId=abc&productId=${productId}&station=root`, {
+      headers: headersFor("produccion"),
+    });
+    assert.equal(clientIdInvalido.status, 400);
+  });
+
+  it("carga una sugerencia manual de medida/cantidad (root); cargar la misma combinación de nuevo actualiza en vez de duplicar", async () => {
+    const res = await fetch(`${baseUrl}/api/production-orders/presets`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ clientId, productId, station: "root", measure: "1.20 x 30", quantityPlanned: 45 }),
+    });
+    assert.equal(res.status, 201);
+    const created = (await res.json()) as { id: number; measure: string; quantityPlanned: string };
+    assert.equal(created.measure, "1.20 x 30");
+    assert.equal(Number(created.quantityPlanned), 45);
+
+    const suggestions = (await (
+      await fetch(`${baseUrl}/api/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=root`, {
+        headers: headersFor("produccion"),
+      })
+    ).json()) as { manual: { id: number; measure: string } };
+    assert.equal(suggestions.manual.id, created.id);
+    assert.equal(suggestions.manual.measure, "1.20 x 30");
+
+    const upsert = await fetch(`${baseUrl}/api/production-orders/presets`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ clientId, productId, station: "root", measure: "2.00 x 40", quantityPlanned: 60 }),
+    });
+    assert.equal(upsert.status, 201);
+    const upserted = (await upsert.json()) as { id: number; measure: string };
+    assert.equal(upserted.id, created.id, "mismo id: actualizó la fila existente, no duplicó");
+    assert.equal(upserted.measure, "2.00 x 40");
+  });
+
+  it("calcula la sugerencia por frecuencia (root) sobre el historial real de OPs raíz -- gana la medida más repetida", async () => {
+    for (const measure of ["0.80 x 15", "0.80 x 15", "0.90 x 20"]) {
+      const res = await fetch(`${baseUrl}/api/production-orders`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ productId, clientId, quantityPlanned: 20, measure }),
+      });
+      assert.equal(res.status, 201);
+    }
+    const suggestions = (await (
+      await fetch(`${baseUrl}/api/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=root`, {
+        headers: headersFor("produccion"),
+      })
+    ).json()) as { frequent: { sampleSize: number; measure: string } };
+    assert.equal(suggestions.frequent.sampleSize, 3);
+    assert.equal(suggestions.frequent.measure, "0.80 x 15", "la medida que más se repite gana, no la última cargada");
+  });
+
+  it("borra la sugerencia manual (root); un segundo borrado del mismo id da 404", async () => {
+    const before = (await (
+      await fetch(`${baseUrl}/api/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=root`, {
+        headers: headersFor("produccion"),
+      })
+    ).json()) as { manual: { id: number } };
+    const id = before.manual.id;
+
+    const del = await fetch(`${baseUrl}/api/production-orders/presets/${id}`, { method: "DELETE", headers: headersFor("produccion") });
+    assert.equal(del.status, 204);
+
+    const again = await fetch(`${baseUrl}/api/production-orders/presets/${id}`, { method: "DELETE", headers: headersFor("produccion") });
+    assert.equal(again.status, 404);
+
+    const after = (await (
+      await fetch(`${baseUrl}/api/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=root`, {
+        headers: headersFor("produccion"),
+      })
+    ).json()) as { manual: unknown };
+    assert.equal(after.manual, null);
+  });
+
+  it("la sugerencia manual de specs por estación valida contra las opciones de la plantilla (400 si el valor no está en la lista)", async () => {
+    const res = await fetch(`${baseUrl}/api/production-orders/presets`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ clientId, productId, station: "extrusion", specs: { color: "Rosado" } }),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("specs por estación: la manual y la de frecuencia se calculan por separado, incluida Materia Prima (por ref, aparte de los campos simples)", async () => {
+    const manual = await fetch(`${baseUrl}/api/production-orders/presets`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({
+        clientId,
+        productId,
+        station: "extrusion",
+        specs: { color: "Negro", materiaPrima: [{ ref: "BAJA", pct: 60 }] },
+      }),
+    });
+    assert.equal(manual.status, 201);
+
+    // Historial real en Extrusión: 2 OPs con Color Blanco y BAJA 40%.
+    for (let i = 0; i < 2; i++) {
+      const root = (await (
+        await fetch(`${baseUrl}/api/production-orders`, {
+          method: "POST",
+          headers: headersFor("produccion"),
+          body: JSON.stringify({ productId, clientId, quantityPlanned: 20 }),
+        })
+      ).json()) as { id: number };
+      const derive = await fetch(`${baseUrl}/api/production-orders/${root.id}/derive`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ station: "extrusion", specs: { color: "Blanco", materiaPrima: [{ ref: "BAJA", pct: 40 }] } }),
+      });
+      // Root -> Extrusión es la PRIMERA derivación (station todavía null):
+      // actualiza la misma fila en vez de crear una hija, por eso 200 y no
+      // 201 (ver POST /:id/derive, rama "parent.station === null").
+      assert.equal(derive.status, 200);
+    }
+
+    const suggestions = (await (
+      await fetch(`${baseUrl}/api/production-orders/suggestions?clientId=${clientId}&productId=${productId}&station=extrusion`, {
+        headers: headersFor("produccion"),
+      })
+    ).json()) as {
+      manual: { specs: { color: string; materiaPrima: { ref: string; pct: number }[] } };
+      frequent: { sampleSize: number; specs: { color: string; materiaPrima: { ref: string; pct: number }[] } };
+    };
+
+    assert.equal(suggestions.manual.specs.color, "Negro");
+    assert.equal(suggestions.manual.specs.materiaPrima[0].ref, "BAJA");
+    assert.equal(Number(suggestions.manual.specs.materiaPrima[0].pct), 60);
+
+    assert.equal(suggestions.frequent.sampleSize, 2);
+    assert.equal(suggestions.frequent.specs.color, "Blanco", "el color más repetido en el historial, no el de la manual");
+    const freqBaja = suggestions.frequent.specs.materiaPrima.find((r) => r.ref === "BAJA");
+    assert.ok(freqBaja, "Materia Prima entra en la frecuencia igual que un campo simple");
+    assert.equal(Number(freqBaja!.pct), 40, "el % más repetido del historial (no el de la manual)");
+  });
+
+  it("regresión: derivar de la 2da estación en adelante conserva las notas del padre si no se mandan explícitas", async () => {
+    const root = (await (
+      await fetch(`${baseUrl}/api/production-orders`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ productId, clientId, quantityPlanned: 20, notes: "Nota del cliente" }),
+      })
+    ).json()) as { id: number };
+
+    const extrusion = (await (
+      await fetch(`${baseUrl}/api/production-orders/${root.id}/derive`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ station: "extrusion" }),
+      })
+    ).json()) as { id: number; notes: string | null };
+    assert.equal(extrusion.notes, "Nota del cliente");
+
+    const release = await fetch(`${baseUrl}/api/production-orders/${extrusion.id}/release`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(release.status, 200);
+
+    const sellado = (await (
+      await fetch(`${baseUrl}/api/production-orders/${extrusion.id}/derive`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ station: "sellado" }),
+      })
+    ).json()) as { notes: string | null };
+    assert.equal(sellado.notes, "Nota del cliente", "la UI real no manda `notes` al derivar -- tiene que heredarse del padre");
+  });
+});
+
