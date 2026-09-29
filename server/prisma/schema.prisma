@@ -801,6 +801,11 @@ model ProductionRoll {
   transfers         RollTransfer[]
 
   @@unique([station, stationSequence])
+  /// Búsquedas de los rollos hijos de un rollo madre (consumedBy,
+  /// Trazabilidad). Lo creó a mano la migración roll_consumption_ledger sin
+  /// declararlo acá, y la migración add_production_order_presets lo borró
+  /// como "drift" — declararlo evita que vuelva a pasar.
+  @@index([sourceRollId])
   @@map("production_rolls")
 }
 
