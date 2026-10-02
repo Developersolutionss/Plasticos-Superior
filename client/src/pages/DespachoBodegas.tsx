@@ -197,10 +197,12 @@ export default function DespachoBodegas() {
       const diff = weightDiff(transfer);
       setSuccess(
         `Rollo ${transfer.rollCode} recibido en la bodega de ${stationLabel(transfer.toStation)}` +
-          (weighed !== undefined ? `. Saldo del rollo: ${weighed} kg` : "") +
-          (diff != null && Math.abs(diff) > WEIGHT_TOLERANCE_KG
-            ? ` — llegó con ${diff > 0 ? "+" : ""}${diff} kg de diferencia contra lo que salió, se le avisó a Gestión`
-            : "")
+          ((transfer as any).balanceNotAdjusted
+            ? `. El peso cargado (${weighed} kg) es muy distinto de lo que salió: NO se cambió el saldo, se le avisó a Gestión para que lo verifique`
+            : (weighed !== undefined ? `. Saldo del rollo: ${weighed} kg` : "") +
+              (diff != null && Math.abs(diff) > WEIGHT_TOLERANCE_KG
+                ? ` — llegó con ${diff > 0 ? "+" : ""}${diff} kg de diferencia contra lo que salió, se le avisó a Gestión`
+                : ""))
       );
       resetForm();
       queryClient.invalidateQueries({ queryKey: ["rollTransfers"] });

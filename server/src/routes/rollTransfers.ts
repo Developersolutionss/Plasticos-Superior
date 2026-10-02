@@ -76,6 +76,14 @@ function normalizeCarrierName(name: string): string {
  * avisarle a Gestión — por debajo de esto es ruido de balanza. */
 const RECEIVE_WEIGHT_TOLERANCE_KG = 0.5;
 
+/** Si el peso medido al recibir difiere de lo despachado más que esto
+ * (5 kg o 10%, lo mayor), probablemente es un error de tipeo (478 en vez de
+ * 47,8): no se ajusta el saldo, solo se registra y se avisa a Gestión para
+ * que lo verifique con un conteo. */
+function receiveAutoAdjustLimitKg(dispatchedKg: number): number {
+  return Math.max(5, dispatchedKg * 0.1);
+}
+
 function rollCode(roll: { station: string; stationSequence: number }): string {
   return `${ROLL_CODE_PREFIX[roll.station as OpStation]}-${roll.stationSequence}`;
 }
@@ -502,13 +510,18 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
         ...(data.notes ? { notes: transfer.notes ? `${transfer.notes}\nRecepción: ${data.notes}` : `Recepción: ${data.notes}` } : {}),
       },
     });
-    if (updated.count === 0) return false;
+    if (updated.count === 0) return null;
     // Lo que pesó al llegar es lo que hay en la bodega (decisión de Gestión,
     // 2026-10-02): el saldo del rollo pasa a ser ese peso, registrado como un
-    // ajuste con su historial. El peso original del rollo no se toca.
+    // ajuste con su historial. El peso original del rollo no se toca. Salvo
+    // una diferencia demasiado grande (ver receiveAutoAdjustLimitKg).
+    let balanceAdjusted = false;
     if (data.receivedKg != null) {
       const current = await remainingSourceKg(tx, transfer.rollId);
-      if (Math.abs(current - data.receivedKg) > 0.005) {
+      const reference = transfer.dispatchedKg != null ? Number(transfer.dispatchedKg) : current;
+      const tooFar = Math.abs(data.receivedKg - reference) > receiveAutoAdjustLimitKg(reference);
+      if (!tooFar && Math.abs(current - data.receivedKg) > 0.005) {
+        balanceAdjusted = true;
         await adjustRollBalance(tx, {
           rollId: transfer.rollId,
           newKg: data.receivedKg,
@@ -519,12 +532,14 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
         });
       }
     }
-    return true;
+    return { balanceAdjusted };
   });
   if (!received) return res.status(409).json({ error: "Este despacho ya fue recibido" });
 
   const full = await prisma.rollTransfer.findUniqueOrThrow({ where: { id }, include: transferInclude });
-  const response = withRollCode(full);
+  const balanceNotAdjusted =
+    data.receivedKg != null && full.dispatchedKg != null && Math.abs(data.receivedKg - Number(full.dispatchedKg)) > receiveAutoAdjustLimitKg(Number(full.dispatchedKg));
+  const response = { ...withRollCode(full), balanceAdjusted: received.balanceAdjusted, balanceNotAdjusted };
 
   // Llegó con otro peso del que salió: se registra igual (la recepción es un
   // hecho físico) pero se le avisa a Gestión — es justo el desbalance de
@@ -534,7 +549,9 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
     if (Math.abs(diff) > RECEIVE_WEIGHT_TOLERANCE_KG) {
       await notifyRoles(ROLES.PRODUCCION_GESTION, {
         type: "despacho_diferencia_peso",
-        message: `El rollo ${response.rollCode} salió de ${STATION_LABELS[full.fromStation as OpStation]} con ${Number(full.dispatchedKg)} kg y llegó a ${STATION_LABELS[full.toStation as OpStation]} con ${data.receivedKg} kg (${diff > 0 ? "+" : ""}${diff} kg). Lo llevó ${full.carrierName}.`,
+        message:
+          `El rollo ${response.rollCode} salió de ${STATION_LABELS[full.fromStation as OpStation]} con ${Number(full.dispatchedKg)} kg y llegó a ${STATION_LABELS[full.toStation as OpStation]} con ${data.receivedKg} kg (${diff > 0 ? "+" : ""}${diff} kg). Lo llevó ${full.carrierName}.` +
+          (balanceNotAdjusted ? " La diferencia es demasiado grande: NO se ajustó el saldo — verificalo con un conteo en Inventario de bodegas." : ""),
         link: "/produccion/despacho-bodegas",
       });
     }

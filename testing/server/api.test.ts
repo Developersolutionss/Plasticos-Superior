@@ -6615,3 +6615,80 @@ describe("inventario de bodegas: existencias por bodega, en camino, antigüedad,
   });
 });
 
+describe("ajustes del QA previo al despliegue (2026-10-02)", () => {
+  let productId = 0;
+  const stamp = Date.now();
+  const clock = { clientTimezone: "America/Bogota", clientUtcOffsetMinutes: -300 };
+
+  before(async () => {
+    productId = (await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } })).id;
+  });
+
+  it("una hija ya sobre-asignada (OPs viejas) se puede seguir editando si no se toca la meta; subirla sí se valida", async () => {
+    const parent = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-QA2-${stamp}`, station: "extrusion", productId, quantityPlanned: 40, status: "en_proceso" },
+    });
+    // Como se derivaba antes: cada hija con el 100%.
+    const a = await prisma.productionOrder.create({ data: { orderNumber: parent.orderNumber, station: "sellado", productId, quantityPlanned: 40, parentOrderId: parent.id } });
+    const b = await prisma.productionOrder.create({ data: { orderNumber: parent.orderNumber, station: "precorte", productId, quantityPlanned: 40, parentOrderId: parent.id } });
+    const patch = (body: object) =>
+      fetch(`${baseUrl}/api/production-orders/${a.id}`, { method: "PATCH", headers: headersFor("produccion"), body: JSON.stringify(body) });
+
+    assert.equal((await patch({ quantityPlanned: 40, notes: "solo cambio la nota" })).status, 200, "misma meta: no se revalida el reparto");
+    assert.equal((await patch({ quantityPlanned: 41 })).status, 400, "subirla sí");
+    assert.equal((await patch({ quantityPlanned: 0.5 })).status, 200, "bajarla a lo que entra sí");
+
+    for (const id of [a.id, b.id, parent.id]) await prisma.productionOrder.delete({ where: { id } });
+  });
+
+  it("cerrar Extrusión: un operario de otra estación recibe 403 antes que el aviso de fórmula; el de Extrusión recibe el aviso con a quién pedírsela", async () => {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-QA2-C-${stamp}`, station: "extrusion", productId, quantityPlanned: 20, status: "en_proceso" },
+    });
+    await createTestRoll(order.id, { weightKg: 10 });
+    const cerrar = (role: string) => fetch(`${baseUrl}/api/production-orders/${order.id}/close`, { method: "POST", headers: headersFor(role) });
+
+    assert.equal((await cerrar("operario_sellado")).status, 403);
+    const res = await cerrar("operario_extrusion");
+    assert.equal(res.status, 400);
+    assert.match(((await res.json()) as { error: string }).error, /Pedile a Gestión que complete la fórmula/);
+
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.productionOrder.delete({ where: { id: order.id } });
+  });
+
+  it("peso al recibir muy distinto de lo despachado (error de tipeo): no cambia el saldo, se marca y se avisa a Gestión", async () => {
+    const op = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-QA2-R-${stamp}`, station: "extrusion", productId, quantityPlanned: 500 },
+    });
+    const r = await createTestRoll(op.id, { weightKg: 47.8 });
+    const code = `EXT-${r.stationSequence}`;
+    const salida = (await (
+      await fetch(`${baseUrl}/api/roll-transfers`, {
+        method: "POST",
+        headers: headersFor("operario_extrusion"),
+        body: JSON.stringify({ code, token: r.possessionToken, toStation: "sellado", mode: "retiro", ...clock }),
+      })
+    ).json()) as any;
+    const recibo = await fetch(`${baseUrl}/api/roll-transfers/${salida.id}/receive`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+      body: JSON.stringify({ code, token: r.possessionToken, receivedKg: 478, ...clock }),
+    });
+    assert.equal(recibo.status, 200);
+    const body = (await recibo.json()) as any;
+    assert.equal(body.balanceNotAdjusted, true);
+    assert.equal(body.balanceAdjusted, false);
+    assert.equal(Number(body.receivedKg), 478, "el dato medido queda registrado igual");
+    assert.equal(await prisma.rollAdjustment.count({ where: { rollId: r.id } }), 0, "pero no se ajusta el saldo");
+    const saldo = ((await (await fetch(`${baseUrl}/api/production-orders/rolls/by-code/${code}`, { headers: headersFor("produccion") })).json()) as any).remainingKg;
+    assert.equal(saldo, 47.8);
+    const aviso = await prisma.notification.findFirst({ where: { type: "despacho_diferencia_peso", message: { contains: code } } });
+    assert.match(aviso!.message, /NO se ajustó el saldo/);
+
+    await prisma.notification.deleteMany({ where: { type: "despacho_diferencia_peso", message: { contains: code } } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: op.id } });
+    await prisma.productionOrder.delete({ where: { id: op.id } });
+  });
+});
+

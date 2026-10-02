@@ -232,20 +232,30 @@ export default function OrdenesProduccion() {
 
   async function handleSaveSuggestion() {
     if (!hasSuggestionContext || !quantityPlanned) return;
-    await api.saveProductionOrderPreset({
-      clientId: Number(clientId),
-      productId: Number(productId),
-      station: "root",
-      measure: measure || undefined,
-      quantityPlanned: Number(quantityPlanned),
-    });
-    refetchSuggestions();
+    setError(null);
+    try {
+      await api.saveProductionOrderPreset({
+        clientId: Number(clientId),
+        productId: Number(productId),
+        station: "root",
+        measure: measure || undefined,
+        quantityPlanned: Number(quantityPlanned),
+      });
+      refetchSuggestions();
+    } catch (err) {
+      setError(err instanceof Error && err.message ? `No se pudo guardar la sugerencia: ${err.message}` : "No se pudo guardar la sugerencia");
+    }
   }
 
   async function handleDeleteSuggestion() {
     if (!suggestions?.manual) return;
-    await api.deleteProductionOrderPreset(suggestions.manual.id);
-    refetchSuggestions();
+    setError(null);
+    try {
+      await api.deleteProductionOrderPreset(suggestions.manual.id);
+      refetchSuggestions();
+    } catch (err) {
+      setError(err instanceof Error && err.message ? `No se pudo quitar la sugerencia: ${err.message}` : "No se pudo quitar la sugerencia");
+    }
   }
 
   function applyRootSuggestion(s: { measure?: string | null; quantityPlanned?: number | null }) {

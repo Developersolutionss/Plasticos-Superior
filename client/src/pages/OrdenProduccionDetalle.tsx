@@ -331,7 +331,10 @@ export default function OrdenProduccionDetalle() {
   // al elegir productos de un cliente (ver GET /production-orders/suggestions).
   // Antes del early-return de "sin estación" de abajo porque los hooks no
   // pueden llamarse condicionalmente.
-  const suggestionsEnabled = !!order?.station && !!order?.clientId && !!order?.productId;
+  // Solo Gestión puede ver/cargar sugerencias (GET /suggestions es de
+  // Gestión): para un operario la consulta solo generaba un 403 en cada carga.
+  const suggestionsEnabled =
+    !!order?.station && !!order?.clientId && !!order?.productId && !!user && (PRODUCCION_GESTION as UserRole[]).includes(user.role);
   const { data: specSuggestions, refetch: refetchSpecSuggestions } = useQuery({
     queryKey: ["productionOrderSuggestions", order?.clientId, order?.productId, order?.station],
     queryFn: () => api.getProductionOrderSuggestions(order!.clientId, order!.productId, order!.station),
@@ -618,19 +621,32 @@ export default function OrdenProduccionDetalle() {
       const rows = materiaPrima.filter((r) => r.pct).map((r) => ({ ref: r.ref, pct: Number(r.pct) }));
       if (rows.length) specs.materiaPrima = rows;
     }
-    await api.saveProductionOrderPreset({
-      clientId: order.clientId,
-      productId: order.productId,
-      station: order.station,
-      specs,
-    });
-    refetchSpecSuggestions();
+    setError(null);
+    try {
+      await api.saveProductionOrderPreset({
+        clientId: order.clientId,
+        productId: order.productId,
+        station: order.station,
+        specs,
+      });
+      refetchSpecSuggestions();
+      setMessage("Sugerencia guardada.");
+    } catch (err) {
+      // Ej. un valor de lista fuera de la plantilla: antes el clic no hacía
+      // nada visible y el error quedaba solo en la consola.
+      setError(err instanceof Error && err.message ? `No se pudo guardar la sugerencia: ${err.message}` : "No se pudo guardar la sugerencia");
+    }
   }
 
   async function handleDeleteSpecSuggestion() {
     if (!specSuggestions?.manual) return;
-    await api.deleteProductionOrderPreset(specSuggestions.manual.id);
-    refetchSpecSuggestions();
+    setError(null);
+    try {
+      await api.deleteProductionOrderPreset(specSuggestions.manual.id);
+      refetchSpecSuggestions();
+    } catch (err) {
+      setError(err instanceof Error && err.message ? `No se pudo quitar la sugerencia: ${err.message}` : "No se pudo quitar la sugerencia");
+    }
   }
 
   // La manual (cargada a mano por Gestión) y la calculada por frecuencia se
@@ -1269,6 +1285,13 @@ export default function OrdenProduccionDetalle() {
 
   async function handleRelease() {
     setError(null);
+    // Liberar valida lo GUARDADO (ej. la fórmula de materia prima): con cambios
+    // sin guardar, el servidor rechazaba con un motivo que no coincidía con lo
+    // que se ve en pantalla.
+    if (dirty) {
+      setError("Hay cambios sin guardar — tocá \"Guardar cambios\" antes de liberar la OP.");
+      return;
+    }
     const shouldRelease = await confirm(`A partir de ahora la va a ver la cola de ${STATION_LABELS[station]} y va a poder cargar rollos.`, {
       title: "¿Liberar esta OP a planta?",
       confirmLabel: "Liberar",

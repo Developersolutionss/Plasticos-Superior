@@ -1156,7 +1156,16 @@ productionOrdersRouter.patch("/:id", requireProduccionGestion, async (req, res) 
 
   // Una OP derivada no puede pedir más de lo que su padre produjo, contando
   // lo ya asignado a sus hermanas (ver siblingAllocation).
-  if (parsed.data.quantityPlanned != null && order.parentOrderId) {
+  // Solo si la meta SUBE: el cliente manda quantityPlanned en cada "Guardar
+  // cambios", y una hija que ya tenía su meta (ej. OPs derivadas antes de
+  // esta regla, con el 100% cada una) no puede quedar sin poder editar sus
+  // notas o specs por un reparto que nadie tocó. Bajarla nunca empeora el
+  // reparto (es justo como Gestión lo corrige), así que siempre se permite.
+  if (
+    parsed.data.quantityPlanned != null &&
+    order.parentOrderId &&
+    parsed.data.quantityPlanned > Number(order.quantityPlanned) + 0.005
+  ) {
     const parent = await prisma.productionOrder.findUnique({
       where: { id: order.parentOrderId },
       include: { rolls: { select: { weightKg: true, details: true } } },
@@ -1281,11 +1290,6 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
   if (!OPEN_STATUSES.includes(order.status)) {
     return res.status(400).json({ error: "Esta OP ya no está abierta" });
   }
-  if (order.station === "extrusion") {
-    const falta = materiaPrimaIncompleta(order.specs);
-    if (falta) return res.status(400).json({ error: `No se puede cerrar: ${falta}` });
-  }
-
   const allowedStations = OPERARIO_STATIONS[req.user!.role];
   if (allowedStations && !allowedStations.includes(order.station as OpStation)) {
     return res.status(403).json({ error: `Tu rol solo puede operar OPs de: ${allowedStations.join(", ")}` });
@@ -1295,12 +1299,19 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
     return res.status(400).json({ error: "No se puede cerrar una OP sin rollos registrados" });
   }
 
+  if (order.station === "extrusion") {
+    const falta = materiaPrimaIncompleta(order.specs);
+    // El que cierra es el operario, que no puede editar la fórmula: el
+    // mensaje le dice a quién pedírsela.
+    if (falta) return res.status(400).json({ error: `No se puede cerrar: ${falta}. Pedile a Gestión que complete la fórmula en la hoja de la OP.` });
+  }
+
   const isFinal = FINAL_STATIONS.includes(order.station as OpStation);
   const newStatus = isFinal ? "pendiente_calidad" : "finalizada";
 
   // Al cerrar una OP de Extrusión se descuenta del stock de materia prima
-  // el kg cargado en cada insumo de la tabla (specs.materiaPrima) — no se
-  // recalcula nada, es el mismo kg que ya está tipeado ahí. Si un `ref` no
+  // el % de cada insumo de la tabla (specs.materiaPrima) sobre lo producido
+  // real (peso + desperdicio de sus rollos), ver más abajo. Si un `ref` no
   // matchea ningún código del catálogo (materia prima borrada, error de
   // tipeo), se avisa en la respuesta pero NO bloquea el cierre — la OP ya
   // tiene rollos reales cargados, no tiene sentido trabarla por esto.

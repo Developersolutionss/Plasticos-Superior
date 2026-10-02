@@ -41,6 +41,18 @@ Decisiones abiertas del bloque de kilos (2026-09-29):
 - ~~El peso medido al recibir un rollo, ¿debería bajar el saldo?~~ → **decidido (2026-10-02)**: sí, el peso
   medido pasa a ser el saldo del rollo (ajuste `recepcion`, ver Inventario de bodegas).
 
+Pendientes del QA previo al despliegue (2026-10-02), no bloqueantes:
+
+- "Aplicar sugerencia" de materia prima toma el % más frecuente de cada insumo por separado, así que la
+  fórmula sugerida puede no sumar 100% (la OP no se libera hasta corregirla; el aviso es claro). Mejor:
+  sugerir la fórmula completa de la OP más frecuente. Los presets manuales tampoco validan el 100%.
+- Un conteo físico del rollo madre es un ajuste (delta), no un ancla: si después se borra una fila hija que
+  había consumido de ese madre, el saldo sube por encima de lo contado. Decidir si se bloquea borrar filas
+  hijas anteriores a un conteo.
+- `GET /roll-transfers/inventory` trae todos los rollos de Extrusión/Impresión (agotados incluidos) y filtra
+  en memoria: con miles de rollos conviene filtrar por saldo en SQL o paginar.
+- El upsert de presets no limpia measure/quantityPlanned cuando llegan vacíos.
+
 Quedaron fuera de esta ronda (no se decidió todavía):
 
 - Ajuste manual de stock de producto terminado tras un conteo físico (la materia prima sí lo tiene).
