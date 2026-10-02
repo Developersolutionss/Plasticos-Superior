@@ -4,7 +4,7 @@ import type { Prisma, ProductionRoll } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
 import { DERIVATIONS, OpStation, ROLL_CODE_PREFIX, STATION_LABELS } from "../services/opTemplates";
-import { remainingSourceKg } from "../services/rollBalance";
+import { adjustRollBalance, remainingSourceKg } from "../services/rollBalance";
 import { verifyPossessionToken } from "../services/rollPossessionToken";
 import { checkRateLimit } from "../services/rateLimiter";
 import { rollWhereFromCode } from "../services/rollCode";
@@ -157,6 +157,154 @@ rollTransfersRouter.get("/", async (req, res) => {
     include: transferInclude,
   });
   res.json(transfers.map(withRollCode));
+});
+
+/** Rollos parados en una bodega por más de estos días se marcan en el
+ * inventario (rollo que nadie está usando). */
+const STALE_DAYS = 7;
+
+/**
+ * Inventario de las bodegas de planta: qué rollos hay HOY en cada una
+ * (Extrusión, Impresión, Sellado, Precorte), con su saldo, desde cuándo
+ * están ahí, y cuáles están en camino. Solo cuenta rollos que alimentan a
+ * otra estación (salidos de Extrusión o Impresión, ver DERIVATIONS) y con
+ * saldo: lo que sale de Sellado/Precorte es producto terminado, que pasa por
+ * Calidad e Inventario de producto, no por estas bodegas.
+ */
+rollTransfersRouter.get("/inventory", async (_req, res) => {
+  const feeding = (STATIONS as readonly OpStation[]).filter((s) => DERIVATIONS[s].length > 0);
+  const rolls = await prisma.productionRoll.findMany({
+    where: { station: { in: feeding } },
+    select: {
+      id: true,
+      station: true,
+      stationSequence: true,
+      label: true,
+      weightKg: true,
+      createdAt: true,
+      productionOrder: { select: { id: true, orderNumber: true, product: { select: { name: true, sku: true } } } },
+      transfers: {
+        orderBy: { id: "desc" },
+        take: 1,
+        select: { id: true, status: true, fromStation: true, toStation: true, carrierName: true, createdAt: true, receivedAt: true, dispatchedKg: true },
+      },
+    },
+    orderBy: [{ station: "asc" }, { stationSequence: "asc" }],
+  });
+  const ids = rolls.map((r) => r.id);
+  const [consumed, adjusted, counts] = await Promise.all([
+    prisma.rollConsumption.groupBy({ by: ["sourceRollId"], where: { sourceRollId: { in: ids } }, _sum: { quantityKg: true } }),
+    prisma.rollAdjustment.groupBy({ by: ["rollId"], where: { rollId: { in: ids } }, _sum: { deltaKg: true } }),
+    prisma.rollAdjustment.findMany({
+      where: { rollId: { in: ids }, reason: "conteo" },
+      orderBy: { id: "desc" },
+      distinct: ["rollId"],
+      select: { rollId: true, createdAt: true, newKg: true, createdBy: { select: { name: true } } },
+    }),
+  ]);
+  const consumedBy = new Map(consumed.map((c) => [c.sourceRollId, Number(c._sum.quantityKg ?? 0)]));
+  const adjustedBy = new Map(adjusted.map((a) => [a.rollId, Number(a._sum.deltaKg ?? 0)]));
+  const lastCountBy = new Map(counts.map((c) => [c.rollId, c]));
+  const now = Date.now();
+  const DAY = 86_400_000;
+
+  const stock: Record<string, any[]> = Object.fromEntries((STATIONS as readonly string[]).map((s) => [s, []]));
+  const inTransit: any[] = [];
+  for (const r of rolls) {
+    const remainingKg = Math.round((Number(r.weightKg) - (consumedBy.get(r.id) ?? 0) + (adjustedBy.get(r.id) ?? 0)) * 100) / 100;
+    if (remainingKg <= 0.005) continue;
+    const last = r.transfers[0];
+    const base = {
+      rollId: r.id,
+      code: rollCode(r),
+      label: r.label,
+      weightKg: Number(r.weightKg),
+      remainingKg,
+      productionOrder: r.productionOrder,
+      lastCount: lastCountBy.get(r.id) ?? null,
+    };
+    if (last?.status === "en_transito") {
+      inTransit.push({
+        ...base,
+        transferId: last.id,
+        fromStation: last.fromStation,
+        toStation: last.toStation,
+        carrierName: last.carrierName,
+        since: last.createdAt,
+        hours: Math.floor((now - last.createdAt.getTime()) / 3_600_000),
+        dispatchedKg: last.dispatchedKg != null ? Number(last.dispatchedKg) : null,
+      });
+      continue;
+    }
+    const station = last?.status === "recibido" ? last.toStation : r.station;
+    const since = last?.status === "recibido" && last.receivedAt ? last.receivedAt : r.createdAt;
+    const days = Math.floor((now - since.getTime()) / DAY);
+    stock[station].push({ ...base, since, days, stale: days >= STALE_DAYS });
+  }
+
+  const warehouses = (STATIONS as readonly OpStation[]).map((station) => {
+    const items = stock[station].sort((a, b) => b.days - a.days);
+    const transit = inTransit.filter((t) => t.toStation === station);
+    return {
+      station,
+      label: STATION_LABELS[station],
+      rollCount: items.length,
+      totalKg: Math.round(items.reduce((acc, i) => acc + i.remainingKg, 0) * 100) / 100,
+      staleCount: items.filter((i) => i.stale).length,
+      inTransitCount: transit.length,
+      inTransitKg: Math.round(transit.reduce((acc, t) => acc + t.remainingKg, 0) * 100) / 100,
+      items,
+    };
+  });
+  res.json({ staleDays: STALE_DAYS, warehouses, inTransit: inTransit.sort((a, b) => b.hours - a.hours) });
+});
+
+const countSchema = z.object({
+  /** Lo que se pesó/contó en la bodega (kg). 0 = el rollo ya no está. */
+  countedKg: z.number().min(0).max(100000),
+  notes: z.string().trim().min(3, "Escribí el motivo del ajuste (ej. pesaje de inventario)").max(500),
+});
+
+/**
+ * Ajuste por conteo físico (solo Gestión): el saldo del rollo pasa a ser lo
+ * que se pesó en la bodega. Queda registrado con el saldo anterior, la
+ * diferencia, quién y por qué (y en Auditoría). No se puede ajustar un rollo
+ * en camino: primero hay que recibirlo.
+ */
+rollTransfersRouter.post("/rolls/:rollId/count", requireProduccionGestion, async (req, res) => {
+  const rollId = Number(req.params.rollId);
+  if (!Number.isInteger(rollId)) return res.status(400).json({ error: "Id inválido" });
+  const parsed = countSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const roll = await prisma.productionRoll.findUnique({ where: { id: rollId }, select: { id: true, station: true, stationSequence: true } });
+  if (!roll) return res.status(404).json({ error: "Rollo no encontrado" });
+  if (DERIVATIONS[roll.station as OpStation].length === 0) {
+    return res.status(400).json({ error: `Los rollos de ${STATION_LABELS[roll.station as OpStation]} son producto terminado — no se ajustan acá` });
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM production_rolls WHERE id = ${rollId} FOR UPDATE`;
+    const location = await getRollLocation(tx, roll);
+    if (location.status === "en_transito") return { error: `El rollo ${rollCode(roll)} está en camino a ${STATION_LABELS[location.toStation]} — primero hay que recibirlo` };
+    const adj = await adjustRollBalance(tx, {
+      rollId,
+      newKg: parsed.data.countedKg,
+      reason: "conteo",
+      createdById: req.user!.userId,
+      notes: parsed.data.notes,
+    });
+    return { adj, station: location.station };
+  });
+  if ("error" in result) return res.status(400).json({ error: result.error });
+  res.status(201).json({
+    rollId,
+    code: rollCode(roll),
+    station: result.station,
+    previousKg: result.adj.previousKg,
+    newKg: result.adj.newKg,
+    deltaKg: result.adj.deltaKg,
+  });
 });
 
 /** Nombres de transportistas ya usados (los más recientes primero), para que
@@ -336,21 +484,44 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
     return res.status(403).json({ error: `Este rollo va para la bodega de ${STATION_LABELS[transfer.toStation as OpStation]} — lo tiene que recibir un operario de allá` });
   }
 
-  // updateMany con el estado en el where: si dos personas lo reciben a la
-  // vez, solo una "gana" y la otra se entera, en vez de pisarse.
-  const updated = await prisma.rollTransfer.updateMany({
-    where: { id, status: "en_transito" },
-    data: {
-      status: "recibido",
-      receivedById: req.user!.userId,
-      receivedAt: new Date(),
-      receivedTimezone: data.clientTimezone,
-      receivedUtcOffsetMinutes: data.clientUtcOffsetMinutes,
-      receivedKg: data.receivedKg,
-      ...(data.notes ? { notes: transfer.notes ? `${transfer.notes}\nRecepción: ${data.notes}` : `Recepción: ${data.notes}` } : {}),
-    },
+  const received = await prisma.$transaction(async (tx) => {
+    // Mismo lock que el despacho y el consumo: el saldo que se corrige abajo
+    // no puede cambiar entre la lectura y el ajuste.
+    await tx.$queryRaw`SELECT id FROM production_rolls WHERE id = ${transfer.rollId} FOR UPDATE`;
+    // updateMany con el estado en el where: si dos personas lo reciben a la
+    // vez, solo una "gana" y la otra se entera, en vez de pisarse.
+    const updated = await tx.rollTransfer.updateMany({
+      where: { id, status: "en_transito" },
+      data: {
+        status: "recibido",
+        receivedById: req.user!.userId,
+        receivedAt: new Date(),
+        receivedTimezone: data.clientTimezone,
+        receivedUtcOffsetMinutes: data.clientUtcOffsetMinutes,
+        receivedKg: data.receivedKg,
+        ...(data.notes ? { notes: transfer.notes ? `${transfer.notes}\nRecepción: ${data.notes}` : `Recepción: ${data.notes}` } : {}),
+      },
+    });
+    if (updated.count === 0) return false;
+    // Lo que pesó al llegar es lo que hay en la bodega (decisión de Gestión,
+    // 2026-10-02): el saldo del rollo pasa a ser ese peso, registrado como un
+    // ajuste con su historial. El peso original del rollo no se toca.
+    if (data.receivedKg != null) {
+      const current = await remainingSourceKg(tx, transfer.rollId);
+      if (Math.abs(current - data.receivedKg) > 0.005) {
+        await adjustRollBalance(tx, {
+          rollId: transfer.rollId,
+          newKg: data.receivedKg,
+          reason: "recepcion",
+          transferId: id,
+          createdById: req.user!.userId,
+          notes: data.notes ?? null,
+        });
+      }
+    }
+    return true;
   });
-  if (updated.count === 0) return res.status(409).json({ error: "Este despacho ya fue recibido" });
+  if (!received) return res.status(409).json({ error: "Este despacho ya fue recibido" });
 
   const full = await prisma.rollTransfer.findUniqueOrThrow({ where: { id }, include: transferInclude });
   const response = withRollCode(full);

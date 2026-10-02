@@ -360,6 +360,14 @@ export default function Trazabilidad() {
                       </p>
                     )
                   )}
+                  {r.adjustments?.map((a: any) => (
+                    <p key={`adj-${a.id}`} className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                      Saldo corregido {a.reason === "recepcion" ? "al recibirlo" : "por conteo"}: {Number(a.previousKg)} → {Number(a.newKg)} kg (
+                      {Number(a.deltaKg) > 0 ? "+" : ""}
+                      {Number(a.deltaKg)} kg) · {a.createdBy?.name ?? "—"} · {new Date(a.createdAt).toLocaleString()}
+                      {a.notes ? ` · ${a.notes}` : ""}
+                    </p>
+                  ))}
                   {r.transfers?.map((t: any) => (
                     <p key={t.id} className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                       Despachado {STATION_LABELS[t.fromStation]} → {STATION_LABELS[t.toStation]}

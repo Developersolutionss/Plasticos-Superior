@@ -38,8 +38,8 @@ Decisiones abiertas del bloque de kilos (2026-09-29):
 
 - Derivar a varias estaciones: la primera hija toma todo lo disponible y la segunda se rechaza hasta que
   Gestión baje la meta de la primera. Propuesta: que "Derivar a…" pregunte los kilos al derivar.
-- El peso medido al recibir un rollo en otra bodega queda registrado (y avisa si difiere), pero no cambia
-  el saldo del rollo: ¿debería bajarlo a lo que realmente llegó?
+- ~~El peso medido al recibir un rollo, ¿debería bajar el saldo?~~ → **decidido (2026-10-02)**: sí, el peso
+  medido pasa a ser el saldo del rollo (ajuste `recepcion`, ver Inventario de bodegas).
 
 Quedaron fuera de esta ronda (no se decidió todavía):
 

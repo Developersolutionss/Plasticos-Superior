@@ -534,6 +534,11 @@ productionOrdersRouter.get("/:id", async (req, res) => {
             },
           },
           bultoLabel: { select: { code: true } },
+          // Correcciones de saldo (peso al recibir / conteo físico).
+          adjustments: {
+            orderBy: { id: "asc" },
+            select: { id: true, reason: true, previousKg: true, newKg: true, deltaKg: true, notes: true, createdAt: true, createdBy: { select: { name: true } } },
+          },
         },
       },
       attachments: { orderBy: { createdAt: "asc" } },

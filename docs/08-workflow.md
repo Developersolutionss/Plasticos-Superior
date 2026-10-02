@@ -93,6 +93,13 @@ Cada rollo lleva un código de QR con el prefijo de su proceso: `EXT-1`, `IMP-1`
 
 Un rollo solo se consume en la estación donde está físicamente: en la bodega del último despacho recibido, o en su estación de origen si nunca se movió (`services/rollLocation.ts`). Para usar un rollo de Extrusión en Impresión, Sellado o Precorte primero hay que despacharlo a esa bodega y que allá lo reciban (pantalla Despacho a bodegas, `/api/roll-transfers`); un rollo en camino tampoco se puede consumir. Al despachar queda el saldo con que salió; al recibir se puede pesar y, si llega con más de 0,5 kg de diferencia, se avisa a Gestión.
 
+#### Inventario de bodegas y ajustes de saldo (2026-10-02)
+
+- **Saldo de un rollo** = su peso original − lo que le sacaron sus rollos hijos (`roll_consumptions`) + la suma de sus ajustes (`roll_adjustments`). El peso original nunca se modifica (es el dato de producción).
+- **Peso al recibir** (decisión de Gestión, 2026-10-02): si la bodega destino pesa el rollo al recibirlo, ese peso pasa a ser su saldo (ajuste `recepcion`, enlazado al despacho). Si difiere más de 0,5 kg de lo que salió, además se avisa a Gestión.
+- **Ajuste por conteo físico** (solo Gestión, con motivo obligatorio): el saldo pasa a lo pesado/contado; 0 significa que el rollo ya no está. No se puede ajustar un rollo en camino ni producto terminado. Queda en Trazabilidad y en Auditoría.
+- **Inventario de bodegas** (pantalla del mismo nombre): rollos con saldo en cada bodega, totales, rollos en camino y antigüedad; un rollo que lleva 7 días o más en una bodega se marca como parado. Solo cuenta rollos que alimentan a otra estación (salidos de Extrusión o Impresión): lo de Sellado/Precorte es producto terminado y va por Calidad e Inventario. Un operario abre directo en la bodega de su estación.
+
 #### Rollo madre con saldo vivo (Sellado y Precorte)
 
 En Sellado y Precorte, un rollo grande de Extrusión (o Impresión) se monta en la máquina y de él salen varios rollos chicos — no se consume entero de una vez. Cada rollo chico descuenta kilos del saldo del rollo madre, hasta agotarlo:

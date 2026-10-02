@@ -9,7 +9,7 @@ import { auditContext } from "./auditContext";
 // RawMaterialMovement se agregó para tener la misma trazabilidad forense que
 // ya tenía InventoryMovement (producto terminado) -- antes un ajuste manual
 // de materia prima (ej. -800kg) no dejaba ningún rastro en Auditoría.
-const AUDITED_MODELS = new Set(["Client", "Dispatch", "ProductionEntry", "InventoryMovement", "RawMaterialMovement"]);
+const AUDITED_MODELS = new Set(["Client", "Dispatch", "ProductionEntry", "InventoryMovement", "RawMaterialMovement", "RollAdjustment"]);
 
 const AUDITED_OPERATIONS = new Set(["create", "update", "delete"]);
 

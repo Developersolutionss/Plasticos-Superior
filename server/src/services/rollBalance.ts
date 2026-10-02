@@ -13,15 +13,18 @@ export class InsufficientSourceRollError extends Error {
 /**
  * Kilos que todavía quedan sin consumir de un rollo madre: su peso menos
  * todo lo que ya se le sacó. Es la cuenta que los operarios venían haciendo
- * a mano en el papel (45 − 15 − 10 − 10 = 10).
+ * a mano en el papel (45 − 15 − 10 − 10 = 10). Más los ajustes de saldo
+ * (RollAdjustment: peso medido al recibirlo en otra bodega, o conteo
+ * físico) — el peso original del rollo nunca se modifica.
  */
 export async function remainingSourceKg(tx: TxClient | typeof prisma, sourceRollId: number): Promise<number> {
-  const [roll, consumed] = await Promise.all([
+  const [roll, consumed, adjusted] = await Promise.all([
     tx.productionRoll.findUnique({ where: { id: sourceRollId }, select: { weightKg: true } }),
     tx.rollConsumption.aggregate({ _sum: { quantityKg: true }, where: { sourceRollId } }),
+    tx.rollAdjustment.aggregate({ _sum: { deltaKg: true }, where: { rollId: sourceRollId } }),
   ]);
   if (!roll) return 0;
-  const remaining = Number(roll.weightKg) - Number(consumed._sum.quantityKg ?? 0);
+  const remaining = Number(roll.weightKg) - Number(consumed._sum.quantityKg ?? 0) + Number(adjusted._sum.deltaKg ?? 0);
   // Redondeo a 2 decimales: los pesos son Decimal(12,2), pero restar varios
   // seguidos en punto flotante deja restos tipo 9.999999999999998.
   return Math.round(Math.max(remaining, 0) * 100) / 100;
@@ -97,4 +100,40 @@ export async function allocateFromSourceRolls(
   if (pending > 0.005) throw new InsufficientSourceRollError(pending);
 
   return allocations;
+}
+
+/**
+ * Lleva el saldo de un rollo a `newKg` (lo que se pesó o contó) registrando
+ * la diferencia como un ajuste (RollAdjustment), sin tocar su peso original.
+ * El llamador ya tiene que haber bloqueado la fila del rollo (SELECT ... FOR
+ * UPDATE) dentro de `tx`, igual que el despacho y el consumo, para que nadie
+ * consuma o despache el rollo entre la lectura del saldo y el ajuste.
+ */
+export async function adjustRollBalance(
+  tx: TxClient,
+  params: {
+    rollId: number;
+    newKg: number;
+    reason: "recepcion" | "conteo";
+    createdById: number;
+    transferId?: number;
+    notes?: string | null;
+  }
+) {
+  const previousKg = await remainingSourceKg(tx, params.rollId);
+  const newKg = Math.round(params.newKg * 100) / 100;
+  const deltaKg = Math.round((newKg - previousKg) * 100) / 100;
+  const adjustment = await tx.rollAdjustment.create({
+    data: {
+      rollId: params.rollId,
+      reason: params.reason,
+      previousKg,
+      newKg,
+      deltaKg,
+      transferId: params.transferId,
+      notes: params.notes || null,
+      createdById: params.createdById,
+    },
+  });
+  return { adjustment, previousKg, newKg, deltaKg };
 }

@@ -110,6 +110,44 @@ export interface RollTransfer {
   };
 }
 
+/** Rollo con saldo en una bodega de planta (ver GET /roll-transfers/inventory). */
+export interface WarehouseRoll {
+  rollId: number;
+  code: string;
+  label: string | null;
+  weightKg: number;
+  remainingKg: number;
+  productionOrder: { id: number; orderNumber: string; product: { name: string; sku: string } };
+  lastCount: { createdAt: string; newKg: string; createdBy: { name: string } } | null;
+  since: string;
+  days: number;
+  stale: boolean;
+}
+
+export interface InTransitRoll extends Omit<WarehouseRoll, "days" | "stale"> {
+  transferId: number;
+  fromStation: ProductionStation;
+  toStation: ProductionStation;
+  carrierName: string;
+  hours: number;
+  dispatchedKg: number | null;
+}
+
+export interface WarehouseInventory {
+  staleDays: number;
+  warehouses: {
+    station: ProductionStation;
+    label: string;
+    rollCount: number;
+    totalKg: number;
+    staleCount: number;
+    inTransitCount: number;
+    inTransitKg: number;
+    items: WarehouseRoll[];
+  }[];
+  inTransit: InTransitRoll[];
+}
+
 export interface RollTransferScan {
   roll: {
     id: number;
@@ -483,6 +521,14 @@ export const api = {
   ) => request<RollTransfer>(`/roll-transfers/${id}/receive`, { method: "POST", body: JSON.stringify(data) }),
   /** Nombres de transportistas ya usados, para sugerirlos al despachar. */
   getRollTransferCarriers: () => request<string[]>("/roll-transfers/carriers"),
+  /** Qué rollos hay hoy en cada bodega de planta, y cuáles están en camino. */
+  getWarehouseInventory: () => request<WarehouseInventory>("/roll-transfers/inventory"),
+  /** Ajuste por conteo físico (solo Gestión): el saldo pasa a ser `countedKg`. */
+  countRoll: (rollId: number, data: { countedKg: number; notes: string }) =>
+    request<{ rollId: number; code: string; previousKg: number; newKg: number; deltaKg: number }>(`/roll-transfers/rolls/${rollId}/count`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   deleteRollTransfer: (id: number) => request<void>(`/roll-transfers/${id}`, { method: "DELETE" }),
   // ---- Etiquetas de bulto (Sellado/Precorte): pre-impresas por Gestión,
   // el operario escanea la que le tocó en vez de tipear E. BULTO. ----

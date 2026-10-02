@@ -363,7 +363,7 @@ async function main() {
         prisma.user.findUniqueOrThrow({ where: { email: "operario.impresion@empresa.com" } }),
         prisma.user.findUniqueOrThrow({ where: { email: "operario.sellado@empresa.com" } }),
       ]);
-      await prisma.rollTransfer.create({
+      const recibido = await prisma.rollTransfer.create({
         data: {
           rollId: r001.id,
           fromStation: "extrusion",
@@ -381,6 +381,17 @@ async function main() {
           receivedUtcOffsetMinutes: -300,
           receivedKg: 47.8,
         },
+      });
+      // Con el peso medido al recibir, el saldo del rollo pasa a ser ese peso
+      // (mismo ajuste que registra POST /roll-transfers/:id/receive), y un
+      // conteo físico posterior de Gestión — para que Inventario de bodegas y
+      // Trazabilidad muestren ejemplos de los dos tipos de ajuste.
+      const gestion = await prisma.user.findUniqueOrThrow({ where: { email: "produccion@empresa.com" } });
+      await prisma.rollAdjustment.create({
+        data: { rollId: r001.id, reason: "recepcion", previousKg: 48, newKg: 47.8, deltaKg: -0.2, transferId: recibido.id, createdById: opImpresion.id },
+      });
+      await prisma.rollAdjustment.create({
+        data: { rollId: r001.id, reason: "conteo", previousKg: 47.8, newKg: 47.5, deltaKg: -0.3, notes: "Pesaje de inventario (demo)", createdById: gestion.id },
       });
       await prisma.rollTransfer.create({
         data: {

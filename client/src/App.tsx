@@ -14,6 +14,7 @@ import OrdenesProduccion from "./pages/OrdenesProduccion";
 import ProduccionPorOperario from "./pages/ProduccionPorOperario";
 import EtiquetasBulto from "./pages/EtiquetasBulto";
 import DespachoBodegas from "./pages/DespachoBodegas";
+import InventarioBodegas from "./pages/InventarioBodegas";
 import OrdenProduccionDetalle from "./pages/OrdenProduccionDetalle";
 import Planeacion from "./pages/Planeacion";
 import Calidad from "./pages/Calidad";
@@ -323,6 +324,14 @@ export default function App() {
           element={
             <RequireRole roles={DESPACHO_BODEGAS}>
               <DespachoBodegas />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="produccion/inventario-bodegas"
+          element={
+            <RequireRole roles={DESPACHO_BODEGAS}>
+              <InventarioBodegas />
             </RequireRole>
           }
         />

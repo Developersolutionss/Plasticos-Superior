@@ -122,6 +122,14 @@ enum RollTransferStatus {
   recibido
 }
 
+/// Por qué se corrigió el saldo de un rollo (ver RollAdjustment).
+enum RollAdjustmentReason {
+  /// Peso que marcó la balanza de la bodega destino al recibir un despacho.
+  recepcion
+  /// Conteo / pesaje físico en la bodega, cargado por Gestión.
+  conteo
+}
+
 enum BultoLabelStatus {
   disponible
   usada
@@ -222,6 +230,7 @@ model User {
   productionOrderPresets ProductionOrderPreset[]
   rollTransfers         RollTransfer[] @relation("RollTransferRegisteredBy")
   rollTransfersReceived RollTransfer[] @relation("RollTransferReceivedBy")
+  rollAdjustments       RollAdjustment[]
 
   @@map("users")
 }
@@ -799,6 +808,7 @@ model ProductionRoll {
 
   bultoLabel        BultoLabel?
   transfers         RollTransfer[]
+  adjustments       RollAdjustment[]
 
   @@unique([station, stationSequence])
   /// Búsquedas de los rollos hijos de un rollo madre (consumedBy,
@@ -851,6 +861,32 @@ model RollConsumption {
 /// operario. Mismo criterio para la recepción (`received*`): el operario
 /// de la bodega destino escanea el QR al llegar el rollo y queda su cuenta,
 /// la hora del servidor y la zona horaria de SU celular.
+/// Corrección del saldo de un rollo sin tocar su peso original (que es el
+/// dato de producción): el saldo disponible es weightKg − lo consumido por
+/// sus rollos hijos (roll_consumptions) + la suma de estos ajustes. Cada fila
+/// guarda el saldo antes y después, quién y por qué.
+model RollAdjustment {
+  id          Int                  @id @default(autoincrement())
+  rollId      Int                  @map("roll_id")
+  roll        ProductionRoll       @relation(fields: [rollId], references: [id], onDelete: Cascade)
+  reason      RollAdjustmentReason
+  /// Saldo antes del ajuste y el que quedó (lo pesado/contado).
+  previousKg  Decimal              @map("previous_kg") @db.Decimal(12, 2)
+  newKg       Decimal              @map("new_kg") @db.Decimal(12, 2)
+  /// newKg − previousKg: lo que suma al saldo (negativo = faltaba material).
+  deltaKg     Decimal              @map("delta_kg") @db.Decimal(12, 2)
+  /// Despacho que originó el ajuste (reason = recepcion).
+  transferId  Int?                 @unique @map("transfer_id")
+  transfer    RollTransfer?        @relation(fields: [transferId], references: [id], onDelete: SetNull)
+  notes       String?
+  createdById Int                  @map("created_by")
+  createdBy   User                 @relation(fields: [createdById], references: [id])
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  @@index([rollId])
+  @@map("roll_adjustments")
+}
+
 model RollTransfer {
   id                     Int               @id @default(autoincrement())
   rollId                 Int               @map("roll_id")
@@ -883,6 +919,7 @@ model RollTransfer {
   /// Peso que la bodega destino midió al recibirlo (opcional). Si difiere de
   /// `dispatchedKg` más de la tolerancia, se avisa a Gestión.
   receivedKg               Decimal?           @map("received_kg") @db.Decimal(12, 2)
+  adjustment               RollAdjustment?
 
   @@index([rollId])
   @@index([toStation, createdAt])

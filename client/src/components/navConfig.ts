@@ -169,6 +169,14 @@ export const navSections: NavEntry[] = [
     roles: DESPACHO_BODEGAS,
     group: "Producción",
   },
+  {
+    id: "inventario-bodegas",
+    icon: "warehouse",
+    label: "Inventario de bodegas",
+    to: "/produccion/inventario-bodegas",
+    roles: DESPACHO_BODEGAS,
+    group: "Producción",
+  },
   { id: "calidad", icon: "badge-check", label: "Calidad", to: "/calidad", roles: CALIDAD, group: "Producción" },
   {
     id: "trazabilidad",

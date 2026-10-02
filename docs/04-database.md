@@ -51,6 +51,7 @@ production_rolls 0..1───N production_rolls (rollo madre principal: source_
 production_rolls 1───N roll_consumptions (como rollo chico: roll_id) y 1───N roll_consumptions (como rollo madre: source_roll_id)
 production_rolls 0..1───1 bulto_labels (used_by_roll_id)
 production_rolls 1───N roll_transfers (despachos a bodegas) · users 1───N roll_transfers (registered_by / received_by)
+production_rolls 1───N roll_adjustments (ajustes de saldo: recepción / conteo) · roll_transfers 1───0..1 roll_adjustments
 cotizaciones 1───N cotizacion_items · 1───0..N pedidos
 pedidos 1───N pedido_versions 1───N pedido_version_items
 pedidos 1───N pedido_attachments · 1───0..N facturas
@@ -343,6 +344,21 @@ Etiqueta física de bulto pre-impresa con QR (Sellado). A diferencia del rollo, 
 | createdById | Int? | `@map("created_by")`. FK → users, quién generó el lote |
 | createdAt | DateTime | `@map("created_at")` |
 
+### `roll_adjustments`
+
+Corrección del saldo de un rollo sin tocar su peso original. Saldo disponible = `weightKg` − suma de `roll_consumptions` como rollo madre + suma de `delta_kg` de sus ajustes. Se borra en cascada con el rollo.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| rollId | Int | `@map("roll_id")`. FK → production_rolls |
+| reason | `RollAdjustmentReason` | `recepcion` (peso medido al recibir en otra bodega) o `conteo` (pesaje físico, Gestión) |
+| previousKg / newKg / deltaKg | Decimal(12,2) | Saldo antes, saldo que quedó, y la diferencia que suma al saldo |
+| transferId | Int? | `@unique`. FK → roll_transfers (solo `recepcion`) |
+| notes | String? | Motivo (obligatorio en `conteo`) |
+| createdById | Int | FK → users |
+| createdAt | DateTime | |
+
 ### `roll_transfers`
 
 Despacho de un rollo de su estación a la bodega de otra estación (ver `/api/roll-transfers` en [05 — API](05-api.md)). Un rollo puede tener varios; su ubicación actual es el último. Se borra en cascada con el rollo.
@@ -545,6 +561,8 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260925120000_add_roll_transfers` | Tabla `roll_transfers` y enums `RollTransferMode`/`RollTransferStatus` (despacho de rollos entre bodegas de estación) |
 | `20260926120000_roll_transfer_kg` | `roll_transfers`: `dispatched_kg`/`received_kg` (nullable, despachos anteriores no tienen el dato) |
 | `20260926130000_reference_type_production_order` / `20260926130100_relink_quality_inventory_movements` | Suma `production_order` a `ReferenceType` y reetiqueta los movimientos existentes de Calidad/reapertura, que antes quedaban como `manual_adjustment` |
+| `20260929120000_restore_production_rolls_source_roll_idx` | Recrea el índice de `production_rolls.source_roll_id` que borró por error `add_production_order_presets` |
+| `20261002120000_roll_adjustments` | Tabla `roll_adjustments` y enum `RollAdjustmentReason` (ajustes de saldo por recepción y conteo físico) |
 
 Para aplicar cambios nuevos:
 

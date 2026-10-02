@@ -197,6 +197,7 @@ export default function DespachoBodegas() {
       const diff = weightDiff(transfer);
       setSuccess(
         `Rollo ${transfer.rollCode} recibido en la bodega de ${stationLabel(transfer.toStation)}` +
+          (weighed !== undefined ? `. Saldo del rollo: ${weighed} kg` : "") +
           (diff != null && Math.abs(diff) > WEIGHT_TOLERANCE_KG
             ? ` — llegó con ${diff > 0 ? "+" : ""}${diff} kg de diferencia contra lo que salió, se le avisó a Gestión`
             : "")
@@ -286,7 +287,7 @@ export default function DespachoBodegas() {
                     step="0.01"
                     min="0"
                     inputMode="decimal"
-                    placeholder="Peso al recibir (kg, opcional — si lo pesaste)"
+                    placeholder="Peso al recibir (kg, opcional — si lo pesaste, pasa a ser el saldo del rollo)"
                     value={receivedKg}
                     onChange={(e) => setReceivedKg(e.target.value)}
                   />
