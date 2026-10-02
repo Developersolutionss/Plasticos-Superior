@@ -96,9 +96,21 @@ Un rollo solo se consume en la estación donde está físicamente: en la bodega 
 #### Inventario de bodegas y ajustes de saldo (2026-10-02)
 
 - **Saldo de un rollo** = su peso original − lo que le sacaron sus rollos hijos (`roll_consumptions`) + la suma de sus ajustes (`roll_adjustments`). El peso original nunca se modifica (es el dato de producción).
-- **Peso al recibir** (decisión de Gestión, 2026-10-02): si la bodega destino pesa el rollo al recibirlo, ese peso pasa a ser su saldo (ajuste `recepcion`, enlazado al despacho). Si difiere más de 0,5 kg de lo que salió, además se avisa a Gestión.
+- **Peso al recibir** (decisión de Gestión, 2026-10-02): si la bodega destino pesa el rollo al recibirlo, ese peso pasa a ser su saldo (ajuste `recepcion`, enlazado al despacho). Si difiere más de 0,5 kg de lo que salió, además se avisa a Gestión. Si difiere más de 5 kg o del 10 % (lo mayor), se toma como error de tipeo: el peso queda registrado pero el saldo no cambia, y se avisa a Gestión para que lo verifique con un conteo.
 - **Ajuste por conteo físico** (solo Gestión, con motivo obligatorio): el saldo pasa a lo pesado/contado; 0 significa que el rollo ya no está. No se puede ajustar un rollo en camino ni producto terminado. Queda en Trazabilidad y en Auditoría.
 - **Inventario de bodegas** (pantalla del mismo nombre): rollos con saldo en cada bodega, totales, rollos en camino y antigüedad; un rollo que lleva 7 días o más en una bodega se marca como parado. Solo cuenta rollos que alimentan a otra estación (salidos de Extrusión o Impresión): lo de Sellado/Precorte es producto terminado y va por Calidad e Inventario. Un operario abre directo en la bodega de su estación.
+
+#### Autocompletado en bodegas (2026-10-02)
+
+Lo que se puede deducir se precarga; todo queda editable. Lo que no se precarga nunca: el escaneo del QR (es la prueba de que el rollo está en la mano) y el peso al recibir (el punto es pesarlo de nuevo).
+
+- **Destino del despacho**, en este orden (`client/src/lib/rollTransferSuggest.ts`): la bodega del operario que escanea, si es un destino posible; si no, la única estación con OP derivada abierta esperando material de esa OP; con varias, la que coincide con "Material para"; sin ninguna, "Material para" si es destino posible o el único destino. Si hay duda (varias OP abiertas y "Material para" no coincide con ninguna), no se elige nada (decisión de Gestión). Los destinos con OP abierta se marcan "Tiene OP abierta esperándolo".
+- **Modo**: "Me lo llevo yo" si el destino precargado es la bodega del operario que escanea; "Se lo entrego a alguien" en cualquier otro caso.
+- **Transportista**: el último que registró esa cuenta en modo entrega.
+- **Historial**: un operario lo ve filtrado de entrada a lo que llega a su bodega (Extrusión no recibe, ve todo).
+- **Recepción**: el foco queda en el peso de la balanza (vacío).
+- **Inventario de bodegas**: botón para escanear un rollo y ubicarlo (filtra a su bodega o dice que está en camino o que no está en ninguna); a Gestión le abre el conteo con el saldo y el motivo "Pesaje de inventario" ya puestos. Cada rollo muestra "Pendiente de despachar a…" si una OP derivada abierta lo espera en otra estación, y un despacho con 24 h o más sin recibirse se marca en rojo ("nadie confirmó que llegó").
+- **Hoja de la OP derivada**: lista los rollos de la OP padre que ya están en la bodega de esa estación con su saldo, y los que vienen en camino, para que el operario sepa cuál buscar. Igual hay que escanear el que se monta.
 
 #### Rollo madre con saldo vivo (Sellado y Precorte)
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { useState } from "react";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -14,6 +15,22 @@ vi.mock("../../client/src/api/client", async () => {
   };
 });
 
+// El escáner real usa la cámara (no hay en jsdom): mismo reemplazo por
+// "código a mano" que en OrdenProduccionDetalle.test.tsx.
+vi.mock("../../client/src/components/BarcodeScanner", () => ({
+  default: ({ onDetected }: { onDetected: (code: string) => void }) => {
+    const [value, setValue] = useState("");
+    return (
+      <div>
+        <input placeholder="código escaneado" value={value} onChange={(e) => setValue(e.target.value)} />
+        <button type="button" onClick={() => onDetected(value)}>
+          Usar código
+        </button>
+      </div>
+    );
+  },
+}));
+
 import { api, ApiError } from "../../client/src/api/client";
 
 const op = { id: 3, orderNumber: "OP-00003", product: { name: "Bolsa 20x30", sku: "SKU1" } };
@@ -28,14 +45,26 @@ const roll = (over: Record<string, unknown>) => ({
   since: "2026-09-20T10:00:00Z",
   days: 0,
   stale: false,
+  pendingTo: [],
   ...over,
 });
 
 const INVENTORY = {
   staleDays: 7,
+  staleTransitHours: 24,
   warehouses: [
-    { station: "extrusion", label: "Extrusión", rollCount: 1, totalKg: 60, staleCount: 0, inTransitCount: 0, inTransitKg: 0, items: [roll({})] },
-    { station: "impresion", label: "Impresión", rollCount: 0, totalKg: 0, staleCount: 0, inTransitCount: 0, inTransitKg: 0, items: [] },
+    {
+      station: "extrusion",
+      label: "Extrusión",
+      rollCount: 1,
+      totalKg: 60,
+      staleCount: 0,
+      inTransitCount: 0,
+      staleTransitCount: 0,
+      inTransitKg: 0,
+      items: [roll({ pendingTo: ["sellado"] })],
+    },
+    { station: "impresion", label: "Impresión", rollCount: 0, totalKg: 0, staleCount: 0, inTransitCount: 0, staleTransitCount: 0, inTransitKg: 0, items: [] },
     {
       station: "sellado",
       label: "Sellado",
@@ -43,10 +72,11 @@ const INVENTORY = {
       totalKg: 35,
       staleCount: 1,
       inTransitCount: 0,
+      staleTransitCount: 0,
       inTransitKg: 0,
       items: [roll({ rollId: 2, code: "EXT-2", weightKg: 60, remainingKg: 35, days: 10, stale: true })],
     },
-    { station: "precorte", label: "Precorte", rollCount: 0, totalKg: 0, staleCount: 0, inTransitCount: 1, inTransitKg: 80, items: [] },
+    { station: "precorte", label: "Precorte", rollCount: 0, totalKg: 0, staleCount: 0, inTransitCount: 1, staleTransitCount: 1, inTransitKg: 80, items: [] },
   ],
   inTransit: [
     {
@@ -55,7 +85,8 @@ const INVENTORY = {
       fromStation: "extrusion",
       toStation: "precorte",
       carrierName: "Juan Camionero",
-      hours: 5,
+      hours: 30,
+      stale: true,
       dispatchedKg: 80,
     },
   ],
@@ -122,17 +153,60 @@ describe("InventarioBodegas", () => {
     vi.mocked(api.countRoll).mockResolvedValueOnce({ rollId: 2, code: "EXT-2", previousKg: 35, newKg: 33.5, deltaKg: -1.5 });
     await user.click(within(fila).getByText("Ajustar por conteo"));
     const peso = within(fila).getByLabelText("Peso contado de EXT-2");
+    expect(within(fila).getByLabelText("Motivo del ajuste de EXT-2")).toHaveValue("Pesaje de inventario");
     await user.clear(peso);
     await user.type(peso, "33.5");
-    await user.type(within(fila).getByLabelText("Motivo del ajuste de EXT-2"), "Pesaje de inventario");
     await user.click(within(fila).getByRole("button", { name: "Guardar conteo" }));
     expect(api.countRoll).toHaveBeenCalledWith(2, { countedKg: 33.5, notes: "Pesaje de inventario" });
     expect(await within(fila).findByText("EXT-2: saldo 35 → 33.5 kg (-1.5 kg)")).toBeInTheDocument();
 
     vi.mocked(api.countRoll).mockRejectedValueOnce(new ApiError("El rollo EXT-2 está en camino a Precorte — primero hay que recibirlo", 400));
     await user.click(within(fila).getByText("Ajustar por conteo"));
+    await user.clear(within(fila).getByLabelText("Motivo del ajuste de EXT-2"));
     await user.type(within(fila).getByLabelText("Motivo del ajuste de EXT-2"), "Re-pesaje");
     await user.click(within(fila).getByRole("button", { name: "Guardar conteo" }));
     expect(await within(fila).findByText(/está en camino a Precorte/)).toBeInTheDocument();
+  });
+
+  it("marca a dónde está pendiente de despacharse un rollo y lo que lleva demasiado en camino", async () => {
+    renderPage("almacen_despachos");
+    await screen.findByText("Bodega de Sellado");
+    expect(screen.getByText("Pendiente de despachar a Sellado")).toBeInTheDocument();
+    expect(screen.getByText("1 sin recibir hace más de 24 h")).toBeInTheDocument();
+    expect(screen.getByText(/nadie confirmó que llegó/)).toBeInTheDocument();
+  });
+
+  it("escanear un rollo lo ubica: filtra a su bodega, y a Gestión le abre el conteo ya listo", async () => {
+    renderPage("gerente_produccion");
+    await screen.findByText("Bodega de Sellado");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Escanear rollo/ }));
+    // Con token y todo, como sale del QR: solo se usa el código.
+    await user.type(screen.getByPlaceholderText("código escaneado"), "ext-2-K7M9XT4P2R6HW3JC");
+    await user.click(screen.getByRole("button", { name: "Usar código" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("EXT-2 está en la bodega de Sellado");
+    expect(screen.queryByText("Bodega de Extrusión")).not.toBeInTheDocument();
+    const fila = screen.getByText("EXT-2").closest("li") as HTMLElement;
+    expect(within(fila).getByLabelText("Peso contado de EXT-2")).toHaveValue(35);
+    expect(within(fila).getByLabelText("Peso contado de EXT-2")).toHaveFocus();
+  });
+
+  it("escanear: uno en camino dice a dónde va; uno que no está en ninguna bodega lo avisa", async () => {
+    renderPage("operario_sellado");
+    await screen.findByText("Bodega de Sellado");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Escanear rollo/ }));
+    await user.type(screen.getByPlaceholderText("código escaneado"), "EXT-3");
+    await user.click(screen.getByRole("button", { name: "Usar código" }));
+    expect(screen.getByRole("status")).toHaveTextContent("EXT-3 está en camino a Precorte (lo lleva Juan Camionero)");
+    expect(screen.getByText("Bodega de Precorte")).toBeInTheDocument();
+    // Un operario no cuenta: no se abre nada.
+    expect(screen.queryByLabelText(/Peso contado/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Escanear rollo/ }));
+    await user.type(screen.getByPlaceholderText("código escaneado"), "EXT-99");
+    await user.click(screen.getByRole("button", { name: "Usar código" }));
+    expect(screen.getByRole("status")).toHaveTextContent("EXT-99 no está en ninguna bodega con saldo");
   });
 });

@@ -625,8 +625,49 @@ productionOrdersRouter.get("/:id", async (req, res) => {
   // passwordHash) -- `include` trae la fila completa de cada rollo, así
   // que se saca acá antes de responder.
   const rollsWithoutHash = order.rolls.map(({ possessionTokenHash, ...r }) => r);
-  res.json({ ...order, rolls: rollsWithoutHash, chain, warehouseLocations, recentDispatchItems });
+  const availableSourceRolls = await availableParentRolls(order);
+  res.json({ ...order, rolls: rollsWithoutHash, chain, warehouseLocations, recentDispatchItems, availableSourceRolls });
 });
+
+/**
+ * OP derivada abierta: qué rollos de la OP padre puede usar YA (están en la
+ * bodega de esta estación con saldo) y cuáles vienen en camino hacia acá —
+ * para que el operario sepa qué rollo buscar sin tener que ir a Inventario
+ * de bodegas. Es solo informativo: igual tiene que escanear el rollo.
+ */
+async function availableParentRolls(order: {
+  station: string | null;
+  status: string;
+  parent: { id: number } | null;
+}) {
+  if (!order.parent || !order.station || !["pendiente", "en_proceso"].includes(order.status)) return [];
+  const station = order.station as OpStation;
+  const parentRolls = await prisma.productionRoll.findMany({
+    where: { productionOrderId: order.parent.id },
+    select: { id: true, station: true, stationSequence: true, label: true, weightKg: true },
+    orderBy: { id: "asc" },
+  });
+  const rows = await Promise.all(
+    parentRolls.map(async (r) => {
+      const location = await getRollLocation(prisma, r);
+      const here = location.status === "en_bodega" && location.station === station;
+      const coming = location.status === "en_transito" && location.toStation === station;
+      if (!here && !coming) return null;
+      const remainingKg = await remainingSourceKg(prisma, r.id);
+      if (remainingKg <= 0) return null;
+      return {
+        id: r.id,
+        code: `${ROLL_CODE_PREFIX[r.station as OpStation]}-${r.stationSequence}`,
+        label: r.label,
+        weightKg: Number(r.weightKg),
+        remainingKg,
+        status: here ? ("en_bodega" as const) : ("en_transito" as const),
+        carrierName: location.status === "en_transito" ? location.carrierName : null,
+      };
+    })
+  );
+  return rows.filter((r) => r !== null);
+}
 
 const createOrderSchema = z.object({
   // Sin default: la OP nace sin proceso asignado (ver comentario en el

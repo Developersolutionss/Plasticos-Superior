@@ -175,6 +175,16 @@ interface ColorRow {
   lote: string;
 }
 
+/** Rollo de la OP padre en la bodega de esta estación (o en camino), de
+ * GET /production-orders/:id → availableSourceRolls. */
+interface AvailableSourceRoll {
+  id: number;
+  code: string;
+  remainingKg: number;
+  status: "en_bodega" | "en_transito";
+  carrierName: string | null;
+}
+
 /** Un rollo madre escaneado, con el saldo que le quedaba al momento del
  * escaneo (`remainingKg`, lo calcula el server en GET /rolls/by-code).
  * `possessionToken` es la parte del QR que demuestra que se tiene el rollo
@@ -2091,6 +2101,33 @@ export default function OrdenProduccionDetalle() {
             <button type="button" onClick={handleSaveSpecs} className="bg-slate-800 text-white text-sm px-4 py-1.5 rounded">
               Guardar cambios
             </button>
+          </div>
+        )}
+
+        {/* Qué rollos de la OP padre hay YA en la bodega de esta estación (y
+            cuáles vienen en camino): el operario sabe cuál buscar sin ir a
+            Inventario de bodegas. Solo informativo — igual se escanea. */}
+        {order.parent && isOpen && (order.availableSourceRolls ?? []).length > 0 && (
+          <div className="p-3 border-t border-slate-300 dark:border-slate-600 bg-sky-50 dark:bg-slate-800 text-sm">
+            <p className="font-medium text-slate-700 dark:text-slate-200">
+              Rollos de {order.parent.orderNumber} ({STATION_LABELS[order.parent.station as OpStation]}) para esta orden
+            </p>
+            <ul className="mt-1 flex flex-wrap gap-2">
+              {(order.availableSourceRolls as AvailableSourceRoll[]).map((r) => (
+                <li
+                  key={r.id}
+                  className={`rounded border px-2 py-1 text-xs ${
+                    r.status === "en_bodega"
+                      ? "border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 bg-white dark:bg-slate-900"
+                      : "border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 bg-white dark:bg-slate-900"
+                  }`}
+                >
+                  <strong>{r.code}</strong> · {r.remainingKg} kg
+                  {r.status === "en_bodega" ? " · en tu bodega" : ` · en camino (lo lleva ${r.carrierName})`}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Escaneá el QR del rollo que vayas a montar al cargar la fila.</p>
           </div>
         )}
 

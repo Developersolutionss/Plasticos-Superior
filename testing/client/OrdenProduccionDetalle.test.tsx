@@ -409,6 +409,22 @@ describe("OrdenProduccionDetalle · bloque de kilos (merma, cuadre de Impresión
     expect((await screen.findAllByText(/Fila 1 por confirmar · Peso 48 kg · Desp\. 2 kg/)).length).toBeGreaterThan(0);
   });
 
+  it("una OP derivada lista los rollos de la OP padre que ya están en su bodega o vienen en camino", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(
+      baseSellado({
+        availableSourceRolls: [
+          { id: 11, code: "EXT-11", remainingKg: 42.5, status: "en_bodega", carrierName: null },
+          { id: 12, code: "EXT-12", remainingKg: 50, status: "en_transito", carrierName: "Pedro" },
+        ],
+      })
+    );
+    renderOrden();
+    await screen.findByText("OP-00005");
+    expect(screen.getByText(/Rollos de OP-00001 \(Extrusión\) para esta orden/)).toBeInTheDocument();
+    expect(screen.getByText("EXT-11").closest("li")).toHaveTextContent("EXT-11 · 42.5 kg · en tu bodega");
+    expect(screen.getByText("EXT-12").closest("li")).toHaveTextContent("en camino (lo lleva Pedro)");
+  });
+
   it("una OP derivada no deja añadir la fila sin escanear el rollo de origen (Impresión incluida)", async () => {
     vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado({ station: "impresion" }));
     const { container } = renderOrden(5, { id: 1, name: "Ana Operaria", role: "operario_impresion", email: "ana@empresa.com" });

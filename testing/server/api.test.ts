@@ -6692,3 +6692,140 @@ describe("ajustes del QA previo al despliegue (2026-10-02)", () => {
   });
 });
 
+describe("bodegas: datos para autocompletar (destino esperado, transportista, en camino viejo, rollos para la OP)", () => {
+  let productId = 0;
+  const stamp = Date.now();
+  const clock = { clientTimezone: "America/Bogota", clientUtcOffsetMinutes: -300 };
+  const orderIds: number[] = [];
+
+  before(async () => {
+    productId = (await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } })).id;
+  });
+
+  after(async () => {
+    for (const id of orderIds.reverse()) {
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: id } });
+      await prisma.productionOrder.delete({ where: { id } }).catch(() => {});
+    }
+  });
+
+  async function op(data: { station: "extrusion" | "impresion" | "sellado" | "precorte"; parentOrderId?: number; status?: "pendiente" | "en_proceso" | "finalizada" | "borrador"; specs?: object }) {
+    const o = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-AUTO-${stamp}`, productId, quantityPlanned: 100, status: data.status ?? "en_proceso", station: data.station, parentOrderId: data.parentOrderId, specs: data.specs },
+    });
+    orderIds.push(o.id);
+    return o;
+  }
+  const code = (r: { stationSequence: number }) => `EXT-${r.stationSequence}`;
+  const scan = async (r: { stationSequence: number; possessionToken: string }) =>
+    (await (
+      await fetch(`${baseUrl}/api/roll-transfers/scan/${code(r)}?token=${encodeURIComponent(r.possessionToken)}`, { headers: headersFor("produccion") })
+    ).json()) as any;
+
+  it("al escanear: a qué destinos los espera una OP derivada ABIERTA, y el Material para de la OP", async () => {
+    const padre = await op({ station: "extrusion", specs: { materialPara: "SELLADO" } });
+    await op({ station: "sellado", parentOrderId: padre.id, status: "pendiente" });
+    await op({ station: "precorte", parentOrderId: padre.id, status: "finalizada" });
+    await op({ station: "impresion", parentOrderId: padre.id, status: "borrador" });
+    const r = await createTestRoll(padre.id, { weightKg: 30 });
+
+    const body = await scan(r);
+    assert.deepEqual(body.expectingStations, ["sellado"], "ni la cerrada ni el borrador cuentan");
+    assert.equal(body.materialPara, "sellado");
+    assert.equal(body.roll.productionOrder.specs, undefined, "las specs de la OP no se exponen en el escaneo");
+
+    // Ya en la bodega de Sellado: Sellado deja de ser destino, y deja de
+    // sugerirse aunque su OP siga abierta.
+    await placeRollAt(r.id, "sellado");
+    const again = await scan(r);
+    assert.ok(!again.destinations.includes("sellado"));
+    assert.deepEqual(again.expectingStations, []);
+  });
+
+  it("el último transportista que registró esta cuenta (solo en 'entrega'), para precargarlo", async () => {
+    const padre = await op({ station: "extrusion" });
+    const a = await createTestRoll(padre.id, { weightKg: 10 });
+    const b = await createTestRoll(padre.id, { weightKg: 10 });
+    const carrier = `Montacarguista ${stamp}`;
+    const post = (r: any, body: object) =>
+      fetch(`${baseUrl}/api/roll-transfers`, {
+        method: "POST",
+        headers: headersFor("operario_extrusion"),
+        body: JSON.stringify({ code: code(r), token: r.possessionToken, toStation: "sellado", ...clock, ...body }),
+      });
+    assert.equal((await post(a, { mode: "entrega", carrierName: carrier })).status, 201);
+    assert.equal((await post(b, { mode: "retiro" })).status, 201, "un retiro después no lo pisa");
+
+    const last = async (role: string) =>
+      ((await (await fetch(`${baseUrl}/api/roll-transfers/carriers/last-mine`, { headers: headersFor(role) })).json()) as any).carrierName;
+    assert.equal(await last("operario_extrusion"), carrier);
+    assert.notEqual(await last("operario_impresion"), carrier, "es por cuenta, no global");
+  });
+
+  it("inventario: 'pendiente de despachar a' por rollo, y lo que lleva más de 24 h en camino se marca", async () => {
+    const padre = await op({ station: "extrusion" });
+    await op({ station: "sellado", parentOrderId: padre.id, status: "en_proceso" });
+    const quieto = await createTestRoll(padre.id, { weightKg: 20 });
+    const yaAlla = await createTestRoll(padre.id, { weightKg: 20 });
+    await placeRollAt(yaAlla.id, "sellado");
+    const viejo = await createTestRoll(padre.id, { weightKg: 25 });
+    const salida = (await (
+      await fetch(`${baseUrl}/api/roll-transfers`, {
+        method: "POST",
+        headers: headersFor("operario_extrusion"),
+        body: JSON.stringify({ code: code(viejo), token: viejo.possessionToken, toStation: "precorte", mode: "retiro", ...clock }),
+      })
+    ).json()) as any;
+    await prisma.rollTransfer.update({ where: { id: salida.id }, data: { createdAt: new Date(Date.now() - 25 * 3_600_000) } });
+
+    const inv = (await (await fetch(`${baseUrl}/api/roll-transfers/inventory`, { headers: headersFor("produccion") })).json()) as any;
+    assert.equal(inv.staleTransitHours, 24);
+    const item = (rollId: number) => inv.warehouses.flatMap((w: any) => w.items).find((i: any) => i.rollId === rollId);
+    assert.deepEqual(item(quieto.id).pendingTo, ["sellado"]);
+    assert.deepEqual(item(yaAlla.id).pendingTo, [], "ya está en la bodega que lo espera");
+    const t = inv.inTransit.find((i: any) => i.rollId === viejo.id);
+    assert.equal(t.stale, true);
+    assert.ok(t.hours >= 25);
+    assert.ok(inv.warehouses.find((w: any) => w.station === "precorte").staleTransitCount >= 1);
+  });
+
+  it("hoja de la OP derivada: rollos de la OP padre en su bodega con saldo, y los que vienen en camino", async () => {
+    const padre = await op({ station: "extrusion" });
+    const sellado = await op({ station: "sellado", parentOrderId: padre.id, status: "en_proceso" });
+    const aca = await createTestRoll(padre.id, { weightKg: 30 });
+    const vacio = await createTestRoll(padre.id, { weightKg: 30 });
+    const otraBodega = await createTestRoll(padre.id, { weightKg: 30 });
+    const sinMover = await createTestRoll(padre.id, { weightKg: 30 });
+    const enCamino = await createTestRoll(padre.id, { weightKg: 30 });
+    await placeRollAt(aca.id, "sellado");
+    await placeRollAt(vacio.id, "sellado");
+    await placeRollAt(otraBodega.id, "precorte");
+    const conteo = await fetch(`${baseUrl}/api/roll-transfers/rolls/${vacio.id}/count`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ countedKg: 0, notes: "se terminó" }),
+    });
+    assert.equal(conteo.status, 201);
+    await fetch(`${baseUrl}/api/roll-transfers`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ code: code(enCamino), token: enCamino.possessionToken, toStation: "sellado", mode: "entrega", carrierName: "Pedro", ...clock }),
+    });
+
+    const detail = async (id: number) =>
+      ((await (await fetch(`${baseUrl}/api/production-orders/${id}`, { headers: headersFor("operario_sellado") })).json()) as any).availableSourceRolls;
+    const rolls = await detail(sellado.id);
+    const byId = new Map(rolls.map((r: any) => [r.id, r]));
+    assert.equal((byId.get(aca.id) as any)?.status, "en_bodega");
+    assert.equal((byId.get(aca.id) as any)?.remainingKg, 30);
+    assert.equal((byId.get(aca.id) as any)?.code, code(aca));
+    assert.equal((byId.get(enCamino.id) as any)?.status, "en_transito");
+    assert.equal((byId.get(enCamino.id) as any)?.carrierName, "Pedro");
+    for (const r of [vacio, otraBodega, sinMover]) assert.ok(!byId.has(r.id), `rollo ${code(r)} no se ofrece`);
+
+    assert.deepEqual(await detail(padre.id), [], "una OP sin padre no lista nada");
+    await prisma.productionOrder.update({ where: { id: sellado.id }, data: { status: "finalizada" } });
+    assert.deepEqual(await detail(sellado.id), [], "ni una OP cerrada");
+  });
+});
+

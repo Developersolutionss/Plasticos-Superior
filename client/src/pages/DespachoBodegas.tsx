@@ -8,6 +8,7 @@ import BarcodeScanner from "../components/BarcodeScanner";
 import { SkeletonRows } from "../components/Skeleton";
 import { PRODUCCION_GESTION } from "../components/navConfig";
 import { splitScannedCode } from "../lib/rollQr";
+import { suggestDispatch } from "../lib/rollTransferSuggest";
 import { STATION_LABELS, OpStation } from "../opTemplates";
 
 /** Estación que le toca a cada rol de operario — espejo de
@@ -102,7 +103,8 @@ export default function DespachoBodegas() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState("");
-  const [toStationFilter, setToStationFilter] = useState("");
+  // Un operario ve de entrada lo que llega a SU bodega (Extrusión no recibe).
+  const [toStationFilter, setToStationFilter] = useState<string>(ownStation && ownStation !== "extrusion" ? ownStation : "");
   const [dateFilter, setDateFilter] = useState("");
 
   const transfersQuery = useQuery({
@@ -119,6 +121,8 @@ export default function DespachoBodegas() {
   // Nombres ya usados, sugeridos al tipear quién se lleva el rollo: así el
   // mismo transportista no queda escrito de tres formas distintas.
   const carriersQuery = useQuery({ queryKey: ["rollTransferCarriers"], queryFn: api.getRollTransferCarriers });
+  // El último que usó esta cuenta se precarga (casi siempre es el mismo).
+  const lastCarrierQuery = useQuery({ queryKey: ["rollTransferCarriers", "last-mine"], queryFn: api.getMyLastCarrier });
 
   function resetForm() {
     setScanned(null);
@@ -142,7 +146,10 @@ export default function DespachoBodegas() {
     try {
       const info = await api.scanRollForTransfer(code, token);
       setScanned({ code, token, info });
-      if (info.destinations.length === 1) setToStation(info.destinations[0]);
+      const suggestion = suggestDispatch(info, ownStation);
+      setToStation(suggestion.toStation);
+      setMode(suggestion.mode);
+      setCarrierName(lastCarrierQuery.data?.carrierName ?? "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo leer el rollo");
     }
@@ -283,16 +290,25 @@ export default function DespachoBodegas() {
               </div>
               {canReceiveOpen ? (
                 <>
-                  <input
-                    className={inputClass}
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    inputMode="decimal"
-                    placeholder="Peso al recibir (kg, opcional — si lo pesaste, pasa a ser el saldo del rollo)"
-                    value={receivedKg}
-                    onChange={(e) => setReceivedKg(e.target.value)}
-                  />
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      Peso en la balanza al recibir (kg) — si lo pesás, pasa a ser el saldo del rollo
+                    </span>
+                    <input
+                      className={`${inputClass} mt-1 text-base`}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      inputMode="decimal"
+                      placeholder="Opcional"
+                      value={receivedKg}
+                      onChange={(e) => setReceivedKg(e.target.value)}
+                      // Llega a tu bodega: lo siguiente es pesarlo, el
+                      // teclado ya queda abierto. NO se precarga el peso de
+                      // salida: el punto es medirlo de nuevo.
+                      autoFocus
+                    />
+                  </label>
                   <input className={inputClass} placeholder="Observaciones (opcional)" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} />
                   <button
                     type="button"
@@ -338,6 +354,11 @@ export default function DespachoBodegas() {
                       }`}
                     >
                       {stationLabel(s)}
+                      {info.expectingStations?.includes(s) && (
+                        <span className={`block text-xs font-normal ${toStation === s ? "text-slate-200" : "text-emerald-700 dark:text-emerald-400"}`}>
+                          Tiene OP abierta esperándolo
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>

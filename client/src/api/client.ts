@@ -122,19 +122,24 @@ export interface WarehouseRoll {
   since: string;
   days: number;
   stale: boolean;
+  /** Estaciones con OP derivada abierta de su OP que lo están esperando. */
+  pendingTo: ProductionStation[];
 }
 
-export interface InTransitRoll extends Omit<WarehouseRoll, "days" | "stale"> {
+export interface InTransitRoll extends Omit<WarehouseRoll, "days" | "stale" | "pendingTo"> {
   transferId: number;
   fromStation: ProductionStation;
   toStation: ProductionStation;
   carrierName: string;
   hours: number;
+  /** Más de staleTransitHours en camino: nadie lo recibió. */
+  stale: boolean;
   dispatchedKg: number | null;
 }
 
 export interface WarehouseInventory {
   staleDays: number;
+  staleTransitHours: number;
   warehouses: {
     station: ProductionStation;
     label: string;
@@ -142,6 +147,7 @@ export interface WarehouseInventory {
     totalKg: number;
     staleCount: number;
     inTransitCount: number;
+    staleTransitCount: number;
     inTransitKg: number;
     items: WarehouseRoll[];
   }[];
@@ -161,6 +167,10 @@ export interface RollTransferScan {
     productionOrder: { id: number; orderNumber: string; product: { name: string; sku: string } };
   };
   destinations: ProductionStation[];
+  /** Destinos con OP derivada abierta esperando material de la OP del rollo. */
+  expectingStations: ProductionStation[];
+  /** "Material para" de la OP del rollo, como estación. */
+  materialPara: ProductionStation | null;
   openTransfer: RollTransfer | null;
   lastTransfer: RollTransfer | null;
 }
@@ -521,6 +531,8 @@ export const api = {
   ) => request<RollTransfer>(`/roll-transfers/${id}/receive`, { method: "POST", body: JSON.stringify(data) }),
   /** Nombres de transportistas ya usados, para sugerirlos al despachar. */
   getRollTransferCarriers: () => request<string[]>("/roll-transfers/carriers"),
+  /** Último transportista que registró esta cuenta (para precargarlo). */
+  getMyLastCarrier: () => request<{ carrierName: string | null }>("/roll-transfers/carriers/last-mine"),
   /** Qué rollos hay hoy en cada bodega de planta, y cuáles están en camino. */
   getWarehouseInventory: () => request<WarehouseInventory>("/roll-transfers/inventory"),
   /** Ajuste por conteo físico (solo Gestión): el saldo pasa a ser `countedKg`. */

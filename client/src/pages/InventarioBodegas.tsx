@@ -1,12 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ArrowRight, Clock, Scale, Warehouse } from "lucide-react";
+import { AlertTriangle, ArrowRight, Clock, Scale, ScanLine, Send, Warehouse } from "lucide-react";
 import { api, type WarehouseInventory, type WarehouseRoll } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import AsyncState from "../components/AsyncState";
+import BarcodeScanner from "../components/BarcodeScanner";
 import { SkeletonRows } from "../components/Skeleton";
 import { PRODUCCION_GESTION } from "../components/navConfig";
+import { splitScannedCode } from "../lib/rollQr";
 import { STATION_LABELS, type OpStation } from "../opTemplates";
 
 /** Bodega de cada rol de operario (espejo de OPERARIO_STATIONS del server):
@@ -40,7 +42,8 @@ function horas(hours: number): string {
 function CountForm({ roll, onDone }: { roll: WarehouseRoll; onDone: (msg: string) => void }) {
   const queryClient = useQueryClient();
   const [counted, setCounted] = useState(String(roll.remainingKg));
-  const [notes, setNotes] = useState("");
+  // El motivo de casi todos los conteos; editable si fue otra cosa.
+  const [notes, setNotes] = useState("Pesaje de inventario");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -77,6 +80,10 @@ function CountForm({ roll, onDone }: { roll: WarehouseRoll; onDone: (msg: string
         inputMode="decimal"
         aria-label={`Peso contado de ${roll.code}`}
         value={counted}
+        // Se abre para pesar: el foco ya en el peso, todo seleccionado
+        // para tipear encima sin borrar el saldo precargado.
+        autoFocus
+        onFocus={(e) => e.target.select()}
         onChange={(e) => setCounted(e.target.value)}
       />
       <input
@@ -97,12 +104,36 @@ function CountForm({ roll, onDone }: { roll: WarehouseRoll; onDone: (msg: string
   );
 }
 
-function RollRow({ roll, canCount, staleDays }: { roll: WarehouseRoll; canCount: boolean; staleDays: number }) {
+function RollRow({
+  roll,
+  canCount,
+  staleDays,
+  located,
+}: {
+  roll: WarehouseRoll;
+  canCount: boolean;
+  staleDays: number;
+  /** El rollo que se acaba de escanear, si es este (objeto nuevo en cada escaneo). */
+  located: object | null;
+}) {
   const [counting, setCounting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const ref = useRef<HTMLLIElement>(null);
   const consumed = Math.round((roll.weightKg - roll.remainingKg) * 100) / 100;
+
+  // Lo acaban de escanear: se trae a la vista y, si es Gestión, ya queda
+  // abierto el conteo (es para lo que se escanea un rollo en el inventario).
+  useEffect(() => {
+    if (!located) return;
+    ref.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    if (canCount) setCounting(true);
+  }, [located, canCount]);
+
   return (
-    <li className={`px-4 py-3 ${roll.stale ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
+    <li
+      ref={ref}
+      className={`px-4 py-3 ${located ? "ring-2 ring-inset ring-sky-500" : ""} ${roll.stale ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-medium text-slate-800 dark:text-slate-100">
@@ -129,6 +160,12 @@ function RollRow({ roll, canCount, staleDays }: { roll: WarehouseRoll; canCount:
           Está acá {antiguedad(roll.days)}
           {roll.stale && ` (más de ${staleDays} días sin usarse)`}
         </span>
+        {roll.pendingTo.length > 0 && (
+          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium">
+            <Send size={12} aria-hidden="true" />
+            Pendiente de despachar a {roll.pendingTo.map(stationLabel).join(" / ")}
+          </span>
+        )}
         {roll.lastCount && (
           <span className="text-slate-500 dark:text-slate-400">
             Último conteo: {Number(roll.lastCount.newKg)} kg · {roll.lastCount.createdBy.name} ·{" "}
@@ -160,6 +197,40 @@ export default function InventarioBodegas() {
   const canCount = !!user && (PRODUCCION_GESTION as UserRole[]).includes(user.role);
   const [filter, setFilter] = useState<string>((user && OPERARIO_STATION[user.role]) || "");
   const query = useQuery({ queryKey: ["warehouseInventory"], queryFn: api.getWarehouseInventory });
+  const [scanning, setScanning] = useState(false);
+  const [located, setLocated] = useState<{ code: string } | null>(null);
+  const [scanMessage, setScanMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  /** Escanear un rollo lo ubica: filtra a su bodega y lo resalta. Solo usa
+   * el código (no el token) — es para encontrarlo, no mueve nada. */
+  function handleScan(raw: string) {
+    setScanning(false);
+    const code = splitScannedCode(raw.trim()).code.toUpperCase();
+    const data = query.data;
+    if (!data) return;
+    const transit = data.inTransit.find((t) => t.code === code);
+    if (transit) {
+      setFilter(transit.toStation);
+      setLocated({ code });
+      setScanMessage({
+        ok: true,
+        text: `${code} está en camino a ${stationLabel(transit.toStation)} (lo lleva ${transit.carrierName}) — todavía no lo recibieron`,
+      });
+      return;
+    }
+    const warehouse = data.warehouses.find((w) => w.items.some((r) => r.code === code));
+    if (warehouse) {
+      setFilter(warehouse.station);
+      setLocated({ code });
+      setScanMessage({ ok: true, text: `${code} está en la bodega de ${warehouse.label}` });
+      return;
+    }
+    setLocated(null);
+    setScanMessage({
+      ok: false,
+      text: `${code} no está en ninguna bodega con saldo — ya se consumió entero, o no es un rollo de Extrusión/Impresión`,
+    });
+  }
 
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
@@ -169,6 +240,29 @@ export default function InventarioBodegas() {
           Rollos con saldo en cada bodega de planta y los que están en camino. Tocá una bodega para ver solo esa (tocala de nuevo para ver
           todas). Lo que sale de Sellado y Precorte es producto terminado y se ve en Inventario.
         </p>
+      </div>
+
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setScanning(true)}
+          disabled={!query.data}
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-slate-800 text-white px-5 py-2.5 rounded-lg shadow disabled:opacity-50"
+        >
+          <ScanLine size={18} aria-hidden="true" /> {canCount ? "Escanear rollo para ubicarlo o contarlo" : "Escanear rollo para ubicarlo"}
+        </button>
+        {scanMessage && (
+          <p
+            role="status"
+            className={`text-sm rounded px-3 py-2 ${
+              scanMessage.ok
+                ? "text-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950"
+                : "text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950"
+            }`}
+          >
+            {scanMessage.text}
+          </p>
+        )}
       </div>
 
       <AsyncState query={query} skeleton={<SkeletonRows />} errorMessage="No se pudo cargar el inventario de bodegas.">
@@ -197,6 +291,11 @@ export default function InventarioBodegas() {
                       {w.rollCount} {w.rollCount === 1 ? "rollo" : "rollos"}
                       {w.inTransitCount > 0 && ` · ${w.inTransitCount} en camino (${w.inTransitKg} kg)`}
                     </p>
+                    {w.staleTransitCount > 0 && (
+                      <p className="mt-1 text-xs font-medium text-red-700 dark:text-red-400">
+                        {w.staleTransitCount} sin recibir hace más de {data.staleTransitHours} h
+                      </p>
+                    )}
                     {w.staleCount > 0 && (
                       <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
                         {w.staleCount} parado{w.staleCount === 1 ? "" : "s"} más de {data.staleDays} días
@@ -215,13 +314,24 @@ export default function InventarioBodegas() {
                     {data.inTransit
                       .filter((t) => !filter || t.toStation === filter)
                       .map((t) => (
-                        <li key={t.transferId} className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                        <li
+                          key={t.transferId}
+                          className={`px-4 py-3 flex flex-wrap items-center justify-between gap-2 ${
+                            located?.code === t.code ? "ring-2 ring-inset ring-sky-500" : ""
+                          } ${t.stale ? "bg-red-50 dark:bg-red-950/30" : ""}`}
+                        >
                           <span className="text-slate-800 dark:text-slate-100">
                             <strong>{t.code}</strong> · {stationLabel(t.fromStation)} <ArrowRight size={12} className="inline" aria-hidden="true" />{" "}
                             {stationLabel(t.toStation)} · lo lleva {t.carrierName}
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                          <span
+                            className={`text-xs inline-flex items-center gap-1 ${
+                              t.stale ? "text-red-700 dark:text-red-400 font-medium" : "text-slate-500 dark:text-slate-400"
+                            }`}
+                          >
+                            {t.stale && <AlertTriangle size={12} aria-hidden="true" />}
                             {t.remainingKg} kg · salió {horas(t.hours)}
+                            {t.stale && " — nadie confirmó que llegó"}
                           </span>
                         </li>
                       ))}
@@ -240,7 +350,13 @@ export default function InventarioBodegas() {
                   {w.items.length > 0 ? (
                     <ul className="divide-y divide-slate-100 dark:divide-slate-700">
                       {w.items.map((r) => (
-                        <RollRow key={r.rollId} roll={r} canCount={canCount} staleDays={data.staleDays} />
+                        <RollRow
+                          key={r.rollId}
+                          roll={r}
+                          canCount={canCount}
+                          staleDays={data.staleDays}
+                          located={located?.code === r.code ? located : null}
+                        />
                       ))}
                     </ul>
                   ) : (
@@ -252,6 +368,8 @@ export default function InventarioBodegas() {
           );
         }}
       </AsyncState>
+
+      {scanning && <BarcodeScanner title="Escanear rollo" onDetected={handleScan} onClose={() => setScanning(false)} />}
     </div>
   );
 }

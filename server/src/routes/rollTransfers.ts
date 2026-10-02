@@ -170,6 +170,39 @@ rollTransfersRouter.get("/", async (req, res) => {
 /** Rollos parados en una bodega por más de estos días se marcan en el
  * inventario (rollo que nadie está usando). */
 const STALE_DAYS = 7;
+/** Un despacho en camino por más de estas horas se marca (nadie lo recibió). */
+const STALE_TRANSIT_HOURS = 24;
+
+const OPEN_ORDER_STATUSES = ["pendiente", "en_proceso"] as const;
+
+/**
+ * A qué estaciones tiene OP derivada ABIERTA cada una de estas OPs — es a
+ * donde está esperando material, y es lo que la pantalla usa para sugerir el
+ * destino de un despacho (y "Pendiente de despachar a…" en el inventario).
+ */
+async function expectingStationsByOrder(orderIds: number[]): Promise<Map<number, OpStation[]>> {
+  const children = orderIds.length
+    ? await prisma.productionOrder.findMany({
+        where: { parentOrderId: { in: orderIds }, status: { in: [...OPEN_ORDER_STATUSES] }, station: { not: null } },
+        select: { parentOrderId: true, station: true },
+        orderBy: { id: "asc" },
+      })
+    : [];
+  const map = new Map<number, OpStation[]>();
+  for (const c of children) {
+    const list = map.get(c.parentOrderId!) ?? [];
+    if (!list.includes(c.station as OpStation)) list.push(c.station as OpStation);
+    map.set(c.parentOrderId!, list);
+  }
+  return map;
+}
+
+/** "Material para" (IMPRESION/SELLADO/PRECORTE) de la OP, como estación. */
+function materialParaStation(specs: unknown): OpStation | null {
+  const v = (specs as any)?.materialPara;
+  const map: Record<string, OpStation> = { IMPRESION: "impresion", SELLADO: "sellado", PRECORTE: "precorte" };
+  return typeof v === "string" ? map[v.toUpperCase()] ?? null : null;
+}
 
 /**
  * Inventario de las bodegas de planta: qué rollos hay HOY en cada una
@@ -190,6 +223,7 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
       label: true,
       weightKg: true,
       createdAt: true,
+      productionOrderId: true,
       productionOrder: { select: { id: true, orderNumber: true, product: { select: { name: true, sku: true } } } },
       transfers: {
         orderBy: { id: "desc" },
@@ -213,6 +247,7 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
   const consumedBy = new Map(consumed.map((c) => [c.sourceRollId, Number(c._sum.quantityKg ?? 0)]));
   const adjustedBy = new Map(adjusted.map((a) => [a.rollId, Number(a._sum.deltaKg ?? 0)]));
   const lastCountBy = new Map(counts.map((c) => [c.rollId, c]));
+  const expectingBy = await expectingStationsByOrder([...new Set(rolls.map((r) => r.productionOrderId))]);
   const now = Date.now();
   const DAY = 86_400_000;
 
@@ -232,6 +267,7 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
       lastCount: lastCountBy.get(r.id) ?? null,
     };
     if (last?.status === "en_transito") {
+      const hours = Math.floor((now - last.createdAt.getTime()) / 3_600_000);
       inTransit.push({
         ...base,
         transferId: last.id,
@@ -239,7 +275,8 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
         toStation: last.toStation,
         carrierName: last.carrierName,
         since: last.createdAt,
-        hours: Math.floor((now - last.createdAt.getTime()) / 3_600_000),
+        hours,
+        stale: hours >= STALE_TRANSIT_HOURS,
         dispatchedKg: last.dispatchedKg != null ? Number(last.dispatchedKg) : null,
       });
       continue;
@@ -247,7 +284,12 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
     const station = last?.status === "recibido" ? last.toStation : r.station;
     const since = last?.status === "recibido" && last.receivedAt ? last.receivedAt : r.createdAt;
     const days = Math.floor((now - since.getTime()) / DAY);
-    stock[station].push({ ...base, since, days, stale: days >= STALE_DAYS });
+    // A dónde lo están esperando: OP derivada abierta de su OP en otra
+    // estación (si ya está en esa bodega, no hace falta despacharlo).
+    const pendingTo = (expectingBy.get(r.productionOrderId) ?? []).filter(
+      (s) => s !== station && DERIVATIONS[r.station as OpStation].includes(s)
+    );
+    stock[station].push({ ...base, since, days, stale: days >= STALE_DAYS, pendingTo });
   }
 
   const warehouses = (STATIONS as readonly OpStation[]).map((station) => {
@@ -260,11 +302,12 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
       totalKg: Math.round(items.reduce((acc, i) => acc + i.remainingKg, 0) * 100) / 100,
       staleCount: items.filter((i) => i.stale).length,
       inTransitCount: transit.length,
+      staleTransitCount: transit.filter((t) => t.stale).length,
       inTransitKg: Math.round(transit.reduce((acc, t) => acc + t.remainingKg, 0) * 100) / 100,
       items,
     };
   });
-  res.json({ staleDays: STALE_DAYS, warehouses, inTransit: inTransit.sort((a, b) => b.hours - a.hours) });
+  res.json({ staleDays: STALE_DAYS, staleTransitHours: STALE_TRANSIT_HOURS, warehouses, inTransit: inTransit.sort((a, b) => b.hours - a.hours) });
 });
 
 const countSchema = z.object({
@@ -328,6 +371,17 @@ rollTransfersRouter.get("/carriers", async (_req, res) => {
   res.json(rows.map((r) => r.carrierName));
 });
 
+/** El último transportista que registró esta cuenta en modo "entrega" — la
+ * pantalla lo precarga (editable) en vez de pedirlo de cero cada vez. */
+rollTransfersRouter.get("/carriers/last-mine", async (req, res) => {
+  const last = await prisma.rollTransfer.findFirst({
+    where: { registeredById: req.user!.userId, mode: "entrega" },
+    orderBy: { id: "desc" },
+    select: { carrierName: true },
+  });
+  res.json({ carrierName: last?.carrierName ?? null });
+});
+
 /**
  * Lo que la pantalla necesita saber apenas se escanea un rollo: qué es,
  * cuánto le queda, a qué bodegas puede ir y si ya hay un despacho en
@@ -351,7 +405,7 @@ rollTransfersRouter.get("/scan/:code", async (req, res) => {
         weightKg: true,
         operatorName: true,
         date: true,
-        productionOrder: { select: { id: true, orderNumber: true, product: { select: { name: true, sku: true } } } },
+        productionOrder: { select: { id: true, orderNumber: true, specs: true, product: { select: { name: true, sku: true } } } },
       },
     }),
     remainingSourceKg(prisma, roll.id),
@@ -359,12 +413,19 @@ rollTransfersRouter.get("/scan/:code", async (req, res) => {
     prisma.rollTransfer.findFirst({ where: { rollId: roll.id }, orderBy: { id: "desc" }, include: transferInclude }),
   ]);
 
+  // Sin la bodega donde ya está (ver el mismo chequeo en POST /).
+  const destinations = DERIVATIONS[roll.station as OpStation].filter(
+    (s) => s !== (lastTransfer?.status === "recibido" ? lastTransfer.toStation : roll.station)
+  );
+  const expecting = (await expectingStationsByOrder([detail.productionOrder.id])).get(detail.productionOrder.id) ?? [];
+  const { specs, ...orderWithoutSpecs } = detail.productionOrder;
   res.json({
-    roll: { ...detail, code: rollCode(roll), remainingKg },
-    // Sin la bodega donde ya está (ver el mismo chequeo en POST /).
-    destinations: DERIVATIONS[roll.station as OpStation].filter(
-      (s) => s !== (lastTransfer?.status === "recibido" ? lastTransfer.toStation : roll.station)
-    ),
+    roll: { ...detail, productionOrder: orderWithoutSpecs, code: rollCode(roll), remainingKg },
+    destinations,
+    // Para autocompletar el destino: a qué estaciones tiene OP abierta
+    // esperando material la OP de este rollo, y su "Material para".
+    expectingStations: expecting.filter((s) => destinations.includes(s)),
+    materialPara: materialParaStation(specs),
     openTransfer: openTransfer ? withRollCode(openTransfer) : null,
     lastTransfer: lastTransfer ? withRollCode(lastTransfer) : null,
   });
