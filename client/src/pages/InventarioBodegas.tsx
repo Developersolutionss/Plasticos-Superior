@@ -203,10 +203,12 @@ export default function InventarioBodegas() {
 
   /** Escanear un rollo lo ubica: filtra a su bodega y lo resalta. Solo usa
    * el código (no el token) — es para encontrarlo, no mueve nada. */
-  function handleScan(raw: string) {
+  async function handleScan(raw: string) {
     setScanning(false);
     const code = splitScannedCode(raw.trim()).code.toUpperCase();
-    const data = query.data;
+    // Con datos frescos: la pantalla pudo quedar abierta mientras otro
+    // celular despachaba o recibía ese rollo.
+    const data = (await query.refetch()).data ?? query.data;
     if (!data) return;
     const transit = data.inTransit.find((t) => t.code === code);
     if (transit) {

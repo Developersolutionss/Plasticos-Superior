@@ -185,7 +185,7 @@ describe("InventarioBodegas", () => {
     await user.type(screen.getByPlaceholderText("código escaneado"), "ext-2-K7M9XT4P2R6HW3JC");
     await user.click(screen.getByRole("button", { name: "Usar código" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("EXT-2 está en la bodega de Sellado");
+    expect(await screen.findByText("EXT-2 está en la bodega de Sellado")).toBeInTheDocument();
     expect(screen.queryByText("Bodega de Extrusión")).not.toBeInTheDocument();
     const fila = screen.getByText("EXT-2").closest("li") as HTMLElement;
     expect(within(fila).getByLabelText("Peso contado de EXT-2")).toHaveValue(35);
@@ -199,7 +199,7 @@ describe("InventarioBodegas", () => {
     await user.click(screen.getByRole("button", { name: /Escanear rollo/ }));
     await user.type(screen.getByPlaceholderText("código escaneado"), "EXT-3");
     await user.click(screen.getByRole("button", { name: "Usar código" }));
-    expect(screen.getByRole("status")).toHaveTextContent("EXT-3 está en camino a Precorte (lo lleva Juan Camionero)");
+    expect(await screen.findByText(/EXT-3 está en camino a Precorte \(lo lleva Juan Camionero\)/)).toBeInTheDocument();
     expect(screen.getByText("Bodega de Precorte")).toBeInTheDocument();
     // Un operario no cuenta: no se abre nada.
     expect(screen.queryByLabelText(/Peso contado/)).not.toBeInTheDocument();
@@ -207,6 +207,6 @@ describe("InventarioBodegas", () => {
     await user.click(screen.getByRole("button", { name: /Escanear rollo/ }));
     await user.type(screen.getByPlaceholderText("código escaneado"), "EXT-99");
     await user.click(screen.getByRole("button", { name: "Usar código" }));
-    expect(screen.getByRole("status")).toHaveTextContent("EXT-99 no está en ninguna bodega con saldo");
+    expect(await screen.findByText(/EXT-99 no está en ninguna bodega con saldo/)).toBeInTheDocument();
   });
 });

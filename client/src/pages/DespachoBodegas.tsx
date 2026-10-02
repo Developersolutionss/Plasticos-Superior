@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { ArrowRight, PackageCheck, ScanLine, Trash2, Truck } from "lucide-react";
 import { api, RollTransfer, RollTransferScan } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
@@ -123,6 +123,13 @@ export default function DespachoBodegas() {
   const carriersQuery = useQuery({ queryKey: ["rollTransferCarriers"], queryFn: api.getRollTransferCarriers });
   // El último que usó esta cuenta se precarga (casi siempre es el mismo).
   const lastCarrierQuery = useQuery({ queryKey: ["rollTransferCarriers", "last-mine"], queryFn: api.getMyLastCarrier });
+
+  // Si se escaneó antes de que llegara el último transportista, se completa
+  // apenas llega — solo si el campo sigue vacío (no se pisa lo tipeado).
+  const lastCarrier = lastCarrierQuery.data?.carrierName ?? "";
+  useEffect(() => {
+    if (scanned && lastCarrier) setCarrierName((current) => current || lastCarrier);
+  }, [scanned, lastCarrier]);
 
   function resetForm() {
     setScanned(null);

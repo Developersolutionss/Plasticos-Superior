@@ -5685,7 +5685,7 @@ describe("despacho de rollos a bodegas internas", () => {
     const recibido = await post("operario_sellado", `/${transfer.id}/receive`, { code, token: madre.possessionToken, receivedKg: 27.5, ...clock });
     assert.equal(recibido.status, 200);
     assert.equal(Number(((await recibido.json()) as any).receivedKg), 27.5);
-    const aviso = await prisma.notification.findFirst({ where: { type: "despacho_diferencia_peso", message: { contains: code } } });
+    const aviso = await prisma.notification.findFirst({ where: { type: "despacho_diferencia_peso", message: { contains: `rollo ${code} ` } } });
     assert.ok(aviso, "2,5 kg de diferencia genera un aviso para Gestión");
     assert.match(aviso!.message, /-2\.5 kg/);
 
@@ -5693,10 +5693,18 @@ describe("despacho de rollos a bodegas internas", () => {
     const otro = await createTestRoll(orderId, { weightKg: 10 });
     const otroCode = `${ROLL_CODE_PREFIX.extrusion}-${otro.stationSequence}`;
     const salidaOtro = (await (await post("operario_extrusion", "", { code: otroCode, token: otro.possessionToken, toStation: "sellado", mode: "retiro", ...clock })).json()) as any;
+    // Solo los avisos de ESTA recepción: los números de rollo se reusan
+    // entre corridas y pueden quedar avisos viejos con el mismo código.
+    const antesDeRecibir = new Date();
     await post("operario_sellado", `/${salidaOtro.id}/receive`, { code: otroCode, token: otro.possessionToken, receivedKg: 9.8, ...clock });
-    assert.equal(await prisma.notification.count({ where: { type: "despacho_diferencia_peso", message: { contains: otroCode } } }), 0);
+    assert.equal(
+      await prisma.notification.count({
+        where: { type: "despacho_diferencia_peso", message: { contains: `rollo ${otroCode} ` }, createdAt: { gte: antesDeRecibir } },
+      }),
+      0
+    );
 
-    await prisma.notification.deleteMany({ where: { type: "despacho_diferencia_peso", message: { contains: code } } });
+    await prisma.notification.deleteMany({ where: { type: "despacho_diferencia_peso", message: { contains: `rollo ${code} ` } } });
     await prisma.productionRoll.deleteMany({ where: { id: { in: [madre.id, otro.id] } } });
   });
 
@@ -6683,10 +6691,10 @@ describe("ajustes del QA previo al despliegue (2026-10-02)", () => {
     assert.equal(await prisma.rollAdjustment.count({ where: { rollId: r.id } }), 0, "pero no se ajusta el saldo");
     const saldo = ((await (await fetch(`${baseUrl}/api/production-orders/rolls/by-code/${code}`, { headers: headersFor("produccion") })).json()) as any).remainingKg;
     assert.equal(saldo, 47.8);
-    const aviso = await prisma.notification.findFirst({ where: { type: "despacho_diferencia_peso", message: { contains: code } } });
+    const aviso = await prisma.notification.findFirst({ where: { type: "despacho_diferencia_peso", message: { contains: `rollo ${code} ` } } });
     assert.match(aviso!.message, /NO se ajustó el saldo/);
 
-    await prisma.notification.deleteMany({ where: { type: "despacho_diferencia_peso", message: { contains: code } } });
+    await prisma.notification.deleteMany({ where: { type: "despacho_diferencia_peso", message: { contains: `rollo ${code} ` } } });
     await prisma.productionRoll.deleteMany({ where: { productionOrderId: op.id } });
     await prisma.productionOrder.delete({ where: { id: op.id } });
   });

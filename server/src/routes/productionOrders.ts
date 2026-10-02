@@ -642,31 +642,54 @@ async function availableParentRolls(order: {
 }) {
   if (!order.parent || !order.station || !["pendiente", "en_proceso"].includes(order.status)) return [];
   const station = order.station as OpStation;
+  // Pocas consultas fijas, no una por rollo (una OP padre puede tener
+  // cientos): misma lógica que getRollLocation y remainingSourceKg, pero en
+  // lote — igual que GET /roll-transfers/inventory.
   const parentRolls = await prisma.productionRoll.findMany({
     where: { productionOrderId: order.parent.id },
-    select: { id: true, station: true, stationSequence: true, label: true, weightKg: true },
+    select: {
+      id: true,
+      station: true,
+      stationSequence: true,
+      label: true,
+      weightKg: true,
+      transfers: { orderBy: { id: "desc" }, take: 1, select: { status: true, toStation: true, carrierName: true } },
+    },
     orderBy: { id: "asc" },
   });
-  const rows = await Promise.all(
-    parentRolls.map(async (r) => {
-      const location = await getRollLocation(prisma, r);
-      const here = location.status === "en_bodega" && location.station === station;
-      const coming = location.status === "en_transito" && location.toStation === station;
-      if (!here && !coming) return null;
-      const remainingKg = await remainingSourceKg(prisma, r.id);
-      if (remainingKg <= 0) return null;
-      return {
-        id: r.id,
-        code: `${ROLL_CODE_PREFIX[r.station as OpStation]}-${r.stationSequence}`,
-        label: r.label,
-        weightKg: Number(r.weightKg),
-        remainingKg,
-        status: here ? ("en_bodega" as const) : ("en_transito" as const),
-        carrierName: location.status === "en_transito" ? location.carrierName : null,
-      };
+  const candidates = parentRolls
+    .map((r) => {
+      const last = r.transfers[0];
+      const status =
+        last?.status === "en_transito"
+          ? last.toStation === station
+            ? ("en_transito" as const)
+            : null
+          : (last?.status === "recibido" ? last.toStation : r.station) === station
+            ? ("en_bodega" as const)
+            : null;
+      return { r, last, status };
     })
-  );
-  return rows.filter((r) => r !== null);
+    .filter((c) => c.status !== null);
+  if (!candidates.length) return [];
+  const ids = candidates.map((c) => c.r.id);
+  const [consumed, adjusted] = await Promise.all([
+    prisma.rollConsumption.groupBy({ by: ["sourceRollId"], where: { sourceRollId: { in: ids } }, _sum: { quantityKg: true } }),
+    prisma.rollAdjustment.groupBy({ by: ["rollId"], where: { rollId: { in: ids } }, _sum: { deltaKg: true } }),
+  ]);
+  const consumedBy = new Map(consumed.map((c) => [c.sourceRollId, Number(c._sum.quantityKg ?? 0)]));
+  const adjustedBy = new Map(adjusted.map((a) => [a.rollId, Number(a._sum.deltaKg ?? 0)]));
+  return candidates
+    .map(({ r, last, status }) => ({
+      id: r.id,
+      code: `${ROLL_CODE_PREFIX[r.station as OpStation]}-${r.stationSequence}`,
+      label: r.label,
+      weightKg: Number(r.weightKg),
+      remainingKg: Math.round((Number(r.weightKg) - (consumedBy.get(r.id) ?? 0) + (adjustedBy.get(r.id) ?? 0)) * 100) / 100,
+      status: status!,
+      carrierName: status === "en_transito" ? last!.carrierName : null,
+    }))
+    .filter((r) => r.remainingKg > 0);
 }
 
 const createOrderSchema = z.object({

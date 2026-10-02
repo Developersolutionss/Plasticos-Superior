@@ -2107,7 +2107,7 @@ export default function OrdenProduccionDetalle() {
         {/* Qué rollos de la OP padre hay YA en la bodega de esta estación (y
             cuáles vienen en camino): el operario sabe cuál buscar sin ir a
             Inventario de bodegas. Solo informativo — igual se escanea. */}
-        {order.parent && isOpen && (order.availableSourceRolls ?? []).length > 0 && (
+        {order.parent && isOpen && (canOperate || canGestion) && (order.availableSourceRolls ?? []).length > 0 && (
           <div className="p-3 border-t border-slate-300 dark:border-slate-600 bg-sky-50 dark:bg-slate-800 text-sm">
             <p className="font-medium text-slate-700 dark:text-slate-200">
               Rollos de {order.parent.orderNumber} ({STATION_LABELS[order.parent.station as OpStation]}) para esta orden
@@ -2123,11 +2123,11 @@ export default function OrdenProduccionDetalle() {
                   }`}
                 >
                   <strong>{r.code}</strong> · {r.remainingKg} kg
-                  {r.status === "en_bodega" ? " · en tu bodega" : ` · en camino (lo lleva ${r.carrierName})`}
+                  {r.status === "en_bodega" ? (canOperate ? " · en tu bodega" : " · en la bodega") : ` · en camino (lo lleva ${r.carrierName})`}
                 </li>
               ))}
             </ul>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Escaneá el QR del rollo que vayas a montar al cargar la fila.</p>
+            {canOperate && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Escaneá el QR del rollo que vayas a montar al cargar la fila.</p>}
           </div>
         )}
 
