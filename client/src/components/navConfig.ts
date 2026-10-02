@@ -127,13 +127,23 @@ export const navSections: NavEntry[] = [
       { id: "clientes-cotizaciones", label: "Cotizaciones", to: "/clientes/cotizaciones" },
     ],
   },
-  { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: DESPACHOS_LECTURA, group: "Ventas" },
-  { id: "despachos-por-cliente", icon: "truck", label: "Despachos por cliente", to: "/despachos/por-cliente", roles: DESPACHOS_LECTURA, group: "Ventas" },
-  { id: "pedidos", icon: "package", label: "Pedidos", to: "/pedidos", roles: VENTAS, group: "Ventas" },
   // Oculto a pedido de Steban: el cliente factura en un sistema aparte.
   // Se deja el módulo creado (código, ruta, backend intactos) por si se
   // necesita reactivar más adelante — no descomentar sin confirmar primero.
   // { id: "facturas", icon: "receipt", label: "Facturas", to: "/facturas", roles: VENTAS, group: "Ventas" },
+  // Sección "Despachos" (pedido de Steban, 2026-10-02): todo lo que sale,
+  // a clientes y entre bodegas de planta.
+  { id: "despachos", icon: "truck", label: "Despachos", to: "/despachos", roles: DESPACHOS_LECTURA, group: "Despachos" },
+  { id: "despachos-por-cliente", icon: "truck", label: "Despachos por cliente", to: "/despachos/por-cliente", roles: DESPACHOS_LECTURA, group: "Despachos" },
+  { id: "pedidos", icon: "package", label: "Pedidos", to: "/pedidos", roles: VENTAS, group: "Despachos" },
+  {
+    id: "despacho-bodegas",
+    icon: "scan-line",
+    label: "Despacho a bodegas",
+    to: "/produccion/despacho-bodegas",
+    roles: DESPACHO_BODEGAS,
+    group: "Despachos",
+  },
   {
     id: "planeacion",
     icon: "calendar-days",
@@ -159,24 +169,6 @@ export const navSections: NavEntry[] = [
       { id: "produccion-etiquetas-bulto", label: "Etiquetas de bulto", to: "/produccion/etiquetas-bulto", roles: PRODUCCION_GESTION },
     ],
   },
-  // Fuera del menú "Producción" (que es solo OPERARIOS) porque Almacén
-  // también lo usa.
-  {
-    id: "despacho-bodegas",
-    icon: "scan-line",
-    label: "Despacho a bodegas",
-    to: "/produccion/despacho-bodegas",
-    roles: DESPACHO_BODEGAS,
-    group: "Producción",
-  },
-  {
-    id: "inventario-bodegas",
-    icon: "warehouse",
-    label: "Inventario de bodegas",
-    to: "/produccion/inventario-bodegas",
-    roles: DESPACHO_BODEGAS,
-    group: "Producción",
-  },
   { id: "calidad", icon: "badge-check", label: "Calidad", to: "/calidad", roles: CALIDAD, group: "Producción" },
   {
     id: "trazabilidad",
@@ -198,6 +190,14 @@ export const navSections: NavEntry[] = [
       { id: "inventario-materia-prima", label: "Materia prima", to: "/inventario/materia-prima", roles: CATALOGO_GESTION },
       { id: "inventario-movimientos", label: "Movimientos", to: "/inventario/movimientos", roles: ALMACEN },
     ],
+  },
+  {
+    id: "inventario-bodegas",
+    icon: "warehouse",
+    label: "Inventario de bodegas",
+    to: "/produccion/inventario-bodegas",
+    roles: DESPACHO_BODEGAS,
+    group: "Inventario",
   },
   { id: "almacen", icon: "warehouse", label: "Almacén / WMS", to: "/almacen", roles: ALMACEN, group: "Inventario" },
   { id: "exportaciones", icon: "download", label: "Exportaciones", to: "/exportaciones", roles: ADMIN, group: "Sistema" },
