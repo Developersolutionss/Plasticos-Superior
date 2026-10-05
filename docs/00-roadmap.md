@@ -54,7 +54,7 @@ El avance real frente al plan se detalla a continuación.
 | 8 | Impresión | ✅ Implementado (plantilla flexografía: montaje, colores cara 1/2, registro de rollos) |
 | 9 | Sellado | ✅ Implementado (plantilla con medidas finales; toma como insumo un rollo madre de Extrusión con saldo vivo — un mismo rollo alimenta varias filas hasta agotarse; su cierre deja la OP `pendiente_calidad`) |
 | 10 | Precorte | ✅ Implementado (plantilla con medidas finales; mismo rollo madre con saldo vivo que Sellado; su cierre deja la OP `pendiente_calidad` — la entrada de inventario la genera Calidad al aprobar, con la suma de kg de los rollos) |
-| 11 | Trazabilidad básica | ✅ Implementado (historial completo de la OP: pasos por estación, resultado de Calidad y pedido/cliente de origen) |
+| 11 | Trazabilidad básica | ✅ Implementado (historial completo de la OP: pasos por estación, resultado de Calidad y pedido/cliente de origen; búsqueda por el QR de un rollo, una etiqueta de bulto o el número de OP, con los rollos madre, los despachos entre bodegas y los ajustes de saldo de cada rollo) |
 
 ### Fase 3 (semanas 17-20)
 
@@ -64,6 +64,7 @@ El avance real frente al plan se detalla a continuación.
 | 13 | Inventario | ✅ Implementado (stock por producto, categorías, alertas de mínimo) |
 | 14 | Despachos | ✅ Implementado (crear despacho y marcar ítems → descuenta stock; cancelación que revierte el stock movido; despacho automático al aprobar en Calidad una OP con cliente asignado) |
 | 15 | Almacén / WMS | ✅ Implementado (ubicaciones de bodega, stock por ubicación complementario a `InventoryStock`, asignación de cantidades, QR imprimible por ubicación con acceso público sin login) |
+| — | Bodegas de planta (rollos) | ✅ Implementado (cada estación tiene su bodega: el rollo se despacha y se recibe escaneando su QR, con transportista y hora; la recepción puede registrar el peso de la balanza como nuevo saldo; Inventario de bodegas muestra los rollos con saldo, los que van en camino, su antigüedad y el ajuste por conteo de Gestión) |
 | 16 | Dashboard | ✅ Implementado (dashboard ejecutivo: ventas 6 meses, comparativa mensual, cartera pendiente, top clientes; dashboard de indicadores: tasa de aprobación de calidad, tiempo promedio de producción, top productos despachados) |
 | 17 | Exportaciones | ✅ Implementado (Excel con estilo de marca para inventario, pedidos, facturas y clientes) |
 
@@ -93,7 +94,6 @@ para cuando la interpretación de abajo no alcance a cubrir el detalle pedido.
 
 | Idea | Interpretación |
 |---|---|
-| Vista de trazabilidad de un rollo individual | Hoy `Trazabilidad.tsx` muestra el historial completo de una **OP** (todas sus estaciones). Falta una vista que, dado el código de un rollo puntual (`EXT-12`, `PRE-30`...), muestre su información y su historial propio — de dónde salió, qué rollos hijos generó, en qué OP quedó — sin tener que abrir toda la OP |
 | Rollos hijos de un rollo madre | El sistema ya guarda de qué rollo(s) madre salió un rollo chico (`sourceRollId`, `RollConsumption` — ver [04 — Base de datos](04-database.md)), pero no hay una vista que haga el camino inverso: dado un rollo madre, listar todos los rollos hijos que salieron de él. Es la mitad que falta de la trazabilidad de rollo madre/hijo |
 
 ## Stack
