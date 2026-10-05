@@ -28,7 +28,9 @@ client/
     ├── theme/
     │   └── ThemeContext.tsx → preferencia de tema (claro/oscuro/sistema), persistida por usuario
     ├── lib/
-    │   └── frequency.ts  → motor "Frecuentes" del lado del cliente (byFrequency, nextInteraction)
+    │   ├── frequency.ts  → motor "Frecuentes" del lado del cliente (byFrequency, nextInteraction)
+    │   ├── rollQr.ts     → splitScannedCode: separa el código y el token de un QR de rollo
+    │   └── rollTransferSuggest.ts → suggestDispatch: sugiere destino y modo al escanear un rollo en Despacho a bodegas
     ├── components/
     │   ├── Layout.tsx    → shell: Sidebar (con cajón móvil) + header (con NotificationBell y ThemeToggle) + <Outlet />
     │   ├── Sidebar.tsx   → menú lateral filtrado por rol + atajos; cajón (`drawer`) en móvil
@@ -59,6 +61,8 @@ client/
         ├── EstacionProduccion.tsx → solo la cola de una estación + escáner, ya no carga rollos (ver más abajo)
         ├── ProduccionPorOperario.tsx → reporte por operario/turno/estación en un rango de fechas
         ├── EtiquetasBulto.tsx → genera e imprime etiquetas de bulto (`E. BULTO-*`) para mercancía comprada afuera
+        ├── DespachoBodegas.tsx → despacho de rollos entre las bodegas de planta: escanear, entregar o retirar, confirmar la recepción
+        ├── InventarioBodegas.tsx → rollos con saldo en cada bodega de planta, los que van en camino, su antigüedad y el ajuste por conteo
         ├── MateriaPrima.tsx → catálogo, stock y ajustes manuales de insumos de Extrusión
         ├── Planeacion.tsx    → cola de Planeación: ítems de pedidos sin OP + generar OP
         ├── Calidad.tsx       → cola de OPs `pendiente_calidad`: aprobar o rechazar el lote
@@ -124,6 +128,8 @@ client/
     <Route path="produccion/estacion/:station" element={<RequireStationRole><EstacionProduccion /></RequireStationRole>} />
     <Route path="produccion/por-operario" element={<RequireRole roles={PRODUCCION_GESTION}><ProduccionPorOperario /></RequireRole>} />
     <Route path="produccion/etiquetas-bulto" element={<RequireRole roles={PRODUCCION_GESTION}><EtiquetasBulto /></RequireRole>} />
+    <Route path="produccion/despacho-bodegas" element={<RequireRole roles={DESPACHO_BODEGAS}><DespachoBodegas /></RequireRole>} />
+    <Route path="produccion/inventario-bodegas" element={<RequireRole roles={DESPACHO_BODEGAS}><InventarioBodegas /></RequireRole>} />
     <Route path="inventario/materia-prima" element={<RequireRole roles={CATALOGO_GESTION}><MateriaPrima /></RequireRole>} />
     <Route path="calidad" element={<RequireRole roles={CALIDAD}><Calidad /></RequireRole>} />
     <Route path="trazabilidad" element={<RequireRole roles={[...PRODUCCION_GESTION, ...CALIDAD, ...AUDITORIA]}><Trazabilidad /></RequireRole>} />
@@ -157,7 +163,9 @@ client/
 
 ## Menú lateral
 
-`navConfig.ts` declara los ítems del menú. Cada ítem tiene un campo `roles` (los grupos de roles que lo ven), un `icon` como **clave** (p. ej. `"users"`, `"truck"`, `"factory"`) y un `group?` opcional (p. ej. `"Ventas"`, `"Producción"`, `"Inventario"`, `"Sistema"`). `NavIcon.tsx` resuelve la clave a un componente de `lucide-react`. `Sidebar.tsx` dibuja un separador con el nombre del grupo arriba de un ítem cuando su `group` cambia respecto del ítem visible anterior (para el rol actual) — un ítem sin `group` no lleva separador. Los módulos del roadmap no construidos salen como `disabled: true` con la etiqueta "Próximamente".
+`navConfig.ts` declara los ítems del menú. Cada ítem tiene un campo `roles` (los grupos de roles que lo ven), un `icon` como **clave** (p. ej. `"users"`, `"truck"`, `"factory"`) y un `group?` opcional (p. ej. `"Ventas"`, `"Despachos"`, `"Producción"`, `"Inventario"`, `"Sistema"`). `NavIcon.tsx` resuelve la clave a un componente de `lucide-react`. `Sidebar.tsx` dibuja un separador con el nombre del grupo arriba de un ítem cuando su `group` cambia respecto del ítem visible anterior (para el rol actual) — un ítem sin `group` no lleva separador. Los módulos del roadmap no construidos salen como `disabled: true` con la etiqueta "Próximamente".
+
+El grupo **Despachos** (pedido de Steban, 2026-10-02) reúne todo lo que sale de la planta: Despachos, Despachos por cliente, Pedidos y Despacho a bodegas. Antes, Despachos, Despachos por cliente y Pedidos estaban en el grupo Ventas, y Despacho a bodegas estaba en Producción. **Inventario de bodegas** está en el grupo Inventario. Los dos ítems de bodegas usan el grupo de roles `DESPACHO_BODEGAS`.
 
 La función `filterNavSections(role)` filtra secciones y entradas según el rol del usuario. `Sidebar.tsx` llama a `filterNavSections(user.role)` y dibuja solo lo que el rol puede ver. Los atajos (`useShortcuts`, `ShortcutsConfig`) aplican el mismo filtro con `buildChoices(role)`: un operario no puede marcar como atajo un módulo sin acceso.
 
@@ -206,6 +214,7 @@ Métodos expuestos (`api.*`), agrupados por dominio:
 | Etiquetas de bulto | `getBultoLabels(status?)`, `generateBultoLabels(count)`, `getBultoLabelQr(id)`, `getBultoLabelByCode(code)` |
 | Calidad | `submitQualityCheck(id, { result, observations? })` |
 | Despachos | `getDispatches(params?)`, `createDispatch(clientId, items)`, `markItemDispatched(dispatchId, itemId, qty)`, `cancelDispatch(dispatchId)` (revierte el stock ya despachado, transaccional) |
+| Bodegas (rollos) | `scanRollForTransfer(code, token)` (devuelve `destinations`, `expectingStations` y `materialPara`), `getRollTransfers(filters?)`, `createRollTransfer(data)`, `receiveRollTransfer(id, data)` (acepta `receivedKg?`), `deleteRollTransfer(id)`, `getRollTransferCarriers()`, `getMyLastCarrier()` (último transportista de esta cuenta), `getWarehouseInventory()` (tipo `WarehouseInventory`, con `WarehouseRoll` e `InTransitRoll`), `countRoll(rollId, { countedKg, notes })` (ajuste por conteo, solo Gestión) |
 | Comercial | `getCotizaciones(clientId?)`, `createCotizacion(data)`, `updateCotizacionStatus(id, status)`, `convertCotizacionToPedido(id)`, `downloadCotizacionPdf(id, filename)` (descarga como blob), `getPedidos(params?)`, `createPedido(data)`, `getPedidoVersions(id)`, `updatePedido(id, data)`, `duplicatePedido(id)`, `getPedidoAttachments(id)`, `uploadPedidoAttachment(id, file)`, `downloadPedidoAttachment(pedidoId, attachmentId, filename)` (descarga como blob), `getFacturas(params?)`, `createFactura(data)` (acepta `dueDate?`), `createFacturaFromPedido(pedidoId)`, `anularFactura(id)`, `getFacturaPayments(id)`, `createPayment(id, data)`, `downloadFacturaPdf(id, filename)` (descarga como blob) |
 | Auditoría | `getAuditLog(params?: { tableName?, recordId?, page?, pageSize? })` |
 | Productos | `getAllProducts()`, `createProduct(data)`, `updateProduct(id, data)`, `deactivateProduct(id)`, `reactivateProduct(id)`, `getProductLabel(id)` (QR + SKU para la etiqueta) |
@@ -296,6 +305,16 @@ Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía r
 - Adjuntos (subir/descargar) y descarga del **reporte PDF** consolidado.
 - Reglas de UI por rol: cada estación solo la operan los grupos `OP_EXTRUSION` / `OP_IMPRESION` / `OP_SELLADO` / `OP_PRECORTE` (espejo de `OPERARIO_STATIONS` del backend) más gestión de producción.
 
+**OP derivada: rollos del padre y cuadre de kilos** (el cliente replica las reglas del servidor para avisar antes de enviar; el servidor sigue siendo la autoridad):
+
+- **Rollos del padre disponibles.** En una OP derivada abierta aparece el panel "Rollos de OP-… (Estación) para esta orden". Lo ven quienes pueden operar o gestionar la OP. Lista los rollos de la OP padre que están en la bodega de esta estación o van en camino hacia ella (`order.availableSourceRolls`, ver [05 — API](05-api.md)). Cada rollo muestra su código y su saldo. Un rollo en la bodega sale en verde ("en tu bodega" para el operario, "en la bodega" para Gestión). Un rollo en camino sale en ámbar, con el nombre de quien lo lleva. El panel es solo informativo: el operario igual escanea el QR del rollo. Si no hay rollos, el panel no aparece.
+- **Rollo de origen obligatorio.** `handleQueueRoll` rechaza una fila de una OP derivada sin rollo escaneado: "Escaneá el QR del rollo que estás tomando como insumo antes de registrar la fila".
+- **Kilos que consume una fila.** `rowConsumedKg` suma el peso y el desperdicio, porque la merma también sale del rollo madre. La vista previa del reparto ("Sale de: …") y el aviso "Faltan X kg" usan esa suma en Sellado y Precorte.
+- **Cuadre en Impresión.** Impresión consume el rollo madre entero. `massBalanceToleranceKg` replica la tolerancia del servidor: el mayor entre 0,5 kg y el 2 % de lo que entró. Si peso + desperdicio no coincide con lo que entró, la fila no se añade y el mensaje dice cuántos kg faltan ("Si es merma, cargala en desperdicio") o sobran.
+- **Tabla de materia prima (Extrusión).** El encabezado de la columna Kg dice "Kg (meta)" mientras no hay rollos: calcula el % sobre la meta. Dice "Kg (real)" cuando ya hay rollos: calcula el % sobre peso + desperdicio. Ese es el kg que el servidor descuenta al cerrar.
+- **Liberar a planta.** `handleRelease` no continúa si hay cambios sin guardar: muestra "Hay cambios sin guardar — tocá "Guardar cambios" antes de liberar la OP". El servidor valida lo guardado (por ejemplo, la fórmula al 100 %), no lo que se ve en pantalla.
+- **Errores con motivo.** "Guardar cambios" y guardar o quitar una sugerencia muestran el motivo que devuelve el servidor, no un mensaje genérico. Las sugerencias solo se consultan para Gestión (`suggestionsEnabled`): para un operario cada carga generaba un `403`.
+
 **Registro de rollos / avance** (carga de un rollo nuevo):
 
 - En la tarjeta de celular (`md:hidden`), los campos automáticos (FECHA, TURNO, OPERARIO, HORA, ETIQUETA, TOTAL...) llevan un ícono de candado (`Lock`, lucide) sobre fondo celeste, para distinguirlos de los que sí hay que llenar a mano. Los editables usan un input real (`draftInput`: fondo blanco/oscuro sólido, borde visible, foco con anillo) en vez del estilo "hoja de papel" transparente (`sheetInput`) que usa el resto de la plantilla.
@@ -332,6 +351,24 @@ Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía r
 - Sin despacho en tránsito: el operario elige la bodega destino y quién se lo lleva ("Se lo entrego a alguien" + nombre tipeado, o "Me lo llevo yo" = su cuenta). Con despacho en tránsito: botón "Confirmar recepción", solo visible para un operario de la bodega destino.
 - Manda la zona horaria del celular (`Intl.DateTimeFormat().resolvedOptions().timeZone` y `-getTimezoneOffset()`); el historial muestra cada hora en la zona horaria del celular que registró ese paso.
 - El helper `splitScannedCode` (código + token del QR) está en `lib/rollQr.ts`, compartido con `OrdenProduccionDetalle.tsx`.
+- **Autocompletado al escanear.** `suggestDispatch` (`lib/rollTransferSuggest.ts`) precarga el destino y el modo con lo que devuelve `GET /roll-transfers/scan`. Todo queda editable. Si hay duda real, no elige nada: es mejor que el operario elija a que el rollo vaya a la bodega equivocada (decisión de Gestión, 2026-10-02). El destino se elige en este orden:
+  1. La bodega del operario que escanea, si es un destino posible.
+  2. La única estación con una OP derivada abierta que espera material.
+  3. Si esperan varias, la que coincide con "Material para" de la OP.
+  4. Si ninguna espera: "Material para", si es un destino posible, o el único destino posible.
+- **Modo.** Es `retiro` si el destino es la bodega de quien escanea (se lo lleva él). En cualquier otro caso es `entrega`. En los botones de destino, las estaciones con una OP abierta que espera el rollo muestran "Tiene OP abierta esperándolo" (`expectingStations`).
+- **Transportista.** El campo se precarga con el último que registró esta cuenta (`api.getMyLastCarrier`), solo si sigue vacío: no pisa lo que el operario ya tipeó. Los nombres ya usados se sugieren al tipear (`api.getRollTransferCarriers`).
+- **Filtro inicial.** Un operario ve primero lo que llega a su bodega (`toStationFilter`). Extrusión no recibe rollos, por eso no se filtra.
+- **Recepción con peso.** El campo "Peso en la balanza al recibir (kg)" toma el foco solo y no se precarga con el peso de salida: el objetivo es medirlo de nuevo. Si el operario pesa el rollo, ese peso pasa a ser su saldo y el mensaje dice "Saldo del rollo: X kg". Si el peso es muy distinto de lo que salió, el servidor no cambia el saldo (`balanceNotAdjusted`). El mensaje lo dice y avisa que se notificó a Gestión. Ver [08 — Reglas de negocio](08-workflow.md).
+
+### `InventarioBodegas.tsx`
+- Ruta `/produccion/inventario-bodegas` (roles `DESPACHO_BODEGAS`). Está en el menú Inventario → "Inventario de bodegas". Lee `api.getWarehouseInventory` (`GET /roll-transfers/inventory`, clave de caché `["warehouseInventory"]`).
+- **Tarjetas por bodega.** Hay una tarjeta por bodega (Extrusión, Impresión, Sellado, Precorte). Cada una muestra los kg totales, el número de rollos y cuántos van en camino. Dos avisos: "N sin recibir hace más de 24 h" (rojo) y "N parados más de 7 días" (ámbar). Los umbrales (`staleTransitHours`, `staleDays`) los entrega el servidor. Tocar una tarjeta filtra a esa bodega; tocarla otra vez quita el filtro. Un operario abre ya filtrado en la bodega de su estación (`OPERARIO_STATION`, espejo de `OPERARIO_STATIONS`).
+- **En camino.** La sección lista cada rollo con su origen y destino, quién lo lleva, sus kg y hace cuánto salió. Un rollo con 24 h o más sin recibirse sale en rojo: "nadie confirmó que llegó".
+- **Rollos de una bodega.** Cada rollo muestra su código, su OP (con enlace a la hoja de la OP), su producto y su saldo ("de X kg" si ya se consumió algo, o "rollo completo"). También muestra su antigüedad ("Está acá hace N días"; en ámbar si lleva más de 7 días sin usarse), "Pendiente de despachar a …" si una OP derivada abierta lo espera en otra estación (`pendingTo`) y su último conteo (kg, quién y cuándo).
+- **Escanear para ubicar.** El botón abre `BarcodeScanner`. Usa solo el código del rollo, no el token, y no mueve nada. Refresca los datos y luego ubica el rollo: filtra a su bodega y lo resalta. Si el rollo va en camino, lo dice. Si no está en ninguna bodega con saldo, lo dice: ya se consumió entero, o no es un rollo de Extrusión o Impresión.
+- **Ajuste por conteo (solo Gestión).** "Ajustar por conteo" abre `CountForm`. El peso contado llega precargado con el saldo, con el foco y todo seleccionado para tipear encima. El motivo es obligatorio (mínimo 3 caracteres) y llega precargado con "Pesaje de inventario". `api.countRoll` llama a `POST /roll-transfers/rolls/:rollId/count` y la pantalla muestra, por ejemplo, "EXT-3: saldo 48 → 47.5 kg (-0.5 kg)". Si Gestión escanea un rollo, el conteo de ese rollo se abre solo.
+- La pantalla solo lista rollos que alimentan a otra estación (Extrusión, Impresión) y que tienen saldo. Lo que sale de Sellado y Precorte es producto terminado y se ve en Inventario. Ver [08 — Reglas de negocio](08-workflow.md).
 
 ### `MateriaPrima.tsx`
 - CRUD del catálogo de insumos de Extrusión (`RawMaterial`) y su stock (`RawMaterialStock`): crear/editar/desactivar/reactivar, ver alertas de mínimo y el historial de movimientos, y hacer ajustes manuales de entrada/salida.
@@ -376,7 +413,7 @@ Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía r
 - Selector de OP (`api.getProductionOrders`) + detalle de solo lectura (`api.getProductionOrder(id)`).
 - **Búsqueda por código físico** (`api.traceByCode`, `GET /production-orders/trace/by-code/:code`): campo de texto o botón "Escanear" (`BarcodeScanner`) que acepta el QR de un rollo (con o sin token de posesión), una etiqueta de bulto o el número de OP, y selecciona la OP encontrada resaltando el rollo (`highlightRollId`).
 - Muestra el código real del rollo (`EXT-3`, no el id interno), el producto y la cantidad planificada, el **origen** (pedido/cliente si vino de Planeación, o "Producción a stock"), la **cadena de derivación completa** (todas las OPs emparentadas, con profundidad y kg), el resultado de Calidad (aprobado/rechazado con observaciones y quién lo registró), los **lotes de materia prima de Extrusión** de toda la cadena y el **despacho a cliente** que generó la OP.
-- Por rollo: sus rollos madre con los kg consumidos de cada uno y sus despachos entre bodegas (kg al salir/llegar).
+- Por rollo: sus rollos madre con los kg consumidos de cada uno, sus despachos entre bodegas (kg al salir/llegar) y sus **ajustes de saldo** (`r.adjustments`). Cada ajuste muestra "Saldo corregido al recibirlo" o "Saldo corregido por conteo", con el saldo antes y después, la diferencia en kg, quién lo hizo, cuándo y el motivo.
 
 ### `Auditoria.tsx`
 - Bitácora forense (`api.getAuditLog`) con filtro **por tabla** (Client, Dispatch, ProductionEntry, InventoryMovement) y paginado.
