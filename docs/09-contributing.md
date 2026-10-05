@@ -193,8 +193,20 @@ Si la lectura debe funcionar offline (PWA), amplíe el `runtimeCaching` de `vite
 ```bash
 npm run build                 # compila server (tsc) y client (vite)
 npm run test                  # suites de API (node:test) y frontend (vitest)
+npm run test:server:aislado   # suite de API contra una base aparte (no ensucia la de desarrollo)
 npm run dev                   # prueba manual en http://localhost:4000 y http://localhost:5173
 ```
+
+La suite de API crea datos reales: OPs `OP-TEST-*`, movimientos de inventario, notificaciones y clientes de prueba. No borra todos. `npm run test` los escribe en la base de `server/.env`. Si la base es la de desarrollo, esos datos quedan mezclados con los demos y alteran el stock.
+
+Use `npm run test:server:aislado` para evitarlo. El comando hace cuatro pasos:
+
+1. Recrea la base `<nombre>_test` desde cero (por ejemplo, `inventario_despachos_test`).
+2. Aplica las migraciones en esa base.
+3. Siembra los datos de ejemplo.
+4. Corre la suite de API contra esa base.
+
+El comando solo borra una base cuyo nombre termina en `_test`. Nunca toca la base de desarrollo. Para usar otro nombre, defina `TEST_DATABASE_NAME` (debe terminar en `_test`).
 
 Obtenga un token y pruebe los endpoints:
 

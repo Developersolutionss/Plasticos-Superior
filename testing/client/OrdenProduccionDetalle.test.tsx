@@ -471,3 +471,187 @@ describe("OrdenProduccionDetalle · bloque de kilos (merma, cuadre de Impresión
     expect(screen.getByText("6")).toBeInTheDocument();
   });
 });
+
+const GESTION = { id: 2, name: "Luis Gestión", role: "gerente_produccion", email: "luis@empresa.com" };
+const OPERARIO_SELLADO = { id: 1, name: "Ana Operaria", role: "operario_sellado", email: "ana@empresa.com" };
+
+describe("OrdenProduccionDetalle · confirmar el lote de rollos (falla parcial, aviso, meta)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getClients).mockResolvedValue([]);
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado());
+  });
+
+  /** Escanea un rollo madre de 50 kg y deja dos filas pendientes (20 y 15 kg). */
+  async function queueTwoRows(container: HTMLElement) {
+    vi.mocked(api.getProductionRollByCode).mockResolvedValueOnce(madre(50));
+    await screen.findByText("OP-00005");
+    await scanMadre("EXT-1", 50);
+    const user = userEvent.setup();
+    await user.type(draftField(container, "PESO (KG)"), "20");
+    await addRow(container);
+    await user.type(draftField(container, "PESO (KG)"), "15");
+    await addRow(container);
+    return user;
+  }
+
+  it("si una fila falla a mitad del lote, deja pendientes la que falló y las que siguen, y no repite lo ya confirmado", async () => {
+    const { container } = renderOrden();
+    const user = await queueTwoRows(container);
+
+    vi.mocked(api.createProductionRoll).mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("Quedan 5 kg disponibles"));
+    await user.click(within(mobileCard(container)).getByRole("button", { name: /Confirmar 2 rollos/ }));
+
+    await waitFor(() => expect(api.createProductionRoll).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/Se confirmaron 1 de 2 rollos\. La fila 2 no se pudo guardar: Quedan 5 kg disponibles/)).toBeInTheDocument();
+    // La primera (20 kg) ya es una fila real: sale de la lista. Queda solo la que falló.
+    expect((await screen.findAllByText(/Fila 1 por confirmar · Peso 15 kg/)).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/Peso 20 kg/).length).toBe(0);
+
+    // Reintentar manda solo la que quedó pendiente.
+    vi.mocked(api.createProductionRoll).mockResolvedValueOnce({});
+    await user.click(within(mobileCard(container)).getByRole("button", { name: /Confirmar 1 rollo/ }));
+    await waitFor(() => expect(api.createProductionRoll).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(api.createProductionRoll).mock.calls[2][1]).toMatchObject({ weightKg: 15 });
+    expect(await screen.findByText("Se confirmaron 1 rollo.")).toBeInTheDocument();
+  });
+
+  it("el botón Confirmar avisa en su tooltip que después no se puede editar, y no hay leyenda fija", async () => {
+    const { container } = renderOrden();
+    await queueTwoRows(container);
+
+    expect(within(mobileCard(container)).getByRole("button", { name: /Confirmar 2 rollos/ })).toHaveAttribute(
+      "title",
+      "Después de confirmar ya no vas a poder editar los rollos, solo borrarlos"
+    );
+    expect(screen.queryByText(/Completá los campos/)).not.toBeInTheDocument();
+  });
+
+  it("lo pendiente ya descuenta de 'Restan X kg' antes de confirmar", async () => {
+    const { container } = renderOrden();
+    await queueTwoRows(container);
+    // Meta 1000 kg, 20 + 15 kg pendientes todavía sin mandar al servidor.
+    expect((await screen.findAllByText(/Restan 965 kg/)).length).toBeGreaterThan(0);
+  });
+});
+
+describe("OrdenProduccionDetalle · campos automáticos vs. editables en la tarjeta de carga", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getClients).mockResolvedValue([]);
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado());
+  });
+
+  /** El <span> de la etiqueta de un campo de la tarjeta de carga. */
+  function labelOf(card: HTMLElement, label: string): HTMLElement {
+    const span = within(card)
+      .getAllByText(label)
+      .find((el) => el.tagName === "SPAN");
+    if (!span) throw new Error(`No se encontró la etiqueta "${label}"`);
+    return span;
+  }
+
+  it("los campos automáticos llevan candado y los que se llenan a mano no", async () => {
+    const { container } = renderOrden();
+    await screen.findByText("OP-00005");
+    const card = mobileCard(container);
+
+    // FECHA se completa sola siempre; P. BULTO se tipea siempre.
+    expect(labelOf(card, "FECHA").querySelector('svg[class*="lucide-lock"]')).not.toBeNull();
+    expect(labelOf(card, "P. BULTO").querySelector('svg[class*="lucide-lock"]')).toBeNull();
+  });
+
+  it("en Sellado el PESO queda bloqueado (con candado) hasta escanear el rollo madre, y se libera al escanearlo", async () => {
+    vi.mocked(api.getProductionRollByCode).mockResolvedValueOnce(madre(50));
+    const { container } = renderOrden();
+    await screen.findByText("OP-00005");
+
+    expect(labelOf(mobileCard(container), "PESO (KG)").querySelector('svg[class*="lucide-lock"]')).not.toBeNull();
+
+    await scanMadre("EXT-1", 50);
+    expect(labelOf(mobileCard(container), "PESO (KG)").querySelector('svg[class*="lucide-lock"]')).toBeNull();
+    expect(draftField(container, "PESO (KG)")).toBeEnabled();
+  });
+});
+
+describe("OrdenProduccionDetalle · quién puede borrar un rollo ya confirmado", () => {
+  const rolloGuardado = {
+    id: 77,
+    station: "sellado",
+    stationSequence: 4,
+    date: "2026-09-20T10:00:00Z",
+    shift: "Día",
+    operatorName: "Ana Operaria",
+    machine: null,
+    label: "EXT-1",
+    weightKg: "12",
+    wasteKg: "0",
+    details: {},
+    sourceRoll: null,
+    createdBy: { name: "Ana Operaria" },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getClients).mockResolvedValue([]);
+  });
+
+  it("Gestión ve 'Borrar rollo' en una OP abierta, y borra", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado({ rolls: [rolloGuardado] }));
+    const { container } = renderOrden(5, GESTION);
+    await screen.findByText("OP-00005");
+
+    const borrar = within(mobileCard(container)).getByTitle("Borrar rollo");
+    await userEvent.setup().click(borrar);
+    await waitFor(() => expect(api.deleteProductionRoll).toHaveBeenCalledWith(5, 77));
+  });
+
+  it("un operario NO ve 'Borrar rollo', pero sí 'Imprimir etiqueta'", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado({ rolls: [rolloGuardado] }));
+    const { container } = renderOrden(5, OPERARIO_SELLADO);
+    await screen.findByText("OP-00005");
+
+    expect(within(mobileCard(container)).queryByTitle("Borrar rollo")).not.toBeInTheDocument();
+    expect(within(mobileCard(container)).getByTitle("Imprimir etiqueta")).toBeInTheDocument();
+  });
+
+  it("ni Gestión puede borrar en una OP que ya no está abierta", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado({ status: "finalizada", rolls: [rolloGuardado] }));
+    const { container } = renderOrden(5, GESTION);
+    await screen.findByText("OP-00005");
+
+    expect(within(mobileCard(container)).queryByTitle("Borrar rollo")).not.toBeInTheDocument();
+  });
+});
+
+describe("OrdenProduccionDetalle · liberar a planta", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getClients).mockResolvedValue([]);
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseExtrusion({ status: "borrador" }));
+  });
+
+  it("con cambios sin guardar no libera y dice por qué", async () => {
+    const { container } = renderOrden(8, GESTION);
+    await screen.findByText("OP-00008");
+    const user = userEvent.setup();
+
+    await user.type(sheetField(container, "Calibre"), "0.5");
+    await user.click(screen.getByRole("button", { name: /Liberar a planta/ }));
+
+    expect(await screen.findByText(/antes de liberar la OP/)).toBeInTheDocument();
+    expect(api.releaseProductionOrder).not.toHaveBeenCalled();
+  });
+
+  it("sin cambios pendientes pide confirmación y libera", async () => {
+    renderOrden(8, GESTION);
+    await screen.findByText("OP-00008");
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /Liberar a planta/ }));
+    expect(await screen.findByText("¿Liberar esta OP a planta?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Liberar" }));
+
+    await waitFor(() => expect(api.releaseProductionOrder).toHaveBeenCalledWith(8));
+  });
+});

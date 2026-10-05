@@ -156,7 +156,7 @@ client/
 ```
 
 - `RequireAuth` redirige a `/login` si no hay usuario en sesión.
-- `RequireRole` muestra un mensaje de acceso denegado si el rol no pertenece al grupo. Los grupos (`VENTAS`, `ALMACEN`, `PRODUCCION_GESTION`, `OPERARIOS`, `CALIDAD`, `AUDITORIA`, `ADMIN`, …) vienen de `navConfig.ts`.
+- `RequireRole` redirige a `/` si el rol no pertenece al grupo (no muestra ningún mensaje). Los grupos (`VENTAS`, `ALMACEN`, `PRODUCCION_GESTION`, `OPERARIOS`, `CALIDAD`, `AUDITORIA`, `ADMIN`, …) vienen de `navConfig.ts`.
 - `RequireStationRole` mapea la estación de la URL al grupo de operarios adecuado (`extrusion`→ extrusión, `impresion`→ impresión, `sellado`→ sellado, `precorte`→ precorte), usando los subgrupos `OP_EXTRUSION`, `OP_IMPRESION`, `OP_SELLADO` y `OP_PRECORTE` (cada uno un subconjunto de `OPERARIOS` con un solo rol de operario) definidos también en `navConfig.ts`.
 - `OP_DETALLE` (`App.tsx`) es la unión de `OPERARIOS`, `CALIDAD` y `AUDITORIA` — protege `/produccion/ordenes/:id`, la hoja de trabajo completa de una OP, para que cualquiera de esos roles pueda entrar (cada uno ve/edita según su propio permiso dentro de la página). `DESPACHOS_LECTURA` y `CATALOGO_GESTION` (`navConfig.ts`) son grupos análogos para despachos de solo lectura y gestión de catálogo/materia prima.
 - `/qr/:token` es la **única ruta pública fuera de `Layout`**: la abre el QR físico impreso de una ubicación de bodega. No pasa por `RequireAuth` — el token de la URL es la credencial (ver [05 — API](05-api.md), `publicLocation.ts`).

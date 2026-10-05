@@ -12,6 +12,7 @@
     "dev:client": "npm run dev --workspace=client",
     "build": "npm run build --workspace=server && npm run build --workspace=client",
     "test": "npm run test --workspace=server && npm run test --workspace=client",
+    "test:server:aislado": "node testing/test-server-aislado.mjs",
     "prisma:migrate": "npm run prisma:migrate --workspace=server",
     "prisma:deploy": "npm run prisma:deploy --workspace=server",
     "prisma:seed": "npm run prisma:seed --workspace=server"
