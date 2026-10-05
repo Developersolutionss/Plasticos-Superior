@@ -2484,6 +2484,44 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await limpiar(parent.id, child.id);
   });
 
+  it("un rollo ya confirmado solo lo borra Gestión: el operario que lo cargó recibe 403 y el rollo sigue ahí", async () => {
+    const { parent, child, madres } = await setupRolloMadre("sellado", [45]);
+    const madre = madres[0];
+    const fila = (await (await cargarFila(child.id, 15, [madre])).json()) as { id: number };
+
+    const delOperario = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls/${fila.id}`, {
+      method: "DELETE",
+      headers: headersFor("operario_sellado"),
+    });
+    assert.equal(delOperario.status, 403, "borrar una fila confirmada es de Gestión, no del operario");
+    assert.equal(await saldoDe(madre.stationSequence), 30, "el rollo sigue consumiendo del madre: no se borró");
+
+    const delGestion = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls/${fila.id}`, {
+      method: "DELETE",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(delGestion.status, 204);
+
+    await limpiar(parent.id, child.id);
+  });
+
+  it("no se borra un rollo de una OP que ya no está abierta, ni siquiera Gestión", async () => {
+    const { parent, child, madres } = await setupRolloMadre("sellado", [45]);
+    const madre = madres[0];
+    const fila = (await (await cargarFila(child.id, 15, [madre])).json()) as { id: number };
+    await prisma.productionOrder.update({ where: { id: child.id }, data: { status: "finalizada" } });
+
+    const del = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls/${fila.id}`, {
+      method: "DELETE",
+      headers: headersFor("produccion"),
+    });
+    assert.equal(del.status, 400);
+    assert.match(((await del.json()) as { error: string }).error, /ya no está abierta/);
+    assert.equal(await saldoDe(madre.stationSequence), 30, "el rollo no se borró: su consumo sigue descontado");
+
+    await limpiar(parent.id, child.id);
+  });
+
   it("cerrar una OP de extrusión la finaliza directo sin mover stock; sin rollos se rechaza", async () => {
     const order = await prisma.productionOrder.create({
       data: {
