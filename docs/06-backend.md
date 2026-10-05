@@ -10,7 +10,7 @@ server/
 │   ├── pedidos/           → adjuntos de pedidos (disco)
 │   └── clients/           → avatares de clientes (disco)
 ├── prisma/
-│   ├── schema.prisma      → fuente de verdad de la BD (30 modelos)
+│   ├── schema.prisma      → fuente de verdad de la BD (40 modelos)
 │   ├── seed.ts            → datos de ejemplo (npm run prisma:seed)
 │   └── migrations/        → SQL versionado (prisma migrate dev)
 └── src/
@@ -21,7 +21,11 @@ server/
     ├── services/
     │   ├── stockService.ts   → applyMovement, getStockByCategory, getLowStockAlerts
     │   ├── rawMaterialStockService.ts → applyRawMaterialMovement (espejo de stockService, para insumos de Extrusión)
-    │   ├── rollBalance.ts    → remainingSourceKg + InsufficientSourceRollError: saldo vivo de un rollo madre en Sellado/Precorte
+    │   ├── rollBalance.ts    → saldo de un rollo (peso − consumido + ajustes): remainingSourceKg, adjustRollBalance, InsufficientSourceRollError
+    │   ├── rollLocation.ts   → getRollLocation: en qué bodega está un rollo (o si va en camino), según los despachos a bodegas
+    │   ├── rollCode.ts       → rollWhereFromCode: traduce el código de un rollo (EXT-9, o el viejo RL-12) al where de Prisma
+    │   ├── rollPossessionToken.ts → token de posesión del QR de un rollo: generar, hashear (HMAC) y verificar
+    │   ├── rateLimiter.ts    → checkRateLimit: limitador en memoria para el escaneo de rollos
     │   ├── clientCredit.ts   → getClientSaldoPendiente: saldo pendiente real de un cliente (cartera + límite de crédito)
     │   ├── importExcel.ts    → parseProductionFile (ExcelJS)
     │   ├── email.ts          → sendPasswordResetEmail (Resend, fallback console)
@@ -44,8 +48,9 @@ server/
     │   ├── inventory.ts       → GET /api/inventory[/alerts[/products][/movements]] (distingue rol INVENTARIO de EXISTENCIAS)
     │   ├── rawMaterials.ts    → catálogo y stock de materia prima de Extrusión
     │   ├── production.ts      → alta manual + import Excel (preview/confirm)
-    │   ├── productionOrders.ts→ OPs (creación en blanco + derivar + cerrar + reabrir) + registro de rollos + cola de Planeación + control de calidad + dispara notificaciones
+    │   ├── productionOrders.ts→ OPs (creación en blanco + derivar + cerrar + reabrir) + registro de rollos + cola de Planeación + control de calidad + reparto entre OPs hermanas + cuadre de masa en Impresión + dispara notificaciones
     │   ├── bultoLabels.ts     → lotes de etiquetas de bulto pre-impresas (mercancía comprada afuera): generar, listar, resolver por código
+    │   ├── rollTransfers.ts   → despacho de rollos entre las bodegas de planta (salida y recepción por QR) + inventario de bodegas + ajuste por conteo
     │   ├── dispatches.ts      → GET/POST despachos + marcar ítems + cancelar (revierte stock) + notifica por WhatsApp al completarse
     │   ├── products.ts        → CRUD de catálogo + etiqueta QR imprimible
     │   ├── users.ts           → CRUD de usuarios y roles
@@ -88,6 +93,7 @@ app.use("/api/raw-materials", rawMaterialsRouter);
 app.use("/api/production", productionRouter);
 app.use("/api/production-orders", productionOrdersRouter);
 app.use("/api/bulto-labels", bultoLabelsRouter);
+app.use("/api/roll-transfers", rollTransfersRouter);
 app.use("/api/dispatches", dispatchesRouter);
 app.use("/api/products", productsRouter);
 app.use("/api/users", usersRouter);
@@ -191,8 +197,9 @@ export function requireAuth(req, res, next) {
 | `ROLES.EXISTENCIAS` | `almacen_despachos`, `planeacion`, `ventas_pedidos` (quién ve el **stock real** — `GET /inventory`, `/alerts` — a diferencia de `INVENTARIO`, Gerente de Producción queda afuera a pedido del cliente) |
 | `ROLES.CATALOGO_GESTION` | `planeacion` (gestión del catálogo: crear/editar/desactivar Productos y Materia prima — Gerente de Producción queda afuera a pedido del cliente, aunque sigue pudiendo elegir un producto ya cargado al armar una OP vía `ROLES.INVENTARIO`) |
 | `ROLES.DESPACHOS_LECTURA` | `almacen_despachos`, `ventas_pedidos` (Ventas puede **consultar** despachos para responderle a un cliente sin llamar a Almacén; marcar ítems o cancelar sigue siendo exclusivo de Almacén) |
+| `ROLES.DESPACHO_BODEGAS` | `gerente_produccion`, `planeacion`, `operario_extrusion`, `operario_impresion`, `operario_sellado`, `operario_precorte`, `almacen_despachos` (quién despacha, recibe y consulta rollos entre las bodegas de planta: un operario de cualquier estación o alguien de Almacén; Ventas queda afuera) |
 
-Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `warehouse` usa `use(requireAlmacen)`; `dispatches` usa `use(requireRole(...DESPACHOS_LECTURA))` a nivel de router y exige `ALMACEN` en las rutas que mutan (crear, marcar ítem, cancelar); `production-orders` usa `use(requireRole(...OPERARIOS, ...CALIDAD, ...AUDITORIA))`, aplica `requireProduccionGestion` en crear/cambiar estado/Planeación/derivar/reabrir y `requireRole(...CIERRE_OP)` en `POST /:id/close`; `users`, `dashboard` y `export` usan `use(requireRole(...ROLES.ADMIN))` (`export` suma rol de ventas en `/pedidos` y `/facturas`). El control de calidad (`POST /:id/quality-check`) exige `CALIDAD`; la bitácora (`/api/audit-log`) exige `AUDITORIA`. `inventory.ts` distingue `INVENTARIO` (elegir producto) de `EXISTENCIAS` (ver stock real). `publicLocation.ts` es la única ruta de negocio sin `requireAuth` además del webhook de WhatsApp: usa el `publicToken` de la ubicación como credencial.
+Varios routers aplican el rol con `router.use(...)` (protege también los `GET`): `clients`, `cotizaciones`, `pedidos` y `facturas` usan `use(requireVentas)`; `warehouse` usa `use(requireAlmacen)`; `dispatches` usa `use(requireRole(...DESPACHOS_LECTURA))` a nivel de router y exige `ALMACEN` en las rutas que mutan (crear, marcar ítem, cancelar); `production-orders` usa `use(requireRole(...OPERARIOS, ...CALIDAD, ...AUDITORIA))`, aplica `requireProduccionGestion` en crear/cambiar estado/Planeación/derivar/reabrir y `requireRole(...CIERRE_OP)` en `POST /:id/close`; `roll-transfers` usa `use(requireRole(...DESPACHO_BODEGAS))` a nivel de router y exige `requireProduccionGestion` en el ajuste por conteo (`POST /rolls/:rollId/count`) y en anular un despacho (`DELETE /:id`); `users`, `dashboard` y `export` usan `use(requireRole(...ROLES.ADMIN))` (`export` suma rol de ventas en `/pedidos` y `/facturas`). El control de calidad (`POST /:id/quality-check`) exige `CALIDAD`; la bitácora (`/api/audit-log`) exige `AUDITORIA`. `inventory.ts` distingue `INVENTARIO` (elegir producto) de `EXISTENCIAS` (ver stock real). `publicLocation.ts` es la única ruta de negocio sin `requireAuth` además del webhook de WhatsApp: usa el `publicToken` de la ubicación como credencial.
 
 - `OPERARIO_STATIONS` mapea cada rol de operario a su estación (`operario_extrusion → ["extrusion"]`, `operario_impresion → ["impresion"]`, `operario_sellado → ["sellado"]`, `operario_precorte → ["precorte"]`). Se aplica en el POST de rollos y en el cierre: el operario solo trabaja su estación. Sellado y Precorte son roles separados — antes un solo rol `operario_sellado_precorte` cubría ambas estaciones; el cliente pidió separarlos en dos roles reales.
 
@@ -223,9 +230,45 @@ export async function applyMovement(
 
 > `TxClient` se exporta desde `stockService.ts`. Se deriva de `prisma.$transaction` (no es el `Prisma.TransactionClient` genérico), porque `prisma` está envuelto en `$extends` y el tipo del cliente de transacción cambia. Los routers que necesitan el tipo lo importan de acá.
 
-### `services/rollBalance.ts` — saldo vivo del rollo madre
+### `services/rollBalance.ts` — saldo de un rollo
 
-**`remainingSourceKg(tx, sourceRollId)`** calcula cuántos kilos le quedan a un rollo madre: su peso menos todo lo que ya consumieron sus rollos hijos (tabla `RollConsumption`). Un rollo grande de Extrusión se monta en Sellado o Precorte y de ahí salen varios rollos chicos: cada uno descuenta del saldo del madre. Si un rollo pide más kilos de los que quedan, la función lanza `InsufficientSourceRollError`; el operario debe escanear el siguiente rollo madre para cubrir el faltante. Ver [08 — Reglas de negocio](08-workflow.md).
+**`remainingSourceKg(tx, sourceRollId)`** calcula cuántos kilos le quedan a un rollo: su peso, menos todo lo que ya consumieron sus rollos hijos (tabla `RollConsumption`), más la suma de sus ajustes (tabla `RollAdjustment`). El resultado nunca baja de 0 y se redondea a 2 decimales. El peso original del rollo no se modifica nunca.
+
+Un rollo grande de Extrusión se monta en Sellado o Precorte y de ahí salen varios rollos chicos. Cada uno descuenta del saldo del madre. Dos funciones reparten los kilos:
+
+- **`allocateFromSourceRolls(tx, sourceRollIds, quantityKg)`** reparte los kilos de una fila entre los rollos madre escaneados, en el orden en que se escanearon. Agota el primero antes de tocar el siguiente. Si no alcanza, lanza `InsufficientSourceRollError`; el operario debe escanear el siguiente rollo madre. Se usa en Sellado y Precorte.
+- **`allocateWholeSourceRolls(tx, sourceRollIds)`** consume el rollo entero. Se usa en Impresión. Lanza `SourceRollExhaustedError` si el rollo ya se consumió.
+
+Las dos funciones bloquean los rollos madre con `SELECT … FOR UPDATE` antes de leer sus saldos. Sin ese bloqueo, dos operarios que cargan contra el mismo rollo leerían el mismo saldo viejo y lo dejarían sobregirado.
+
+**`adjustRollBalance(tx, params)`** lleva el saldo de un rollo a `newKg` (lo pesado o contado). Crea una fila en `RollAdjustment` con el saldo anterior, el nuevo, la diferencia, el motivo (`recepcion` o `conteo`), el usuario y, si aplica, el despacho que lo originó. Quien llama debe bloquear antes la fila del rollo con `SELECT … FOR UPDATE` dentro de la misma transacción. Así nadie consume ni despacha el rollo entre la lectura del saldo y el ajuste.
+
+`RollAdjustment` está en `AUDITED_MODELS` (`auditExtension.ts`): cada ajuste queda también en Auditoría. Ver [08 — Reglas de negocio](08-workflow.md).
+
+### `services/rollLocation.ts` — dónde está un rollo
+
+**`getRollLocation(tx, roll)`** devuelve la ubicación actual de un rollo según los despachos a bodegas (`roll_transfers`). Hay tres casos:
+
+- En la bodega del último despacho recibido.
+- En camino, si el último despacho sigue abierto.
+- En la estación donde se produjo, si nunca se movió.
+
+**`rollLocationBlock(code, location, consumingStation)`** devuelve el mensaje para el operario cuando un rollo no se puede consumir en su estación (está en camino, o está en otra bodega). Devuelve `null` si el rollo está en la bodega correcta. `productionOrders.ts` usa las dos funciones al registrar una fila con rollo madre y al resolver un rollo por código. `rollTransfers.ts` usa `getRollLocation` para saber desde qué bodega sale un rollo y para rechazar un conteo sobre un rollo en camino.
+
+### `services/rollCode.ts` — código legible del rollo
+
+**`rollWhereFromCode(code)`** traduce el código de la etiqueta de un rollo al `where` de Prisma para buscarlo. Acepta el formato actual (`EXT-9`, `IMP-2`, `SELL-3`, `PRE-4`) y el formato viejo (`RL-12`, id global de la tabla). Devuelve `null` si el texto no tiene forma de código de rollo. El formato viejo se mantiene para que las etiquetas físicas ya impresas sigan resolviendo.
+
+### `services/rollPossessionToken.ts` y `services/rateLimiter.ts` — token de posesión
+
+El QR de un rollo lleva dos datos: el código legible (`EXT-9`) y un **token de posesión**. El token demuestra que quien escanea tiene el rollo en la mano: conocer el siguiente código de la secuencia no basta.
+
+- `generatePossessionToken()` crea un token de 16 caracteres en alfabeto Crockford Base32 (sin `0/O` ni `1/I/L`, para tipearlo a mano sin confundirse), con 80 bits de entropía.
+- `hashPossessionToken(codigo, token)` calcula el hash con HMAC y el secreto `ROLL_TOKEN_SECRET`. La base guarda solo el hash (`ProductionRoll.possessionTokenHash`); el token en claro existe solo en la etiqueta impresa.
+- `verifyPossessionToken(codigo, token, hashGuardado)` compara el token escaneado contra el hash guardado, en tiempo constante (`timingSafeEqual`).
+- `checkRateLimit(clave, max, ventanaMs)` es un limitador en memoria del proceso. `productionOrders.ts` y `rollTransfers.ts` lo usan con un límite de 50 escaneos por minuto por usuario, para frenar un escaneo en bucle (`429`). Protege el rendimiento del servidor; no es un control de seguridad contra fuerza bruta.
+
+Las operaciones de solo lectura (buscar, listar, Trazabilidad) funcionan con el código solo. Consumir un rollo madre y despachar o recibir un rollo exigen el token.
 
 ### `services/clientCredit.ts`
 
@@ -300,6 +343,19 @@ La purga **no reordena posiciones**: solo remapea los números. El más visitado
 
 **`sendWhatsAppMessage(to, message)`** — manda un mensaje de texto libre por la Graph API de Meta (WhatsApp Business). Sin `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID` en el entorno, queda en modo no-op silencioso: solo lo imprime en consola, mismo criterio que `email.ts` sin `RESEND_API_KEY` — nunca rompe el flujo que lo llama. Los errores de red o de la API de Meta tampoco se propagan (se loguean y se ignoran). Único llamador hoy: `dispatches.ts`, al completar un despacho.
 
+## Funciones de apoyo de `routes/productionOrders.ts`
+
+Estas funciones viven dentro del router. Ninguna es un servicio compartido. Aplican las reglas de la OP descritas en [08 — Reglas de negocio](08-workflow.md).
+
+- **`siblingAllocation(db, padre, excluirHijaId?)`** calcula cuánto material del padre queda sin asignar entre sus OPs derivadas. La base es lo que el padre produjo (suma de `rollProducedKg` de sus rollos) o, si todavía no produjo nada, su meta. El disponible es la base menos la suma de las metas de las hijas no canceladas. `POST /:id/derive` y `PATCH /:id` la usan para rechazar una meta que se pasa. Entre la consulta y la creación de la hija no hay bloqueo: dos derivaciones simultáneas del mismo padre podrían asignar de más.
+- **`syncQuantityPlannedToChildren(tx, id)`** hace que una hija única siga la producción de su padre. Con varias hijas no hace nada: el reparto lo decide Gestión.
+- **`materiaPrimaRows(specs)`** devuelve las filas de la fórmula de Extrusión con `%` mayor que 0. **`materiaPrimaIncompleta(specs)`** devuelve el mensaje de error si esos `%` no suman 100 (tolerancia de 0,01), o `null` si la fórmula está completa. `POST /:id/release` y `POST /:id/close` de una OP de Extrusión devuelven `400` con ese mensaje.
+- **Descuento de materia prima al cerrar Extrusión:** cada insumo descuenta `% / 100 × procesado`. El procesado es el peso de los rollos más su desperdicio. Antes se descontaba el kg guardado en la tabla, calculado sobre la meta.
+- **`massBalanceToleranceKg(entradaKg)`** devuelve la tolerancia del cuadre en Impresión: el mayor entre 0,5 kg y el 2 % de la entrada. Impresión consume el rollo madre entero. Por eso `peso + desperdicio` de la fila debe coincidir con lo que entró, dentro de esa tolerancia. Si no coincide, `MassBalanceError` responde `400` con los kilos que faltan o sobran.
+- **Desperdicio y rollo madre:** en Sellado y Precorte, el rollo madre entrega `peso + desperdicio` de cada fila. La merma también es material de ese rollo. En Precorte, el segundo par ETIQUETA R / PESO R se calcula solo con el peso, no con la merma.
+- **Rollo de origen obligatorio:** toda fila de una OP derivada exige `sourceRollIds` (el rollo escaneado). Sin él responde `400`.
+- **`availableParentRolls(order)`** devuelve, para una OP derivada abierta, los rollos de su OP padre que están en la bodega de esa estación, o en camino hacia ella, con saldo mayor que 0. `GET /:id` los entrega como `availableSourceRolls`. Es solo informativo: el operario igual debe escanear el rollo.
+
 ## Transacciones (`prisma.$transaction`)
 
 Use transacciones donde la operación debe ser atómica (todo o nada). Operaciones transaccionales actuales:
@@ -308,6 +364,8 @@ Use transacciones donde la operación debe ser atómica (todo o nada). Operacion
 - **Despacho** (PATCH de ítem): actualiza ítem + `applyMovement` de salida + estado del despacho. Si esa actualización deja el despacho `despachado` (y no lo estaba ya), **fuera** de la transacción intenta avisar por WhatsApp al cliente (ver `services/whatsapp.ts`).
 - **Rollo de producción** (`POST /:id/rolls`): crea la fila del registro acumulativo; si la OP estaba `pendiente`, pasa a `en_proceso`.
 - **Control de calidad** (`POST /:id/quality-check`): crea el `quality_check`; si aprueba, `applyMovement` de entrada (con la **suma de kg de los rollos** de la OP) + marca la OP `finalizada`; si rechaza, deja la OP `detenida`.
+- **Recibir un despacho a bodega** (`POST /roll-transfers/:id/receive`): bloquea el rollo (`SELECT … FOR UPDATE`), marca el despacho `recibido` y, si vino el peso medido, registra el ajuste de saldo `recepcion` (`adjustRollBalance`). Si dos personas lo reciben a la vez, solo una gana (`updateMany` con el estado en el `where`); la otra recibe `409`.
+- **Ajuste por conteo** (`POST /roll-transfers/rolls/:rollId/count`): bloquea el rollo y registra el ajuste `conteo` con el saldo anterior, el nuevo y el motivo.
 - **Contactos/direcciones principal**: desmarca el anterior + crea el nuevo.
 - **Numeración consecutiva** (`OP-`, `COT-`, `PED-`, `FAC-`): el `count()` y el `create` corren en la misma transacción, envuelta en `withSequentialNumberRetry`. Si dos requests calculan el mismo número y chocan contra el `@unique` (P2002), el servicio reintenta la transacción, hasta **8 intentos**, con backoff creciente y jitter (`delayMs = 10 * intento + Math.random() * 30`) para que varios requests trabados no vuelvan a chocar en el mismo instante.
 - **OP desde Planeación** (`POST /from-pedido-item/:id`): valida que el ítem no tenga OP, la crea con numeración y enlaza `pedidoVersionItemId`.
