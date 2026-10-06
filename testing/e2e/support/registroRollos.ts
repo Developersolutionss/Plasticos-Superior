@@ -51,6 +51,28 @@ export class RegistroDeRollos {
     else await this.tabla.getByTitle("Añadir rollo a la lista").click();
   }
 
+  /** Contenedor de la fila pendiente número `n` ("Fila n por confirmar"). */
+  private filaPendiente(n: number): Locator {
+    const texto = new RegExp(`Fila ${n} por confirmar`);
+    return this.movil
+      ? this.tarjetas.locator("div.border-2").filter({ hasText: texto })
+      : this.tabla.locator("tr").filter({ hasText: texto });
+  }
+
+  /** Texto de la fila pendiente `n`, ej. "Fila 2 por confirmar · Peso 99 kg". */
+  textoDePendiente(n: number): Locator {
+    return this.filaPendiente(n);
+  }
+
+  /** Recarga la fila pendiente `n` en el formulario para corregirla (sale de la lista). */
+  async editarPendiente(n: number): Promise<void> {
+    await this.filaPendiente(n).getByTitle("Editar").click();
+  }
+
+  async quitarPendiente(n: number): Promise<void> {
+    await this.filaPendiente(n).getByTitle("Quitar de la lista").click();
+  }
+
   /** Botón de reemitir la etiqueta del rollo (Gestión y Calidad), en el diseño que se ve. */
   botonReemitir(): Locator {
     const titulo = "Reemitir etiqueta (invalida la anterior)";
