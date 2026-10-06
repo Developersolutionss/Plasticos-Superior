@@ -1097,6 +1097,12 @@ export default function OrdenProduccionDetalle() {
    * `handleScanAny` para decidir si sigue probando como etiqueta de bulto. */
   async function applyScannedSourceRoll(code: string, token: string): Promise<void> {
     const roll = await api.getProductionRollByCode(code, token, station);
+    // by-code acepta un código sin token (sirve para consultar), pero para
+    // consumirlo como insumo el servidor siempre exige el token: se avisa ya
+    // al escanear y no recién al guardar la fila.
+    if (!token) {
+      throw new Error(`El código ${code} no trae el token de posesión — escaneá el QR impreso en la etiqueta del rollo, o tipeá el código completo (${code}-TOKEN)`);
+    }
     const chip: SourceRollChip = {
       id: roll.id,
       code,

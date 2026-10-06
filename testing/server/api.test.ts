@@ -2219,6 +2219,13 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     const escanear = () =>
       fetch(`${baseUrl}/api/production-orders/rolls/by-code/${code}?token=${source.possessionToken}&forStation=sellado`, { headers: headersFor("produccion") });
 
+    // Tipeado a mano: minúsculas y ceros a la izquierda resuelven igual.
+    const porCodigo = (c: string, t: string) =>
+      fetch(`${baseUrl}/api/production-orders/rolls/by-code/${c}?token=${t}`, { headers: headersFor("produccion") });
+    assert.equal((await porCodigo(code.toLowerCase(), source.possessionToken.toLowerCase())).status, 200, "minúsculas");
+    assert.equal((await porCodigo(`EXT-0${source.stationSequence}`, source.possessionToken)).status, 200, "cero a la izquierda");
+    assert.equal((await porCodigo(code, "ZZZZZZZZZZZZZZZZ")).status, 403, "un token falso sigue rechazado");
+
     // Nunca salió de Extrusión.
     const sinDespachar = await cargar();
     assert.equal(sinDespachar.status, 400);

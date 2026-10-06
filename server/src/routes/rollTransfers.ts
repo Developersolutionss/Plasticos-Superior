@@ -118,6 +118,8 @@ type ScannedRollResult = { error: { status: number; error: string } } | { roll: 
  * rollo o la respuesta de error ya armada ({ status, error }).
  */
 async function resolveScannedRoll(code: string, token: string, userId: number): Promise<ScannedRollResult> {
+  code = code.trim().toUpperCase();
+  token = token.trim().toUpperCase();
   const where = rollWhereFromCode(code);
   if (!where) return { error: { status: 400, error: "Código de rollo inválido" } } as const;
   const roll = await prisma.productionRoll.findUnique({ where });

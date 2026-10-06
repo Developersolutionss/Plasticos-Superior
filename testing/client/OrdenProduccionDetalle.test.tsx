@@ -177,6 +177,18 @@ describe("OrdenProduccionDetalle · carga en lote de rollos (Sellado)", () => {
     vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado());
   });
 
+  it("escanear un rollo sin token avisa al escanear, no recién al guardar la fila", async () => {
+    renderOrden();
+    await screen.findByText("OP-00005");
+
+    vi.mocked(api.getProductionRollByCode).mockResolvedValueOnce({ id: 10, code: "EXT-1", label: null, weightKg: "50", remainingKg: "50", createdBy: { name: "Luis" } });
+    await scanCode("EXT-1");
+
+    expect(await screen.findByText(/EXT-1 no trae el token de posesión/)).toBeInTheDocument();
+    // Sin chip del rollo madre: el botón de quitarlo no aparece.
+    expect(screen.queryByTitle(/Quitar rollo/i)).not.toBeInTheDocument();
+  });
+
   it("añade rollos a la lista de pendientes y los confirma en orden", async () => {
     const { container } = renderOrden();
     await screen.findByText("OP-00005");
@@ -189,7 +201,7 @@ describe("OrdenProduccionDetalle · carga en lote de rollos (Sellado)", () => {
       remainingKg: "50",
       createdBy: { name: "Luis" },
     });
-    await scanCode("EXT-1");
+    await scanCode("EXT-1-K7M9XT4P2R6HW3JC");
     expect((await screen.findAllByText("50 kg")).length).toBeGreaterThan(0);
 
     const user = userEvent.setup();
@@ -222,7 +234,7 @@ describe("OrdenProduccionDetalle · carga en lote de rollos (Sellado)", () => {
       remainingKg: "50",
       createdBy: { name: "Luis" },
     });
-    await scanCode("EXT-1");
+    await scanCode("EXT-1-K7M9XT4P2R6HW3JC");
 
     await user.type(draftField(container, "PESO (KG)"), "10");
     await user.click(within(mobileCard(container)).getByRole("button", { name: "+ Añadir rollo" }));
@@ -256,7 +268,7 @@ describe("OrdenProduccionDetalle · carga en lote de rollos (Sellado)", () => {
       remainingKg: "50",
       createdBy: { name: "Luis" },
     });
-    await scanCode("EXT-1");
+    await scanCode("EXT-1-K7M9XT4P2R6HW3JC");
 
     await user.type(draftField(container, "PESO (KG)"), "10");
     await user.click(within(mobileCard(container)).getByRole("button", { name: "+ Añadir rollo" }));
@@ -340,7 +352,8 @@ function madre(weight: number, id = 10, code = "EXT-1") {
 async function scanMadre(code: string, weight: number) {
   const user = userEvent.setup();
   await user.click(screen.getByTitle(/^Escane/));
-  await user.type(screen.getByPlaceholderText("código escaneado"), code);
+  // El QR real trae código + token (sin token el escaneo se rechaza).
+  await user.type(screen.getByPlaceholderText("código escaneado"), `${code}-K7M9XT4P2R6HW3JC`);
   await user.click(screen.getByRole("button", { name: "Usar código" }));
   // Sellado lo muestra "50 kg" (saldo) e Impresión "(50 kg)" (se consume entero).
   expect((await screen.findAllByText(new RegExp(weight + " kg"))).length).toBeGreaterThan(0);

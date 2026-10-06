@@ -89,6 +89,9 @@ export default function BarcodeScanner({ title = "Escanear código", onDetected,
             Usar código
           </button>
         </form>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Un rollo se tipea completo, con su token: el texto del QR, ej. EXT-8-K7M9XT4P2R6HW3JC.
+        </p>
       </div>
     </Modal>
   );

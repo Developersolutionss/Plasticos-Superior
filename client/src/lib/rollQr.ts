@@ -6,6 +6,9 @@
  * que no hay token -- eso pasa igual con cualquier código tipeado a mano
  * en vez de escaneado. */
 export function splitScannedCode(raw: string): { code: string; token: string } {
+  // El alfabeto del token y los prefijos de rollo son solo en mayúsculas: a
+  // mano el teclado del celular puede escribir "ext-8-k7m9..." en minúscula.
   const match = /^([A-Za-z]+-\d+)-(.+)$/.exec(raw);
-  return match ? { code: match[1], token: match[2] } : { code: raw, token: "" };
+  if (match) return { code: match[1].toUpperCase(), token: match[2].trim().toUpperCase() };
+  return { code: /^[A-Za-z]+-\d+$/.test(raw) ? raw.toUpperCase() : raw, token: "" };
 }
