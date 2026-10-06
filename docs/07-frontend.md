@@ -350,7 +350,7 @@ Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía r
 - Ruta `/produccion/despacho-bodegas` (roles `DESPACHO_BODEGAS`: operarios, gestión de producción y almacén). Botón "Escanear rollo" → `GET /roll-transfers/scan`.
 - Sin despacho en tránsito: el operario elige la bodega destino y quién se lo lleva ("Se lo entrego a alguien" + nombre tipeado, o "Me lo llevo yo" = su cuenta). Con despacho en tránsito: botón "Confirmar recepción", solo visible para un operario de la bodega destino.
 - Manda la zona horaria del celular (`Intl.DateTimeFormat().resolvedOptions().timeZone` y `-getTimezoneOffset()`); el historial muestra cada hora en la zona horaria del celular que registró ese paso.
-- El helper `splitScannedCode` (código + token del QR) está en `lib/rollQr.ts`, compartido con `OrdenProduccionDetalle.tsx`.
+- El helper `splitScannedCode` (código + token del QR) está en `lib/rollQr.ts`, compartido con `OrdenProduccionDetalle.tsx`. Pasa el código y el token a mayúsculas, porque el teclado del celular puede escribirlos en minúscula. Un código sin token se rechaza al escanear, tanto aquí como en la hoja de la OP. A mano se tipea el texto completo del QR (`EXT-8-<token>`).
 - **Autocompletado al escanear.** `suggestDispatch` (`lib/rollTransferSuggest.ts`) precarga el destino y el modo con lo que devuelve `GET /roll-transfers/scan`. Todo queda editable. Si hay duda real, no elige nada: es mejor que el operario elija a que el rollo vaya a la bodega equivocada (decisión de Gestión, 2026-10-02). El destino se elige en este orden:
   1. La bodega del operario que escanea, si es un destino posible.
   2. La única estación con una OP derivada abierta que espera material.

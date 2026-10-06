@@ -270,8 +270,10 @@ productionOrdersRouter.get("/reports/por-operario", requireProduccionGestion, as
  * rollo físico tomó como insumo.
  */
 productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
-  const match = ROLL_CODE_RE.exec(req.params.code);
-  const legacyMatch = LEGACY_ROLL_CODE_RE.exec(req.params.code);
+  // Tipeado a mano puede venir en minúscula (prefijo y token son solo mayúsculas).
+  const scannedCode = req.params.code.toUpperCase();
+  const match = ROLL_CODE_RE.exec(scannedCode);
+  const legacyMatch = LEGACY_ROLL_CODE_RE.exec(scannedCode);
   if (!match && !legacyMatch) return res.status(400).json({ error: "Código de rollo inválido" });
   // Un QR mal leído por el escáner puede traer un número absurdamente
   // grande — sin este chequeo llega tal cual a Postgres como `id` o
@@ -301,12 +303,12 @@ productionOrdersRouter.get("/rolls/by-code/:code", async (req, res) => {
   // trucho. Sin token en la query no se exige nada (permite seguir usando
   // este mismo endpoint para simples consultas de información, ej.
   // Trazabilidad).
-  const tokenVisible = typeof req.query.token === "string" ? req.query.token : undefined;
+  const tokenVisible = typeof req.query.token === "string" ? req.query.token.toUpperCase() : undefined;
   if (tokenVisible) {
     if (!checkPossessionTokenRateLimit(req.user!.userId)) {
       return res.status(429).json({ error: "Demasiados escaneos seguidos — esperá un momento y volvé a intentar" });
     }
-    if (!verifyPossessionToken(match ? `${match[1]}-${match[2]}` : req.params.code, tokenVisible, roll.possessionTokenHash)) {
+    if (!verifyPossessionToken(sourceRollCode(roll), tokenVisible, roll.possessionTokenHash)) {
       return res.status(403).json({ error: "El token de posesión del QR no es válido" });
     }
   }
