@@ -28,6 +28,17 @@ test.describe("bodegas de planta", () => {
     await expect(extrusion.page.getByText(/En tránsito hacia/)).toBeVisible();
     await expect(extrusion.page.getByText("Lo tiene que recibir un operario de Sellado.")).toBeVisible();
     await expect(extrusion.page.getByRole("button", { name: /Confirmar recepción/ })).toHaveCount(0);
+    // Y aunque lo intente por fuera de la pantalla, el servidor lo rechaza.
+    const { datos: enCamino } = await llamar<{ id: number; rollCode: string }[]>("produccion", "GET", "/roll-transfers?status=en_transito");
+    const abierto = enCamino.find((t) => t.rollCode === rollo.codigo);
+    expect(abierto, "el despacho debería figurar en camino").toBeTruthy();
+    const intento = await llamar("extrusion", "POST", `/roll-transfers/${abierto!.id}/receive`, {
+      code: rollo.codigo,
+      token: rollo.token,
+      clientTimezone: "America/Bogota",
+      clientUtcOffsetMinutes: -300,
+    });
+    expect(intento.status).toBe(403);
 
     // 3. Sellado lo recibe y lo pesa en la balanza: ese peso pasa a ser el saldo.
     await escanearSellado.click();
