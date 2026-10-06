@@ -141,3 +141,32 @@ export async function detalleOp(opId: number, rol: Rol = "produccion") {
 export async function saldoDeRollo(codigo: string, rol: Rol = "produccion"): Promise<number> {
   return (await exito<{ remainingKg: number }>(rol, "GET", `/production-orders/rolls/by-code/${codigo}`)).remainingKg;
 }
+
+const RELOJ = { clientTimezone: "America/Bogota", clientUtcOffsetMinutes: -300 };
+
+/** Rol del operario de cada estación. */
+export const OPERARIO_DE: Record<Estacion, Rol> = { extrusion: "extrusion", impresion: "impresion", sellado: "sellado", precorte: "precorte" };
+
+/** Despacha el rollo a la bodega de `destino` y lo recibe allá (como lo haría su operario). */
+export async function moverRolloA(rollo: RolloCreado, destino: Exclude<Estacion, "extrusion">): Promise<void> {
+  const operario = OPERARIO_DE[destino];
+  const traslado = await exito<{ id: number }>(operario, "POST", "/roll-transfers", {
+    code: rollo.codigo,
+    token: rollo.token,
+    toStation: destino,
+    mode: "retiro",
+    ...RELOJ,
+  });
+  await exito(operario, "POST", `/roll-transfers/${traslado.id}/receive`, { code: rollo.codigo, token: rollo.token, ...RELOJ });
+}
+
+/** Deriva la OP a otra estación y devuelve la OP hija. */
+export async function derivarOp(opId: number, estacion: Estacion): Promise<OpCreada> {
+  return exito<OpCreada>("produccion", "POST", `/production-orders/${opId}/derive`, { station: estacion });
+}
+
+/** Genera etiquetas de bulto en blanco y devuelve sus códigos (ej. `EXT-00001`). */
+export async function generarEtiquetasBulto(cantidad: number): Promise<string[]> {
+  const etiquetas = await exito<{ code: string }[]>("produccion", "POST", "/bulto-labels/generate", { count: cantidad });
+  return etiquetas.map((e) => e.code);
+}

@@ -4,6 +4,22 @@ import { controlarCamara, instalarCamaraEmulada, type Camara } from "./fakeCamer
 
 export { expect };
 
+/**
+ * Errores que html5-qrcode lanza sin atraparlos cuando el escáner se cierra
+ * justo mientras la cámara está arrancando (la cámara igual se libera). Un
+ * test que cierra el escáner a propósito en esa ventana los declara con
+ * `toleraCierreRapidoDelEscaner()`; en cualquier otro test siguen siendo fallo.
+ */
+const ERRORES_DE_CIERRE_RAPIDO_DEL_ESCANER = [
+  /Cannot clear while scan is ongoing/,
+  /The play\(\) request was interrupted because the media was removed from the document/,
+];
+const ETIQUETA_TOLERANCIA = "tolera-cierre-rapido-del-escaner";
+
+export function toleraCierreRapidoDelEscaner(info: TestInfo): void {
+  info.annotations.push({ type: ETIQUETA_TOLERANCIA });
+}
+
 export interface Sesion {
   rol: Rol;
   page: Page;
@@ -54,6 +70,8 @@ export const test = base.extend<{ sesion: (rol: Rol, ruta?: string) => Promise<S
       return sesion;
     });
     for (const contexto of abiertos) await contexto.close();
-    expect(fallos, "errores inesperados durante el flujo").toEqual([]);
+    const toleradas = info.annotations.some((n) => n.type === ETIQUETA_TOLERANCIA) ? ERRORES_DE_CIERRE_RAPIDO_DEL_ESCANER : [];
+    const reales = fallos.filter((f) => !toleradas.some((permitido) => permitido.test(f)));
+    expect(reales, "errores inesperados durante el flujo").toEqual([]);
   },
 });

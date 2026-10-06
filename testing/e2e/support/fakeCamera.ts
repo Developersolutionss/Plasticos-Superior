@@ -24,13 +24,29 @@ const SCRIPT_CAMARA = `
   function pintar() {
     if (!imagen) { ctx.fillStyle = '#1f2937'; ctx.fillRect(0, 0, W, H); return; }
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
-    const lado = 300;
+    // Escala ENTERA: con un factor fraccionario los módulos del QR quedan de
+    // ancho desigual y ciertos códigos dejan de decodificarse.
+    const escala = Math.max(1, Math.round(300 / imagen.width));
+    const ancho = imagen.width * escala;
+    const alto = imagen.height * escala;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(imagen, (W - lado) / 2, (H - lado) / 2, lado, lado);
+    // Temblor de la mano: cada cuadro corre el QR unos píxeles. Con un cuadro
+    // idéntico, un código que el decodificador no lee en el primer intento
+    // no se leería nunca; una cámara real nunca da dos cuadros iguales.
+    const temblor = () => Math.floor(Math.random() * 9) - 4;
+    ctx.drawImage(imagen, Math.round((W - ancho) / 2) + temblor(), Math.round((H - alto) / 2) + temblor(), ancho, alto);
   }
   pintar();
   // Se repinta siempre: un canvas quieto puede dejar de emitir cuadros.
   setInterval(pintar, 100);
+
+  // Cuando el escáner desaparece de la pantalla la cámara deja de apuntar al
+  // QR: una cámara real no sigue viendo la etiqueta anterior en el siguiente
+  // escaneo. Se ata a lo que se ve (no a cuándo se cierran las pistas de
+  // video, que es asíncrono y puede caer después de mostrar el QR nuevo).
+  new MutationObserver(() => {
+    if (imagen && !document.getElementById('barcode-scanner-region')) imagen = null;
+  }).observe(document, { childList: true, subtree: true });
 
   window.__camaraEmulada = {
     async mostrar(dataUrl) {
@@ -60,14 +76,7 @@ const SCRIPT_CAMARA = `
       const detener = pista.stop.bind(pista);
       let cerrada = false;
       pista.stop = () => {
-        if (!cerrada) {
-          cerrada = true;
-          estado.detenidas++;
-          // Sin ninguna sesión abierta la cámara ya no apunta a nada: una
-          // cámara real no sigue viendo la etiqueta anterior en el siguiente
-          // escaneo. Así cada lectura exige volver a mostrar su QR.
-          if (estado.arrancadas === estado.detenidas) imagen = null;
-        }
+        if (!cerrada) { cerrada = true; estado.detenidas++; }
         detener();
       };
     }
@@ -90,7 +99,7 @@ export interface EstadoCamara {
 export interface Camara {
   /**
    * La cámara pasa a ver el QR de este texto (ej. "EXT-9-K7M9XT4P2R6HW3JC").
-   * Se muestra DESPUÉS de abrir el escáner; al cerrarse la cámara el QR se
+   * Se muestra DESPUÉS de abrir el escáner; al cerrarse el escáner el QR se
    * retira solo, como al bajar el celular.
    */
   mostrarTexto(texto: string): Promise<void>;
