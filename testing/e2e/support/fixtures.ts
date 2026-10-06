@@ -36,21 +36,47 @@ function opcionesDelProyecto(info: TestInfo) {
   return Object.fromEntries(clave.filter((k) => uso[k] !== undefined).map((k) => [k, uso[k]]));
 }
 
+interface Guardia {
+  /** Errores del navegador y respuestas 5xx vistos durante el test. */
+  fallos: string[];
+  contextos: BrowserContext[];
+}
+
+function vigilar(page: Page, quien: string, fallos: string[]): void {
+  page.on("pageerror", (error) => fallos.push(`[${quien}] error sin atrapar en el navegador: ${error.message}`));
+  page.on("response", (res) => {
+    if (res.status() >= 500) fallos.push(`[${quien}] el servidor respondió ${res.status()} a ${res.request().method()} ${new URL(res.url()).pathname}`);
+  });
+}
+
 /**
  * `sesion(rol)` abre un navegador aparte con la sesión ya iniciada de ese
  * usuario y la cámara emulada instalada. Se puede llamar varias veces en un
  * mismo test (cada una es una persona distinta con su propio celular).
+ * `visitante()` abre uno sin sesión, para probar el inicio de sesión.
+ *
+ * Red de seguridad de todas las pruebas: un error sin atrapar en el
+ * navegador o una respuesta 5xx del servidor es un bug aunque la pantalla
+ * "parezca" bien, así que hace fallar el test.
  */
-export const test = base.extend<{ sesion: (rol: Rol, ruta?: string) => Promise<Sesion> }>({
-  sesion: async ({ browser }, use, info) => {
-    const abiertos: BrowserContext[] = [];
-    // Red de seguridad de todas las pruebas: un error sin atrapar en el
-    // navegador o una respuesta 5xx del servidor es un bug aunque la pantalla
-    // "parezca" bien, así que hace fallar el test.
-    const fallos: string[] = [];
+export const test = base.extend<{
+  guardia: Guardia;
+  sesion: (rol: Rol, ruta?: string) => Promise<Sesion>;
+  visitante: (ruta?: string) => Promise<Page>;
+}>({
+  guardia: async ({}, use, info) => {
+    const guardia: Guardia = { fallos: [], contextos: [] };
+    await use(guardia);
+    for (const contexto of guardia.contextos) await contexto.close();
+    const toleradas = info.annotations.some((n) => n.type === ETIQUETA_TOLERANCIA) ? ERRORES_DE_CIERRE_RAPIDO_DEL_ESCANER : [];
+    const reales = guardia.fallos.filter((f) => !toleradas.some((permitido) => permitido.test(f)));
+    expect(reales, "errores inesperados durante el flujo").toEqual([]);
+  },
+
+  sesion: async ({ browser, guardia }, use, info) => {
     await use(async (rol, ruta) => {
       const contexto = await browser.newContext({ ...opcionesDelProyecto(info) });
-      abiertos.push(contexto);
+      guardia.contextos.push(contexto);
       await instalarCamaraEmulada(contexto);
       const { token, user } = await login(rol);
       await contexto.addInitScript(
@@ -61,17 +87,21 @@ export const test = base.extend<{ sesion: (rol: Rol, ruta?: string) => Promise<S
         { t: token, u: user }
       );
       const page = await contexto.newPage();
-      page.on("pageerror", (error) => fallos.push(`[${rol}] error sin atrapar en el navegador: ${error.message}`));
-      page.on("response", (res) => {
-        if (res.status() >= 500) fallos.push(`[${rol}] el servidor respondió ${res.status()} a ${res.request().method()} ${new URL(res.url()).pathname}`);
-      });
+      vigilar(page, rol, guardia.fallos);
       const sesion: Sesion = { rol, page, contexto, camara: controlarCamara(page), nombre: user.name };
       if (ruta) await page.goto(ruta);
       return sesion;
     });
-    for (const contexto of abiertos) await contexto.close();
-    const toleradas = info.annotations.some((n) => n.type === ETIQUETA_TOLERANCIA) ? ERRORES_DE_CIERRE_RAPIDO_DEL_ESCANER : [];
-    const reales = fallos.filter((f) => !toleradas.some((permitido) => permitido.test(f)));
-    expect(reales, "errores inesperados durante el flujo").toEqual([]);
+  },
+
+  visitante: async ({ browser, guardia }, use, info) => {
+    await use(async (ruta) => {
+      const contexto = await browser.newContext({ ...opcionesDelProyecto(info) });
+      guardia.contextos.push(contexto);
+      const page = await contexto.newPage();
+      vigilar(page, "visitante", guardia.fallos);
+      if (ruta) await page.goto(ruta);
+      return page;
+    });
   },
 });

@@ -147,8 +147,11 @@ const RELOJ = { clientTimezone: "America/Bogota", clientUtcOffsetMinutes: -300 }
 /** Rol del operario de cada estación. */
 export const OPERARIO_DE: Record<Estacion, Rol> = { extrusion: "extrusion", impresion: "impresion", sellado: "sellado", precorte: "precorte" };
 
-/** Despacha el rollo a la bodega de `destino` y lo recibe allá (como lo haría su operario). */
-export async function moverRolloA(rollo: RolloCreado, destino: Exclude<Estacion, "extrusion">): Promise<void> {
+/**
+ * Despacha el rollo a la bodega de `destino` y lo recibe allá (como lo haría
+ * su operario). Si se da `pesoAlRecibir`, la balanza de esa bodega lo registra.
+ */
+export async function moverRolloA(rollo: RolloCreado, destino: Exclude<Estacion, "extrusion">, pesoAlRecibir?: number): Promise<void> {
   const operario = OPERARIO_DE[destino];
   const traslado = await exito<{ id: number }>(operario, "POST", "/roll-transfers", {
     code: rollo.codigo,
@@ -157,7 +160,12 @@ export async function moverRolloA(rollo: RolloCreado, destino: Exclude<Estacion,
     mode: "retiro",
     ...RELOJ,
   });
-  await exito(operario, "POST", `/roll-transfers/${traslado.id}/receive`, { code: rollo.codigo, token: rollo.token, ...RELOJ });
+  await exito(operario, "POST", `/roll-transfers/${traslado.id}/receive`, {
+    code: rollo.codigo,
+    token: rollo.token,
+    ...(pesoAlRecibir !== undefined ? { receivedKg: pesoAlRecibir } : {}),
+    ...RELOJ,
+  });
 }
 
 /** Deriva la OP a otra estación y devuelve la OP hija. */
