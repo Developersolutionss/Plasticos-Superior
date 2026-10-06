@@ -20,11 +20,14 @@ async function nextSeedStationSequence(station: string): Promise<number> {
 }
 
 /** `possessionTokenHash` es NOT NULL (ver services/rollPossessionToken.ts) --
- * el seed genera uno real por cada rollo, igual que POST /:id/rolls, aunque
- * acá nadie vaya a imprimir la etiqueta física de un rollo de prueba. */
+ * el seed genera uno real por cada rollo, igual que POST /:id/rolls. El token
+ * nunca se guarda, así que se imprime el contenido del QR (`EXT-1-<token>`)
+ * para poder escanear los rollos de prueba. */
 function seedPossessionTokenHash(station: OpStation, stationSequence: number): string {
   const code = `${ROLL_CODE_PREFIX[station]}-${stationSequence}`;
-  return hashPossessionToken(code, generatePossessionToken());
+  const token = generatePossessionToken();
+  console.log(`QR del rollo de prueba ${code}: ${code}-${token}`);
+  return hashPossessionToken(code, token);
 }
 
 async function main() {
