@@ -35,7 +35,9 @@ export default defineConfig({
   },
   projects: [
     { name: "escritorio", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } }, testIgnore: /\.movil\.spec\.ts$/ },
-    { name: "movil", use: { ...devices["Pixel 7"] }, testMatch: /\.movil\.spec\.ts$/ },
+    // Además de los flujos propios del celular, corre en móvil los que están
+    // escritos para funcionar con los dos diseños (tabla y tarjetas).
+    { name: "movil", use: { ...devices["Pixel 7"] }, testMatch: [/\.movil\.spec\.ts$/, /etiqueta-qr\.spec\.ts$/] },
   ],
   webServer: [
     {

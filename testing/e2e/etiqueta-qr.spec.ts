@@ -86,7 +86,7 @@ test.describe("etiqueta con QR del rollo", () => {
     const rollo = await cargarRollo(op.id, "extrusion", 15);
 
     const gestion = await sesion("produccion", `/produccion/ordenes/${op.id}`);
-    await expect(gestion.page.getByText(rollo.codigo).first()).toBeVisible();
+    await expect(gestion.page.getByText(rollo.codigo).filter({ visible: true }).first()).toBeVisible();
     await expect(gestion.page.getByTitle("Imprimir etiqueta")).toHaveCount(0);
 
     // El endpoint viejo, que armaba un QR sin token, ya no existe.
