@@ -46,7 +46,9 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      "/api": "http://localhost:4000",
+      // API_PROXY_TARGET permite apuntar el front a otro API (las pruebas E2E
+      // levantan el suyo en otro puerto, con su propia base de datos).
+      "/api": process.env.API_PROXY_TARGET ?? "http://localhost:4000",
     },
   },
 });
