@@ -147,7 +147,7 @@ export default function DespachoBodegas() {
     resetForm();
     const { code, token } = splitScannedCode(raw.trim());
     if (!token) {
-      setError(`El código ${code} no trae el token de posesión — escaneá el QR impreso en la etiqueta del rollo`);
+      setError(`El código ${code} no trae el token de posesión — escaneá el QR impreso en la etiqueta del rollo, o tipeá el código completo (${code}-TOKEN)`);
       return;
     }
     try {
