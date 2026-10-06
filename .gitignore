@@ -19,3 +19,8 @@ run.sh
 server/uploads/
 prototype/
 media/
+
+# Resultados de las pruebas E2E (se regeneran en cada corrida)
+testing/e2e/resultados/
+testing/e2e/informe/
+client/dist-e2e/

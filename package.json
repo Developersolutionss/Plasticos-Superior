@@ -15,7 +15,8 @@
     "test:server:aislado": "node testing/test-server-aislado.mjs",
     "prisma:migrate": "npm run prisma:migrate --workspace=server",
     "prisma:deploy": "npm run prisma:deploy --workspace=server",
-    "prisma:seed": "npm run prisma:seed --workspace=server"
+    "prisma:seed": "npm run prisma:seed --workspace=server",
+    "test:e2e": "node testing/e2e/run.mjs"
   },
   "allowScripts": {
     "prisma@7.9.1": true,
@@ -28,6 +29,7 @@
     "uuid": "^11.1.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "playwright": "^1.63.0",
     "vitest": "^4.1.10"
   }
