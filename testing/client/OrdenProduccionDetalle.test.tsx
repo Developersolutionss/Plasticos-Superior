@@ -605,13 +605,23 @@ describe("OrdenProduccionDetalle · quién puede borrar un rollo ya confirmado",
     await waitFor(() => expect(api.deleteProductionRoll).toHaveBeenCalledWith(5, 77));
   });
 
-  it("un operario NO ve 'Borrar rollo', pero sí 'Imprimir etiqueta'", async () => {
+  it("un operario NO ve 'Borrar rollo' ni etiquetas sin token: no hay 'Imprimir etiqueta'", async () => {
     vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado({ rolls: [rolloGuardado] }));
     const { container } = renderOrden(5, OPERARIO_SELLADO);
     await screen.findByText("OP-00005");
 
     expect(within(mobileCard(container)).queryByTitle("Borrar rollo")).not.toBeInTheDocument();
-    expect(within(mobileCard(container)).getByTitle("Imprimir etiqueta")).toBeInTheDocument();
+    expect(within(mobileCard(container)).queryByTitle("Imprimir etiqueta")).not.toBeInTheDocument();
+    expect(within(mobileCard(container)).queryByTitle(/Reemitir etiqueta/)).not.toBeInTheDocument();
+  });
+
+  it("Gestión reemite la etiqueta (con token nuevo) y no tiene 'Imprimir etiqueta'", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(baseSellado({ rolls: [rolloGuardado] }));
+    const { container } = renderOrden(5, GESTION);
+    await screen.findByText("OP-00005");
+
+    expect(within(mobileCard(container)).getByTitle(/Reemitir etiqueta/)).toBeInTheDocument();
+    expect(within(mobileCard(container)).queryByTitle("Imprimir etiqueta")).not.toBeInTheDocument();
   });
 
   it("ni Gestión puede borrar en una OP que ya no está abierta", async () => {
