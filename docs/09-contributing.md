@@ -194,6 +194,7 @@ Si la lectura debe funcionar offline (PWA), amplíe el `runtimeCaching` de `vite
 npm run build                 # compila server (tsc) y client (vite)
 npm run test                  # suites de API (node:test) y frontend (vitest)
 npm run test:server:aislado   # suite de API contra una base aparte (no ensucia la de desarrollo)
+npm run test:e2e              # flujos web con navegador real y cámara emulada
 npm run dev                   # prueba manual en http://localhost:4000 y http://localhost:5173
 ```
 
@@ -207,6 +208,70 @@ Use `npm run test:server:aislado` para evitarlo. El comando hace cuatro pasos:
 4. Corre la suite de API contra esa base.
 
 El comando solo borra una base cuyo nombre termina en `_test`. Nunca toca la base de desarrollo. Para usar otro nombre, defina `TEST_DATABASE_NAME` (debe terminar en `_test`).
+
+### Pruebas de flujos web (E2E)
+
+`npm run test:e2e` abre un navegador real (Chromium) y recorre la aplicación completa como lo hacen las personas de planta. Cubre flujos con varios usuarios, con cámara y con dos tamaños de pantalla. Las pruebas viven en `testing/e2e/`.
+
+El comando hace seis pasos:
+
+1. Recrea la base `<nombre>_e2e` desde cero.
+2. Aplica las migraciones y siembra los datos de ejemplo.
+3. Compila el front para producción.
+4. Levanta su propio API (puerto 4100) y su propio front (puerto 5273).
+5. Corre los flujos en dos proyectos: `escritorio` (1280×800) y `movil` (Pixel 7 emulado, pantalla táctil de 412 px).
+6. Escribe el informe en `testing/e2e/informe/`.
+
+El comando nunca toca la base de desarrollo. Playwright se niega a correr si la base no termina en `_e2e`. Para usar otro nombre, defina `E2E_DATABASE_NAME` (debe terminar en `_e2e`).
+
+Los argumentos extra pasan a Playwright:
+
+```bash
+npm run test:e2e -- --headed                 # ver el navegador mientras corre
+npm run test:e2e -- -g "reemitir"            # un solo flujo, por parte de su nombre
+npm run test:e2e -- --project=movil          # solo el diseño de celular
+npm run test:e2e -- --repeat-each=3          # repetir cada flujo (detecta pruebas inestables)
+npx playwright show-report testing/e2e/informe
+```
+
+**Qué cubre cada archivo**
+
+| Archivo | Flujo |
+|---|---|
+| `camara.spec.ts` | La cámara emulada entrega un QR real al escáner de la app |
+| `etiqueta-qr.spec.ts` | La etiqueta que imprime la app la lee la cámara y el servidor la acepta. Sin token o con token falso se rechaza. Reemitir invalida la etiqueta anterior. Corre en escritorio y en celular |
+| `escaneo.spec.ts` | El botón único de la hoja de Sellado lee rollos madre y etiquetas de bulto. Cubre permiso de cámara negado, escritura a mano del código, liberación de la cámara y lectura única |
+| `bodegas.spec.ts` | Un rollo viaja de Extrusión a Sellado: retiro, recepción con peso, inventario y conteo de Gestión. Cubre el peso mal tipeado y los permisos |
+| `produccion-completa.spec.ts` | Desde la OP creada en pantalla hasta el lote aprobado en Calidad, con cuatro usuarios |
+| `trazabilidad.spec.ts` | Búsqueda por QR de un rollo madre y de un rollo hijo, y por número de OP |
+| `permisos.spec.ts` | Inicio de sesión, bloqueo de cuenta, y menú, URL y API por rol |
+| `registro-rollos.movil.spec.ts` | Registro de rollos y despacho a bodegas con el diseño de celular |
+
+**La cámara emulada**
+
+La cámara reemplaza `navigator.mediaDevices.getUserMedia` por un video que sale de un `<canvas>`. El escáner real de la app (`html5-qrcode`) lee esos cuadros y decodifica el QR igual que con una cámara de verdad. Cada sesión (`sesion(rol)`) trae su propia cámara. Se controla desde `camara`:
+
+| Método | Efecto |
+|---|---|
+| `mostrarTexto(texto)` | La cámara ve el QR de ese texto |
+| `mostrarImagen(dataUrl)` | La cámara ve esa imagen tal cual |
+| `vaciar()` | La cámara deja de ver un QR |
+| `denegarPermiso()` | El navegador rechaza el permiso de cámara |
+| `estado()` | Cuenta las pistas de video pedidas, abiertas y cerradas (`activas`) |
+
+Siga estas reglas al usarla:
+
+- Abra el escáner primero y muestre el QR después. Al cerrarse el escáner, el QR se retira solo.
+- Para probar una etiqueta, use la imagen que imprime la app (`imagenDeLaEtiquetaImpresa`). No arme el QR a mano: así la prueba verifica lo que de verdad se imprime.
+
+**Preparar datos y escribir un flujo**
+
+1. Pida una sesión con `sesion("produccion", "/ruta")`. Cada llamada abre un navegador aparte con ese usuario del seed.
+2. Prepare el escenario de partida por API con `testing/e2e/support/api.ts` (`crearOpExtrusionLiberada`, `cargarRollo`, `moverRolloA`, `derivarOp`). Verifique siempre lo que prueba por la pantalla.
+3. Use `RegistroDeRollos` (`support/registroRollos.ts`) para el formulario de rollos: funciona igual en la tabla de escritorio y en las tarjetas de celular.
+4. Si un texto existe en los dos diseños, filtre con `.filter({ visible: true })`.
+
+Toda prueba falla si el navegador lanza un error sin atrapar o si el servidor responde 5xx. Cerrar el escáner justo mientras arranca la cámara lanza dos errores de `html5-qrcode`. Una prueba que lo provoca a propósito debe llamar a `toleraCierreRapidoDelEscaner(info)`.
 
 Obtenga un token y pruebe los endpoints:
 
