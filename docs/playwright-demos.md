@@ -34,6 +34,7 @@ import { chromium } from "playwright";
 const BASE = "http://localhost:5173";
 const API = "http://localhost:4000/api";
 const STEP_SECONDS = 12;
+let PROFILE = "admin@empresa.com · super_admin"; // perfil con el que se ingresó
 
 async function showStep(page, n, text) {
   console.log(`\n=== PASO ${n} === ${text}`);
@@ -56,7 +57,7 @@ async function showStep(page, n, text) {
       document.body.appendChild(el);
     }
     el.textContent = msg;
-  }, `PASO ${n}: ${text}`);
+  }, `[${PROFILE}] PASO ${n}: ${text}`);
   await page.waitForTimeout(STEP_SECONDS * 1000);
 }
 
@@ -71,8 +72,9 @@ async function main() {
   await showStep(page, 2, "Descripción del paso 2");
   // ... acción del paso 2 ...
 
+  // Paso final: distingue un fin normal de una caída por error
+  await showStep(page, 3, "DEMO TERMINADA: finalizó sin errores");
   console.log("\n=== FIN DE LA DEMO ===");
-  await page.waitForTimeout(8000); // deja la ventana abierta un rato al final
   await browser.close();
 }
 
@@ -83,6 +85,17 @@ main().catch((err) => {
 ```
 
 Claves del patrón:
+
+- **El banner siempre muestra el perfil con el que se ingresó.** Cada paso lleva el email y el
+  rol de la sesión (ej. `[admin@empresa.com · super_admin] PASO 3: ...`), así quien mira sabe con
+  qué permisos se está probando cada pantalla. Guardar el perfil en una variable (`PROFILE`) y
+  ponerlo en `showStep`; si la demo cambia de usuario a mitad de camino, actualizarlo antes del
+  siguiente paso.
+- **Paso final obligatorio "DEMO TERMINADA".** Al terminar todos los pasos se muestra en el
+  banner (y por `console.log`) un último paso explícito: `DEMO TERMINADA: finalizó sin errores`,
+  sostenido unos segundos antes de cerrar el navegador. Si la ventana se cierra o la demo se corta
+  sin ver ese mensaje, terminó abruptamente por un error (el `catch` del `main` imprime
+  `ERROR EN LA DEMO`) — así se distingue un fin normal de una caída.
 
 - El banner (`__demo_banner__`) es un `<div>` fijo arriba de la página, inyectado con
   `page.evaluate`, para que el paso actual se lea directamente sobre la pantalla que el usuario
