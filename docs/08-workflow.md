@@ -26,6 +26,22 @@ Así se mueve el material en la planta del cliente (reunión del 2026-10-06). El
 
 El control existe porque la mercancía se pierde en el trayecto entre bodegas. Si un rollo no aparece en la bodega principal, tiene que estar en la otra. El registro dice qué usuario lo llevó. No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con saber cuánto hay en cada una.
 
+```
+                    Bodega principal  ◄───────────────── (4) camión de regreso ───────────────┐
+                     (Inventario)     │                    [no cubierto]                       │
+                                      │ (2) camión: envía / recibe                             │
+                                      │     [Despacho a bodegas]                               │
+                  ┌───────────────────┼───────────────────┐                                    │
+                  ▼                   ▼                   ▼                                    │
+           Bodega Impresión     Bodega Sellado      Bodega Precorte ── (3) cortan los ─────────┘
+                  │                   │                   │           rollos chicos
+                  └───────────────────┴───────────────────┘
+                                      ▲
+ (1) Extrusión saca los rollos madre ─┘ (entran por la bodega principal)
+
+ (5) Bodega principal ──► camión grande ──► negocio del cliente      [no cubierto]
+```
+
 Las diferencias con el sistema actual están en [00 — Hoja de ruta](00-roadmap.md) (Backlog) y en [notas-pendientes-raw.md](notas-pendientes-raw.md).
 
 ## El ciclo del stock
@@ -151,7 +167,7 @@ Cada estación (`services/opTemplates.ts`, con espejo en el frontend) define qu�
 
 #### Destino de la OP y reapertura
 
-- **Destino** (estantería o cliente): el `clientId` de la OP es explícito y editable mientras la OP siga `borrador` o abierta (`PATCH /:id`) — una OP sin cliente entra a inventario general ("a estantería"); una OP con cliente asignado, además de sumar a inventario, genera su despacho automáticamente al aprobarse (ver "Control de calidad" abajo). **Limitación:** la producción de una OP con cliente se suma al stock general del producto, sin marcar para quién es. El cliente pidió diferenciarla, para que nadie despache como stock lo que es de un cliente.
+- **Destino** (estantería o cliente): el `clientId` de la OP es explícito y editable mientras la OP siga `borrador` o abierta (`PATCH /:id`) — una OP sin cliente entra a inventario general ("a estantería"); una OP con cliente asignado, además de sumar a inventario, genera su despacho automáticamente al aprobarse (ver "Control de calidad" abajo). **Limitación:** el cliente de la OP queda guardado (y se llega a él desde cada rollo), pero la producción de una OP con cliente se suma al stock general del producto y las pantallas no muestran para quién es. El cliente pidió diferenciarla, para que nadie despache como stock lo que es de un cliente.
 - `POST /:id/reopen` reabre una OP cerrada por error (desde `finalizada`, `pendiente_calidad` o `detenida`) y la deja `en_proceso` otra vez, editable y lista para cargar o borrar rollos. Revierte cualquier efecto de inventario que ya se hubiera aplicado, para que ningún kilo quede "fantasma" en el stock:
   - si tenía un control de calidad **aprobado**, revierte la entrada de producto terminado y borra el control (al volver a cerrar, pasa por Calidad de nuevo);
   - si tenía un control **rechazado**, solo borra el control;
