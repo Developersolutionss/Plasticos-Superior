@@ -61,10 +61,10 @@ El avance real frente al plan se detalla a continuación.
 | # | Módulo | Estado |
 |---|---|---|
 | 12 | Calidad | ✅ Implementado (control de calidad por lote: aprueba y genera la entrada de inventario, o rechaza y deja la OP `detenida`) |
-| 13 | Inventario | ✅ Implementado (stock por producto, categorías, alertas de mínimo) |
-| 14 | Despachos | ✅ Implementado (crear despacho y marcar ítems → descuenta stock; cancelación que revierte el stock movido; despacho automático al aprobar en Calidad una OP con cliente asignado) |
+| 13 | Inventario | 🟡 Parcial (stock por producto, categorías, alertas de mínimo. Falta distinguir el stock de la planta de los rollos hechos para un cliente, y que lo que sale de una OP aparezca en el inventario sin esperar a Calidad — reunión 2026-10-06) |
+| 14 | Despachos | 🟡 Parcial (crear despacho y marcar ítems → descuenta stock; cancelación que revierte el stock movido; despacho automático al aprobar en Calidad una OP con cliente asignado. Falta rediseñar la pantalla: elegir cliente y ver sus rollos, cantidad precargada, despacho parcial — reunión 2026-10-06) |
 | 15 | Almacén / WMS | ✅ Implementado (ubicaciones de bodega, stock por ubicación complementario a `InventoryStock`, asignación de cantidades, QR imprimible por ubicación con acceso público sin login) |
-| — | Bodegas de planta (rollos) | ✅ Implementado (cada estación tiene su bodega: el rollo se despacha y se recibe escaneando su QR, con transportista y hora; la recepción puede registrar el peso de la balanza como nuevo saldo; Inventario de bodegas muestra los rollos con saldo, los que van en camino, su antigüedad y el ajuste por conteo de Gestión) |
+| — | Bodegas de planta (rollos) | 🟡 Parcial (cada estación tiene su bodega: el rollo se despacha y se recibe escaneando su QR, con transportista y hora; la recepción puede registrar el peso de la balanza como nuevo saldo; Inventario de bodegas muestra los rollos con saldo, los que van en camino, su antigüedad y el ajuste por conteo de Gestión. Falta el regreso de los rollos chicos a la bodega principal — reunión 2026-10-06) |
 | 16 | Dashboard | ✅ Implementado (dashboard ejecutivo: ventas 6 meses, comparativa mensual, cartera pendiente, top clientes; dashboard de indicadores: tasa de aprobación de calidad, tiempo promedio de producción, top productos despachados) |
 | 17 | Exportaciones | ✅ Implementado (Excel con estilo de marca para inventario, pedidos, facturas y clientes) |
 
@@ -74,7 +74,7 @@ El avance real frente al plan se detalla a continuación.
 |---|---|---|
 | 18 | Etiquetas térmicas | ✅ Implementado (impresión de etiquetas con QR desde el navegador, en Productos; no es integración con hardware de impresora térmica específico) |
 | 19 | Escaneo QR / código de barras | ✅ Implementado (escaneo por cámara del navegador: producto en Despachos y Almacén, OP en la estación de producción, ubicación de bodega en Almacén) |
-| — | Despacho de rollos a bodegas | ✅ Implementado (salida desde Extrusión/Impresión hacia las bodegas de Impresión, Sellado y Precorte, más recepción en destino, escaneando el QR con token de posesión; queda quién lo entregó, quién se lo llevó, quién lo recibió, la hora y la zona horaria del celular — ver `/api/roll-transfers`) |
+| — | Despacho de rollos a bodegas | 🟡 Parcial (salida desde Extrusión/Impresión hacia las bodegas de Impresión, Sellado y Precorte, más recepción en destino, escaneando el QR con token de posesión; queda quién lo entregó, quién se lo llevó, quién lo recibió, la hora y la zona horaria del celular — ver `/api/roll-transfers`. Falta el traslado de vuelta a la bodega principal) |
 | 20 | Notificaciones | ✅ Implementado (notificaciones in-app; hoy solo dos disparadores: OP lista para calidad y OP rechazada en calidad) |
 | 21 | Pruebas finales y despliegue | ❌ Pendiente |
 
@@ -83,7 +83,7 @@ El avance real frente al plan se detalla a continuación.
 | Estado | Cantidad |
 |---|---|
 | ✅ Implementado | 20 |
-| 🟡 Parcial | 0 |
+| 🟡 Parcial | 4 |
 | ❌ Pendiente | 1 |
 
 ## Backlog sin planificar
@@ -95,6 +95,9 @@ para cuando la interpretación de abajo no alcance a cubrir el detalle pedido.
 | Idea | Interpretación |
 |---|---|
 | Rollos hijos de un rollo madre | El sistema ya guarda de qué rollo(s) madre salió un rollo chico (`sourceRollId`, `RollConsumption` — ver [04 — Base de datos](04-database.md)), pero no hay una vista que haga el camino inverso: dado un rollo madre, listar todos los rollos hijos que salieron de él. Es la mitad que falta de la trazabilidad de rollo madre/hijo |
+| Devolver rollos a la bodega principal | Los rollos chicos que salen de las bodegas de Sellado, Precorte o Impresión vuelven en camión a la bodega principal, y de ahí salen los despachos a clientes. Hoy el despacho a bodegas solo va de Extrusión o Impresión hacia otra estación. Se decidió que la devolución sea una opción explícita ("despachar a inventario principal"), con quién la lleva y quién la recibe, y no una deducción del número de escaneos del QR. Ver [08 — Reglas de negocio](08-workflow.md) |
+| Rollos de stock y rollos de cliente | El inventario no distingue lo que se fabricó para un cliente de lo que es stock: una OP con cliente suma su producción al stock general del producto. El cliente pide diferenciarlos (idea propuesta: el stock como un cliente más), una sección "Rollos para clientes" en Inventario, y que al escanear un rollo de cliente la app diga para quién es, no permita venderlo a otro y lo despache a ese cliente |
+| Rediseño de Despachos | Hoy se escribe cliente, producto y cantidad a mano. Se pidió elegir el cliente y ver sus rollos más los de stock, precargar la cantidad planificada, permitir despachos parciales (al cliente llegan rollos chicos) y dejar todo en Trazabilidad |
 
 ## Stack
 

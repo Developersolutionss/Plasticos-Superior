@@ -5,6 +5,12 @@ Sirve de referencia cuando la interpretación en [00 — Hoja de ruta](00-roadma
 no alcance a cubrir el detalle, o quede ambigua. Lo que ya se hizo se quita de aquí y queda descrito en
 [06 — Backend](06-backend.md), [07 — Frontend](07-frontend.md) y [08 — Reglas de negocio](08-workflow.md).
 
+## Rollos hijos de un rollo madre (2026-09-22)
+
+Nota original: "Implementar los rollos hijos de los rollos madres". El sistema ya guarda de qué rollo madre salió
+cada rollo chico. Falta la vista inversa: dado un rollo madre, listar todos sus rollos hijos (ver el Backlog de
+[00 — Hoja de ruta](00-roadmap.md)).
+
 ## Reunión con el cliente 2026-10-06
 
 Requisitos nuevos de inventario, despachos y traslados. Orden de prioridad que se acordó: primero
