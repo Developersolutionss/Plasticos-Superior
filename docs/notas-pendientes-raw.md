@@ -69,13 +69,21 @@ No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con sa
    ninguna parte. Falta saber si Calidad los aprueba antes de entrar al inventario o después de volver a la
    bodega principal.
 3. **El nombre del cliente en las listas de productos y rollos**, para identificar su procedencia: en qué
-   pantallas debe verse (Inventario, Inventario de bodegas, Despachos, Trazabilidad).
+   pantallas debe verse (Inventario, Inventario de bodegas, Despachos, Trazabilidad). Hoy `GET /inventory` y
+   `GET /roll-transfers/inventory` no traen el cliente, aunque la OP de cada rollo sí lo tiene.
+4. **Separar el inventario principal de las bodegas de planta**, y registrar el movimiento de los productos
+   entre ambos (ver el punto 1 de los requisitos).
+
+Despachos (punto 3 de los requisitos) no tiene nada por definir: ya está claro y se implementa tal como está
+descrito arriba.
 
 **Por investigar (el cliente lo vio en la demostración, no está claro si es un error):**
 
-- Tras cerrar una OP de 1000 kg el stock quedó en 0. Hoy el stock entra cuando Calidad aprueba, así que
-  puede ser el diseño actual. El cliente pide que todo lo que sale de una OP vaya al inventario, incluidos
-  los rollos de Extrusión, y hoy Extrusión cierra sin mover stock. Hay que confirmar con el cliente.
+- Tras cerrar una OP de 1000 kg el stock quedó en 0. **Verificado (2026-10-07, E2E con base aislada):** es el
+  diseño actual, no un error. Una OP de Extrusión para un cliente con 4 rollos de 50 kg quedó `finalizada`,
+  no pasó por Calidad y el stock del producto siguió igual. Una OP de Precorte derivada de ella quedó
+  `pendiente_calidad` y el stock tampoco subió hasta que Calidad aprobó (de 20 a 80 kg); al aprobar se creó
+  el despacho automático para el cliente. Lo que vio el cliente coincide con una OP de Extrusión.
 - Rollos que el cliente tipeó desde cero no llegaron al inventario.
 - Varios rollos hijos descontaron de "Extrusión 5", pero el inventario de bodegas parece tomar solo el
   último. Revisar el saldo del rollo madre.

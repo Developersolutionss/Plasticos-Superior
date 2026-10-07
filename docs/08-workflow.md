@@ -15,31 +15,34 @@ Cotización ───► Pedido (v1) ──► [aprobado] ──► [Planeación
 
 ## El proceso físico de planta
 
-Así se mueve el material en la planta del cliente (reunión del 2026-10-06). El sistema cubre los pasos 1 a 3 y 5. Los pasos 4 y 6 no están cubiertos todavía.
+Así se mueve el material en la planta del cliente (reunión del 2026-10-06). El sistema cubre los pasos 1 a 3. El paso 5 está cubierto en parte y los pasos 4 y 6 no están cubiertos todavía.
 
 1. Extrusión saca 3 o 4 rollos grandes (rollos madre, unos 200 kg).
 2. Un camión lleva los rollos madre de la **bodega principal** a la bodega de Sellado, Precorte o Impresión. Una persona los envía y otra los recibe (Despacho a bodegas).
 3. En esa bodega se cortan en rollos chicos, que se registran en cuanto salen.
 4. **No cubierto:** otro camión devuelve los rollos chicos a la bodega principal, con su envío y su recepción.
-5. **No cubierto:** el despacho al cliente sale siempre de la bodega principal.
-6. El orden no es fijo. Un rollo sellado puede pasar a Impresión, y un rollo chico puede volver a ser rollo madre.
+5. **Parcial:** el despacho al cliente sale siempre de la bodega principal. El módulo Despachos descuenta del inventario, pero no distingue la bodega principal de las de planta.
+6. **No cubierto:** el orden no es fijo. Un rollo sellado puede pasar a Impresión, y un rollo chico puede volver a ser rollo madre. Hoy un rollo de Sellado o Precorte no se puede despachar a ninguna bodega.
 
 El control existe porque la mercancía se pierde en el trayecto entre bodegas. Si un rollo no aparece en la bodega principal, tiene que estar en la otra. El registro dice qué usuario lo llevó. No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con saber cuánto hay en cada una.
 
 ```
-                    Bodega principal  ◄───────────────── (4) camión de regreso ───────────────┐
-                     (Inventario)     │                    [no cubierto]                       │
-                                      │ (2) camión: envía / recibe                             │
-                                      │     [Despacho a bodegas]                               │
-                  ┌───────────────────┼───────────────────┐                                    │
-                  ▼                   ▼                   ▼                                    │
-           Bodega Impresión     Bodega Sellado      Bodega Precorte ── (3) cortan los ─────────┘
-                  │                   │                   │           rollos chicos
-                  └───────────────────┴───────────────────┘
-                                      ▲
- (1) Extrusión saca los rollos madre ─┘ (entran por la bodega principal)
-
- (5) Bodega principal ──► camión grande ──► negocio del cliente      [no cubierto]
+ 1. Extrusión saca los rollos madre
+          │
+          ▼
+ ┌──────────────────┐   2. camión con los rollos madre    ┌─────────────────────────────┐
+ │ BODEGA PRINCIPAL │ ───────────────────────────────────►│ BODEGA DE PLANTA            │
+ │ (Inventario)     │      [Despacho a bodegas]           │ Impresión, Sellado o Precorte│
+ │                  │                                     │                             │
+ │                  │ ◄───────────────────────────────────│ 3. cortan los rollos chicos │
+ └──────────────────┘   4. camión con los rollos chicos   └─────────────────────────────┘
+          │                  [NO CUBIERTO]
+          │ 5. camión grande al cliente [PARCIAL]
+          ▼
+ ┌──────────────────┐
+ │ NEGOCIO DEL      │
+ │ CLIENTE          │
+ └──────────────────┘
 ```
 
 Las diferencias con el sistema actual están en [00 — Hoja de ruta](00-roadmap.md) (Backlog) y en [notas-pendientes-raw.md](notas-pendientes-raw.md).
