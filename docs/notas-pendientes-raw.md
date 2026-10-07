@@ -58,6 +58,19 @@ No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con sa
   despachado; y que todo quede en Trazabilidad.
 - Si el cliente cancela un pedido, sus rollos deben poder pasar a stock y de ahí asignarse a otro cliente.
 
+**Por definir con el cliente antes de programar:**
+
+1. **Cuándo entra al inventario lo que sale de una OP.** Hoy entra cuando Calidad aprueba, y Extrusión nunca
+   entra. El cliente pidió que todo lo que sale de una OP aparezca en el inventario. Falta saber si Calidad
+   debe aprobar antes y si eso cubre también los rollos de Extrusión.
+2. **Dónde quedan los rollos chicos y quién los aprueba.** El cliente dijo que los rollos chicos se guardan en la
+   bodega de Sellado, Precorte o Impresión y se registran en cuanto salen. Hoy un rollo de Sellado o Precorte
+   figura en la bodega de su estación, pero Inventario de bodegas no lo muestra y no se puede despachar a
+   ninguna parte. Falta saber si Calidad los aprueba antes de entrar al inventario o después de volver a la
+   bodega principal.
+3. **El nombre del cliente en las listas de productos y rollos**, para identificar su procedencia: en qué
+   pantallas debe verse (Inventario, Inventario de bodegas, Despachos, Trazabilidad).
+
 **Por investigar (el cliente lo vio en la demostración, no está claro si es un error):**
 
 - Tras cerrar una OP de 1000 kg el stock quedó en 0. Hoy el stock entra cuando Calidad aprueba, así que
