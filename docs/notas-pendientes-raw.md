@@ -1,27 +1,66 @@
 # Notas pendientes (texto original sin editar)
 
-Este archivo guarda tal cual las notas que llegaron para el backlog, antes de traducirlas a una
-descripción técnica. Sirve de referencia cuando la interpretación en [00 — Hoja de ruta](00-roadmap.md)
-o en otro documento no alcance a cubrir el detalle original, o quede ambigua.
+Este archivo guarda las notas del backlog que siguen abiertas, con el texto original o muy cercano a él.
+Sirve de referencia cuando la interpretación en [00 — Hoja de ruta](00-roadmap.md) o en otro documento
+no alcance a cubrir el detalle, o quede ambigua. Lo que ya se hizo se quita de aquí y queda descrito en
+[06 — Backend](06-backend.md), [07 — Frontend](07-frontend.md) y [08 — Reglas de negocio](08-workflow.md).
 
-## Recibidas 2026-09-22
+## Reunión con el cliente 2026-10-06
 
-Mejoras de UI sobre `OrdenProduccionDetalle.tsx` (ver [07 — Frontend](07-frontend.md)) — **hechas**:
+Requisitos nuevos de inventario, despachos y traslados. Orden de prioridad que se acordó: primero
+inventario y despachos ("lo más grave"), después la devolución a la bodega principal.
 
-- "aumentar visualizacion de Registro de rollos / avance en movil" → tarjetas de celular con ícono de candado en los campos automáticos vs. input real en los editables.
-- "añadir una forma de corregir errores en Registro de rollos / avance" → carga en lote: "+ Añadir rollo" deja cada fila editable/borrable en una lista "por confirmar" hasta que se manda todo el lote con "Confirmar N rollos".
+**El proceso real, como lo explicó el cliente:**
 
-Funcionalidad todavía no implementada (backlog, ver [00 — Hoja de ruta](00-roadmap.md)):
+1. Extrusión saca 3 o 4 rollos grandes (rollos madre, unos 200 kg).
+2. Un camión los lleva de la bodega principal a la bodega de Sellado, Precorte o Impresión. Una persona
+   los envía y otra los recibe.
+3. En esa bodega se cortan en rollos chicos. Los rollos chicos se registran en el inventario en cuanto salen.
+4. Otro camión devuelve los rollos chicos a la bodega principal, con su envío y su recepción.
+5. El despacho al cliente sale siempre de la bodega principal.
+6. El orden no es fijo: un rollo sellado puede pasar a Impresión, y un rollo chico puede volver a ser rollo
+   madre. No se debe suponer una cadena fija.
 
-- "3 bodegas (sellado, pre-corte, impresion), debe haber un registro de que operario y camionero
-  lo recibe y registra" → **hecho**: Despacho a bodegas (`DespachoBodegas.tsx`, `/api/roll-transfers`).
-- "flujo automatico por medio de qr a hora de transportar QRs" → **hecho**: se usa el mismo QR del rollo
-  (código + token) para la salida y para la recepción.
-- "vista de visualizacion de informacion de cualquier rollo, para mejor trasabilidad" → **hecho (2026-09-26)**:
-  Trazabilidad busca por el QR de un rollo, una etiqueta de bulto o el número de OP, y muestra por cada rollo
-  todos sus rollos madre (con kg), sus despachos entre bodegas, la etiqueta de bulto, los lotes de materia
-  prima de Extrusión y el despacho a cliente de la OP.
-- "Implementar los rollos hijos de los rollos madres"
+**Por qué importa:** la mercancía se pierde en el trayecto entre bodegas. Si un rollo no aparece en la
+bodega principal, debe estar en la otra. Si no está en ninguna, el registro dice qué usuario lo llevó.
+No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con saber cuánto hay en cada una.
+
+**1. Devolver rollos a la bodega principal.**
+
+- Hoy el despacho a bodegas solo va de Extrusión o Impresión hacia otra estación. Falta el regreso a la
+  bodega principal, con quién lo lleva y quién lo recibe.
+- Decisión: es una opción explícita ("despachar a inventario principal"). No se deduce del número de
+  escaneos del QR (un escaneo repetido por error no debe contar como un movimiento).
+- Mientras el rollo esté fuera, debe poder verse dónde está y quién lo tiene.
+
+**2. Distinguir rollos de stock y rollos de cliente.**
+
+- Una OP hecha para un cliente (por ejemplo 1000 kg) no debe cargar su producción como stock general. Si lo
+  hace, alguien ve "900 kg, sobra" y los despacha, y el cliente se queda sin su pedido.
+- Idea propuesta: tratar el stock como un cliente más. El cliente quiere además una sección aparte de
+  "Rollos para clientes" en Inventario, separada de las existencias genéricas.
+- Una OP de stock se puede planificar por una cantidad y abrir directo.
+- Al escanear un rollo de cliente la app debe decir para quién es, no debe poder ponerse a la venta y, al
+  despacharlo, debe salir hacia ese cliente de forma automática.
+- La OP ya guarda el cliente destino. Falta que el inventario lo muestre y lo respete.
+
+**3. Rediseñar Despachos.**
+
+- Hoy se escribe cliente, producto y cantidad, y la cantidad hay que repetirla aunque ya se planificó.
+- Se pidió: elegir el cliente y ver sus rollos más los de stock; que la cantidad se llene sola con lo
+  planificado; poder despachar menos (al cliente llegan rollos chicos, no un rollo de 1000 kg); marcar como
+  despachado; y que todo quede en Trazabilidad.
+- Si el cliente cancela un pedido, sus rollos deben poder pasar a stock y de ahí asignarse a otro cliente.
+
+**Por investigar (el cliente lo vio en la demostración, no está claro si es un error):**
+
+- Tras cerrar una OP de 1000 kg el stock quedó en 0. Hoy el stock entra cuando Calidad aprueba, así que
+  puede ser el diseño actual. El cliente pide que todo lo que sale de una OP vaya al inventario, incluidos
+  los rollos de Extrusión, y hoy Extrusión cierra sin mover stock. Hay que confirmar con el cliente.
+- Rollos que el cliente tipeó desde cero no llegaron al inventario.
+- Varios rollos hijos descontaron de "Extrusión 5", pero el inventario de bodegas parece tomar solo el
+  último. Revisar el saldo del rollo madre.
+- El inventario de bodegas mostraba 11 rollos en Precorte y no quedó claro a qué corresponde.
 
 ## Revisión de Trazabilidad / Inventario / Almacén / Exportaciones / Avisos (2026-09-26)
 
@@ -34,12 +73,10 @@ Pendiente a propósito (Gestión, 2026-09-26: "dejalo como está por ahora"):
   la OP registre unidades) — el punto a tocar es `POST /production-orders/:id/quality-check` (y su reversión en
   `POST /:id/reopen`), en `server/src/routes/productionOrders.ts`.
 
-Decisiones abiertas del bloque de kilos (2026-09-29):
+Decisión abierta del bloque de kilos (2026-09-29):
 
 - Derivar a varias estaciones: la primera hija toma todo lo disponible y la segunda se rechaza hasta que
   Gestión baje la meta de la primera. Propuesta: que "Derivar a…" pregunte los kilos al derivar.
-- ~~El peso medido al recibir un rollo, ¿debería bajar el saldo?~~ → **decidido (2026-10-02)**: sí, el peso
-  medido pasa a ser el saldo del rollo (ajuste `recepcion`, ver Inventario de bodegas).
 
 Pendientes del QA previo al despliegue (2026-10-02), no bloqueantes:
 
@@ -53,100 +90,22 @@ Pendientes del QA previo al despliegue (2026-10-02), no bloqueantes:
   en memoria: con miles de rollos conviene filtrar por saldo en SQL o paginar.
 - El upsert de presets no limpia measure/quantityPlanned cuando llegan vacíos.
 
-Quedaron fuera de esta ronda (no se decidió todavía):
+Quedaron fuera de esa ronda (no se decidió todavía):
 
 - Ajuste manual de stock de producto terminado tras un conteo físico (la materia prima sí lo tiene).
 - Exportaciones del área de producción (OPs, rollos, movimientos, materia prima, despachos a bodegas) y
-  filtro por fecha en las existentes.
-- Preferencias/vencimiento de avisos (hoy le llegan a todos los usuarios del rol y no vencen), y avisos
+  filtro por fecha en las existentes. Hoy se exporta inventario, pedidos, facturas y clientes.
+- Preferencias y vencimiento de avisos (hoy le llegan a todos los usuarios del rol y no vencen), y avisos
   de OPs estancadas o rollos en tránsito hace mucho.
 - Datos del catálogo contradictorios (ej. producto con "ALTA DENSIDAD" en el nombre y densidad BAJA).
 
-## Recibidas 2026-09-24
+## Token de posesión del rollo (2026-09-24)
 
-Seguridad de la trazabilidad: código secuencial vs. validación de posesión física del rollo
-(backlog, ver [00 — Hoja de ruta](00-roadmap.md)):
-
-> No termina de convencer el sistema secuencial de registro y trazabilidad (ej. `EXT-9`): con la
-> información necesaria, cualquiera podría estimar cuáles son los próximos códigos disponibles y
-> registrarlos — por ejemplo, para inflar artificialmente métricas de eficiencia, entregas o
-> disponibilidad. El cliente prefiere mantener los códigos secuenciales porque le resultan más
-> simples de leer y manejar que un string aleatorio.
->
-> Propuesta: conservar el código secuencial como identificador legible para las personas, pero
-> agregar en el QR un segundo código — el "token" — que no se pueda inferir a partir de la
-> secuencia, y que sirva para verificar que quien opera sobre el rollo tiene el producto físico en
-> mano (transporte, tratado, transformación). El token debe seguir siendo legible y tipeable a mano
-> por una persona, aunque no tan simple como el secuencial.
-
-Requisito derivado (versión ya redactada como pedido técnico, incluida acá tal cual llegó):
-
-Cada rollo tendría dos identificadores en su QR: el código secuencial visible de hoy (`EXT-9`,
-legible y fácil de comunicar) y un código de validación no predecible (el "token"), generado con un
-mecanismo criptográficamente seguro y validado en el servidor. El token demuestra posesión física
-del rollo — conocer o adivinar el siguiente código secuencial (ej. `EXT-10`) no alcanzaría para
-registrar, transportar o transformar ese rollo sin también tener su token.
-
-Falta definir: qué operaciones exigen el token (todas las de trazabilidad, o solo algunas), y qué
-debe pasar si el token es inválido, ya fue usado, o pertenece a un rollo ya procesado. Criterio de
-aceptación: dado un código secuencial válido pero sin el token correspondiente, el sistema no debe
-permitir registrar ni ejecutar sobre ese rollo ninguna operación que requiera demostrar posesión
-física.
-
-**Propuesta concreta acordada** (formato de código, generación, verificación y alcance):
-
-Formato visible por rollo: `EXT-9-K7M9XT4P2R6HW3JC` — el código secuencial de siempre (`EXT-9`, sin
-padding, igual que hoy) seguido de un `token_visible` de 16 caracteres en alfabeto Crockford
-Base32 (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`, sin `0/O` ni `1/I/L` para no confundirse al tipear a
-mano), dando ~80 bits de entropía. No se usa cero-padding en la parte secuencial para no repetir la
-ambigüedad de forma que ya causó el bug de `ba5489a` (etiquetas de bulto `EXT-000NN` vs. rollos
-`EXT-N`).
-
-Generación (servidor, al crear el rollo):
-
-```
-random        = 80 bits criptográficamente aleatorios (crypto.randomBytes)
-token_visible = encode_crockford32(random)                      // se imprime en el QR/etiqueta
-token_hash    = HMAC-SHA256(SERVER_SECRET, sequential_code + ":" + token_visible)
-```
-
-Se guarda en la base **solo** `token_hash` (columna nueva en `ProductionRoll`, ej.
-`possessionTokenHash`). El `random`/`token_visible` no se persiste en ningún lado más que la
-etiqueta física impresa — así una fuga de la base no alcanza para fabricar un QR válido (mismo
-principio que guardar un hash de contraseña en vez de la contraseña).
-
-Verificación (al escanear, solo para operaciones que exigen posesión física):
-
-```
-roll      = buscar por sequential_code
-esperado  = HMAC-SHA256(SERVER_SECRET, sequential_code + ":" + token_visible_escaneado)
-ok        = crypto.timingSafeEqual(esperado, roll.possessionTokenHash)
-```
-
-Alcance — no todo exige el token:
-
-- **Solo lectura** (buscar por código, listar, Trazabilidad): sigue funcionando con el código
-  secuencial solo, sin cambios.
-- **Exige token**: escanear un rollo madre para consumirlo (`applyScannedSourceRoll` /
-  `allocateFromSourceRolls` en el flujo de `OrdenProduccionDetalle.tsx`) — ahí se escanea el QR
-  completo (código + token), no solo el código.
-
-Hechas desde entonces:
-
-- **Límite de intentos por usuario en el endpoint que valida el token**: `checkPossessionTokenRateLimit`
-  (`services/rateLimiter.ts`, usado en `GET /rolls/by-code/:code` de `productionOrders.ts`) corta a 50
-  escaneos por minuto y devuelve `429`. Es por **usuario**, no por IP como pedía la nota original, y
-  está pensado como freno de performance ante un escaneo descontrolado, no como control de seguridad
-  contra fuerza bruta del token.
-- **Endpoint de reemisión** (solo Gestión/Calidad) para etiquetas dañadas o perdidas: `POST
-  /production-orders/:id/rolls/:rollId/reissue-label`, restringido a `ROLES.PRODUCCION_GESTION` +
-  `ROLES.CALIDAD`, genera un token nuevo e invalida el anterior.
-
-Pendiente de implementar además:
+El token (formato, generación, verificación, reemisión y límite de 50 escaneos por minuto por usuario)
+está hecho y descrito en [06 — Backend](06-backend.md). Queda pendiente:
 
 - Límite de intentos fallidos **por IP** en el endpoint que valida el token, como defensa adicional a
-  los 80 bits — hoy el límite existente es por usuario, no por IP (ver arriba).
-- Rotación de `SERVER_SECRET` (hoy la variable de entorno es `ROLL_TOKEN_SECRET`, ver
-  `services/rollPossessionToken.ts`) queda como limitación conocida por ahora (rotarlo invalida todo
-  lo ya impreso); si hace falta a futuro, versionar el secreto (`possessionTokenVersion` por rollo) con
-  una ventana de transición que acepte el secreto viejo y el nuevo.
+  los 80 bits. Hoy el límite es por usuario y es un freno de rendimiento, no un control de seguridad.
+- Rotación de `ROLL_TOKEN_SECRET`: queda como limitación conocida (rotarlo invalida todo lo ya impreso).
+  Si hace falta, versionar el secreto (`possessionTokenVersion` por rollo) con una ventana de transición
+  que acepte el secreto viejo y el nuevo.
