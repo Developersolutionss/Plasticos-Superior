@@ -13,6 +13,21 @@ Cotización ───► Pedido (v1) ──► [aprobado] ──► [Planeación
                                                                                                   Inventario ─── Despacho (resta stock) ─── Factura ─── Pagos (cartera)
 ```
 
+## El proceso físico de planta
+
+Así se mueve el material en la planta del cliente (reunión del 2026-10-06). El sistema cubre los pasos 1 a 3 y 5. Los pasos 4 y 6 no están cubiertos todavía.
+
+1. Extrusión saca 3 o 4 rollos grandes (rollos madre, unos 200 kg).
+2. Un camión lleva los rollos madre de la **bodega principal** a la bodega de Sellado, Precorte o Impresión. Una persona los envía y otra los recibe (Despacho a bodegas).
+3. En esa bodega se cortan en rollos chicos, que se registran en cuanto salen.
+4. **No cubierto:** otro camión devuelve los rollos chicos a la bodega principal, con su envío y su recepción.
+5. **No cubierto:** el despacho al cliente sale siempre de la bodega principal.
+6. El orden no es fijo. Un rollo sellado puede pasar a Impresión, y un rollo chico puede volver a ser rollo madre.
+
+El control existe porque la mercancía se pierde en el trayecto entre bodegas. Si un rollo no aparece en la bodega principal, tiene que estar en la otra. El registro dice qué usuario lo llevó. No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con saber cuánto hay en cada una.
+
+Las diferencias con el sistema actual están en [00 — Hoja de ruta](00-roadmap.md) (Backlog) y en [notas-pendientes-raw.md](notas-pendientes-raw.md).
+
 ## El ciclo del stock
 
 Este es el flujo central de inventario:
@@ -71,7 +86,7 @@ Extrusión → Impresión → Sellado → Precorte
 - La meta (`quantityPlanned`) de una OP hija por defecto es lo que el padre **produjo de verdad** (suma real de sus rollos), no lo que el padre tenía planificado — evita que la hija quede esperando kilos que nunca se van a cargar. Si el padre sigue produciendo después de derivar, esa meta se sincroniza sola mientras la hija no tenga rollos propios.
 - `POST /api/production-orders/:id/rolls` agrega una fila al **registro acumulativo de rollos** (fecha, turno, operario, máquina, etiqueta, peso, desperdicio, pruebas en `details`). Si la OP está `pendiente`, pasa a `en_proceso`. La meta se completa con **peso + desperdicio**; un rollo que se pase de la meta se rechaza.
 - Un operario solo carga rollos en OPs de **su** estación (`OPERARIO_STATIONS`). Gestión de producción puede cargar en cualquiera.
-- `POST /api/production-orders/:id/close` cierra la OP (requiere ≥1 rollo): Extrusión siempre queda `finalizada` directo (su material sigue en las OPs derivadas, sin mover stock). **Impresión, Sellado y Precorte** pueden ser procesos finales — quedan `pendiente_calidad` sin mover stock todavía. Cerrar una OP e derivarla son decisiones independientes: Impresión puede cerrarse (ir a Calidad) aunque también tenga OPs derivadas a Sellado o Precorte.
+- `POST /api/production-orders/:id/close` cierra la OP (requiere ≥1 rollo): Extrusión siempre queda `finalizada` directo (su material sigue en las OPs derivadas, sin mover stock; el cliente pidió que lo que sale de una OP aparezca en el inventario, y esta regla está por confirmar). **Impresión, Sellado y Precorte** pueden ser procesos finales — quedan `pendiente_calidad` sin mover stock todavía. Cerrar una OP e derivarla son decisiones independientes: Impresión puede cerrarse (ir a Calidad) aunque también tenga OPs derivadas a Sellado o Precorte.
 - Al cerrar una OP de **Extrusión**, el sistema descuenta del stock de materia prima el kg cargado en cada insumo de `specs.materiaPrima` (ver [Materia prima](#materia-prima) más abajo).
 - Estados de OP: `borrador` → `pendiente` → `en_proceso` → (`finalizada` | `pendiente_calidad` → `finalizada`) (o `detenida` / `cancelada`, control manual por `PATCH /status`).
 - Cuando el cierre deja la OP `pendiente_calidad`, el sistema notifica a `ROLES.CALIDAD` (`notifyRoles`, ver más abajo).
@@ -98,7 +113,7 @@ Un rollo solo se consume en la estación donde está físicamente: en la bodega 
 - **Saldo de un rollo** = su peso original − lo que le sacaron sus rollos hijos (`roll_consumptions`) + la suma de sus ajustes (`roll_adjustments`). El peso original nunca se modifica (es el dato de producción).
 - **Peso al recibir** (decisión de Gestión, 2026-10-02): si la bodega destino pesa el rollo al recibirlo, ese peso pasa a ser su saldo (ajuste `recepcion`, enlazado al despacho). Si difiere más de 0,5 kg de lo que salió, además se avisa a Gestión. Si difiere más de 5 kg o del 10 % (lo mayor), se toma como error de tipeo: el peso queda registrado pero el saldo no cambia, y se avisa a Gestión para que lo verifique con un conteo.
 - **Ajuste por conteo físico** (solo Gestión, con motivo obligatorio): el saldo pasa a lo pesado/contado; 0 significa que el rollo ya no está. No se puede ajustar un rollo en camino ni producto terminado. Queda en Trazabilidad y en Auditoría.
-- **Inventario de bodegas** (pantalla del mismo nombre): rollos con saldo en cada bodega, totales, rollos en camino y antigüedad; un rollo que lleva 7 días o más en una bodega se marca como parado. Solo cuenta rollos que alimentan a otra estación (salidos de Extrusión o Impresión): lo de Sellado/Precorte es producto terminado y va por Calidad e Inventario. Un operario abre directo en la bodega de su estación.
+- **Inventario de bodegas** (pantalla del mismo nombre): rollos con saldo en cada bodega, totales, rollos en camino y antigüedad; un rollo que lleva 7 días o más en una bodega se marca como parado. Solo cuenta rollos que alimentan a otra estación (salidos de Extrusión o Impresión): lo de Sellado/Precorte se trata como producto terminado y va por Calidad e Inventario. En la planta, esos rollos chicos esperan en la bodega de su estación hasta que un camión los devuelva a la bodega principal, y eso todavía no se registra. Un operario abre directo en la bodega de su estación.
 
 #### Autocompletado en bodegas (2026-10-02)
 
@@ -136,7 +151,7 @@ Cada estación (`services/opTemplates.ts`, con espejo en el frontend) define qu�
 
 #### Destino de la OP y reapertura
 
-- **Destino** (estantería o cliente): el `clientId` de la OP es explícito y editable mientras la OP siga `borrador` o abierta (`PATCH /:id`) — una OP sin cliente entra a inventario general ("a estantería"); una OP con cliente asignado, además de sumar a inventario, genera su despacho automáticamente al aprobarse (ver "Control de calidad" abajo).
+- **Destino** (estantería o cliente): el `clientId` de la OP es explícito y editable mientras la OP siga `borrador` o abierta (`PATCH /:id`) — una OP sin cliente entra a inventario general ("a estantería"); una OP con cliente asignado, además de sumar a inventario, genera su despacho automáticamente al aprobarse (ver "Control de calidad" abajo). **Limitación:** la producción de una OP con cliente se suma al stock general del producto, sin marcar para quién es. El cliente pidió diferenciarla, para que nadie despache como stock lo que es de un cliente.
 - `POST /:id/reopen` reabre una OP cerrada por error (desde `finalizada`, `pendiente_calidad` o `detenida`) y la deja `en_proceso` otra vez, editable y lista para cargar o borrar rollos. Revierte cualquier efecto de inventario que ya se hubiera aplicado, para que ningún kilo quede "fantasma" en el stock:
   - si tenía un control de calidad **aprobado**, revierte la entrada de producto terminado y borra el control (al volver a cerrar, pasa por Calidad de nuevo);
   - si tenía un control **rechazado**, solo borra el control;
@@ -157,7 +172,7 @@ Cada estación (`services/opTemplates.ts`, con espejo en el frontend) define qu�
 
 `POST /api/production-orders/:id/quality-check` decide el destino del lote:
 
-- **Aprobado**: se genera la entrada de inventario (`applyMovement` con la suma de kg de los rollos) y la OP pasa a `finalizada`. Si la OP tiene **cliente asignado** (destino "a cliente", no "a estantería"), el sistema además crea un `Dispatch` automático en `pendiente` para ese cliente, con el producto y la cantidad ya cargados — Almacén solo confirma la salida física en vez de armar el despacho desde cero. El sistema notifica a `ROLES.ALMACEN` cuando esto pasa.
+- **Aprobado**: se genera la entrada de inventario (`applyMovement` con la suma de kg de los rollos) y la OP pasa a `finalizada`. Si la OP tiene **cliente asignado** (destino "a cliente", no "a estantería"), el sistema además crea un `Dispatch` automático en `pendiente` para ese cliente, con el producto y la cantidad ya cargados — Almacén solo confirma la salida física en vez de armar el despacho desde cero. El sistema notifica a `ROLES.ALMACEN` cuando esto pasa. El stock de ese lote queda mezclado con el stock general del producto (ver la limitación en "Destino de la OP y reapertura").
 - **Rechazado**: la OP queda `detenida` sin mover stock (Producción decide qué hacer). El sistema notifica a `ROLES.PRODUCCION_GESTION`.
 - La OP debe estar `pendiente_calidad` y no tener aún un control registrado (una sola revisión por OP, `quality_checks.production_order_id` es único).
 
