@@ -367,7 +367,7 @@ Despacho de un rollo de su estación a la bodega de otra estación (ver `/api/ro
 |---|---|---|
 | id | Int | PK |
 | rollId | Int | `@map("roll_id")`. FK → production_rolls, `onDelete: Cascade` |
-| fromStation / toStation | `ProductionStation` | Origen (bodega del último despacho recibido, o `roll.station` si nunca se movió) y bodega destino |
+| fromStation / toStation | `RollWarehouse` | (`extrusion`, `impresion`, `sellado`, `precorte` o `principal` = la bodega principal, de donde salen los despachos a clientes) Origen (bodega del último despacho recibido, o `roll.station` si nunca se movió) y bodega destino |
 | mode | `RollTransferMode` | `entrega` (el operario tipeó a quién) / `retiro` (quien se lo lleva escaneó con su cuenta) |
 | carrierName | String | Quién se lleva el rollo |
 | registeredById | Int | `@map("registered_by")`. FK → users, quién escaneó la salida |
@@ -579,6 +579,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260929120000_restore_production_rolls_source_roll_idx` | Recrea el índice de `production_rolls.source_roll_id` que borró por error `add_production_order_presets` |
 | `20261002120000_roll_adjustments` | Tabla `roll_adjustments` y enum `RollAdjustmentReason` (ajustes de saldo por recepción y conteo físico) |
 | `20261009120000_dispatch_item_rolls` | Tabla `dispatch_item_rolls` (rollos/bultos que salen hacia un cliente en cada ítem de despacho) |
+| `20261009180000_roll_transfers_main_warehouse` | Enum `RollWarehouse` (estaciones + `principal`); `roll_transfers.from_station`/`to_station` pasan de `ProductionStation` a `RollWarehouse` (los valores existentes se conservan) |
 
 Para aplicar cambios nuevos:
 

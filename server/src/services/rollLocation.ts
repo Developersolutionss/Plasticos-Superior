@@ -1,6 +1,6 @@
 import { prisma } from "../prisma";
 import type { TxClient } from "./stockService";
-import { STATION_LABELS, type OpStation } from "./opTemplates";
+import { STATION_LABELS, warehousePhrase, type OpStation, type RollWarehouse } from "./opTemplates";
 
 /**
  * Dónde está físicamente un rollo AHORA, según los despachos a bodegas
@@ -10,8 +10,8 @@ import { STATION_LABELS, type OpStation } from "./opTemplates";
  * abierto a la vez (ver POST /roll-transfers) y uno anulado se borra.
  */
 export type RollLocation =
-  | { status: "en_bodega"; station: OpStation }
-  | { status: "en_transito"; fromStation: OpStation; toStation: OpStation; carrierName: string };
+  | { status: "en_bodega"; station: RollWarehouse }
+  | { status: "en_transito"; fromStation: RollWarehouse; toStation: RollWarehouse; carrierName: string };
 
 export async function getRollLocation(
   tx: TxClient | typeof prisma,
@@ -21,12 +21,12 @@ export async function getRollLocation(
   if (last?.status === "en_transito") {
     return {
       status: "en_transito",
-      fromStation: last.fromStation as OpStation,
-      toStation: last.toStation as OpStation,
+      fromStation: last.fromStation,
+      toStation: last.toStation,
       carrierName: last.carrierName,
     };
   }
-  return { status: "en_bodega", station: (last?.status === "recibido" ? last.toStation : roll.station) as OpStation };
+  return { status: "en_bodega", station: last?.status === "recibido" ? last.toStation : (roll.station as OpStation) };
 }
 
 /**
@@ -38,10 +38,10 @@ export async function getRollLocation(
  */
 export function rollLocationBlock(code: string, location: RollLocation, consumingStation: OpStation): string | null {
   if (location.status === "en_transito") {
-    return `El rollo ${code} está en camino a la bodega de ${STATION_LABELS[location.toStation]} (lo lleva ${location.carrierName}) — hay que confirmar que llegó en Despacho a bodegas antes de poder consumirlo`;
+    return `El rollo ${code} está en camino a ${warehousePhrase(location.toStation)} (lo lleva ${location.carrierName}) — hay que confirmar que llegó en Despacho a bodegas antes de poder consumirlo`;
   }
   if (location.station !== consumingStation) {
-    return `El rollo ${code} está en la bodega de ${STATION_LABELS[location.station]} — para consumirlo en ${STATION_LABELS[consumingStation]} primero hay que despacharlo a la bodega de ${STATION_LABELS[consumingStation]} y recibirlo allá (Despacho a bodegas)`;
+    return `El rollo ${code} está en ${warehousePhrase(location.station)} — para consumirlo en ${STATION_LABELS[consumingStation]} primero hay que despacharlo a la bodega de ${STATION_LABELS[consumingStation]} y recibirlo allá (Despacho a bodegas)`;
   }
   return null;
 }

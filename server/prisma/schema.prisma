@@ -107,6 +107,18 @@ enum ProductionStation {
   precorte
 }
 
+/// Dónde puede estar un rollo: la bodega de cada estación o la bodega
+/// principal (de donde salen los despachos a clientes). Solo se usa en los
+/// traslados entre bodegas (`RollTransfer`); la estación de una OP sigue
+/// siendo `ProductionStation`.
+enum RollWarehouse {
+  extrusion
+  impresion
+  sellado
+  precorte
+  principal
+}
+
 /// Cómo se registró un despacho de rollo a otra bodega (ver RollTransfer):
 /// `entrega` = el operario de origen escanea y TIPEA a quién se lo entregó;
 /// `retiro` = quien se lleva el rollo lo escanea con su propia cuenta.
@@ -924,8 +936,8 @@ model RollTransfer {
   roll                   ProductionRoll    @relation(fields: [rollId], references: [id], onDelete: Cascade)
   /// Dónde estaba el rollo al salir: la bodega del último despacho
   /// recibido, o `roll.station` si nunca se movió.
-  fromStation            ProductionStation @map("from_station")
-  toStation              ProductionStation @map("to_station")
+  fromStation            RollWarehouse     @map("from_station")
+  toStation              RollWarehouse     @map("to_station")
   mode                   RollTransferMode
   carrierName            String            @map("carrier_name")
   registeredById         Int               @map("registered_by")

@@ -9,7 +9,7 @@ import { SkeletonRows } from "../components/Skeleton";
 import { PRODUCCION_GESTION } from "../components/navConfig";
 import { splitScannedCode } from "../lib/rollQr";
 import { suggestDispatch } from "../lib/rollTransferSuggest";
-import { STATION_LABELS, OpStation } from "../opTemplates";
+import { WAREHOUSE_LABELS, warehousePhrase, OpStation, RollWarehouse } from "../opTemplates";
 
 /** Estación que le toca a cada rol de operario — espejo de
  * OPERARIO_STATIONS en server/src/middleware/auth.ts: un operario solo
@@ -51,7 +51,7 @@ function formatInZone(iso: string, timeZone: string | null, offset: number | nul
 }
 
 function stationLabel(station: string): string {
-  return STATION_LABELS[station as OpStation] ?? station;
+  return WAREHOUSE_LABELS[station as RollWarehouse] ?? station;
 }
 
 const STATUS_LABELS: Record<RollTransfer["status"], string> = { en_transito: "En tránsito", recibido: "Recibido" };
@@ -93,7 +93,7 @@ export default function DespachoBodegas() {
 
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState<{ code: string; token: string; info: RollTransferScan } | null>(null);
-  const [toStation, setToStation] = useState<OpStation | "">("");
+  const [toStation, setToStation] = useState<RollWarehouse | "">("");
   const [mode, setMode] = useState<"entrega" | "retiro">("entrega");
   const [carrierName, setCarrierName] = useState("");
   const [notes, setNotes] = useState("");
@@ -210,7 +210,7 @@ export default function DespachoBodegas() {
       });
       const diff = weightDiff(transfer);
       setSuccess(
-        `Rollo ${transfer.rollCode} recibido en la bodega de ${stationLabel(transfer.toStation)}` +
+        `Rollo ${transfer.rollCode} recibido en ${warehousePhrase(transfer.toStation)}` +
           ((transfer as any).balanceNotAdjusted
             ? `. El peso cargado (${weighed} kg) es muy distinto de lo que salió: NO se cambió el saldo, se le avisó a Gestión para que lo verifique`
             : (weighed !== undefined ? `. Saldo del rollo: ${weighed} kg` : "") +
@@ -327,11 +327,11 @@ export default function DespachoBodegas() {
                     className="w-full inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-3 rounded-lg disabled:opacity-50"
                   >
                     <PackageCheck size={18} aria-hidden="true" />
-                    {submitting ? "Registrando..." : `Confirmar recepción en ${stationLabel(open.toStation)}`}
+                    {submitting ? "Registrando..." : `Confirmar recepción en ${warehousePhrase(open.toStation)}`}
                   </button>
                 </>
               ) : (
-                <p className="text-sm text-slate-500 dark:text-slate-400">Lo tiene que recibir un operario de {stationLabel(open.toStation)}.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Lo tiene que recibir {open.toStation === "principal" ? "Almacén o Gestión" : `un operario de ${stationLabel(open.toStation)}`}.</p>
               )}
             </div>
           ) : Number(info.roll.remainingKg) <= 0 ? (
@@ -340,7 +340,11 @@ export default function DespachoBodegas() {
             // formulario y recién enterarse con un 400 al enviar.
             <p className="text-sm text-slate-500 dark:text-slate-400">El rollo {info.roll.code} ya se consumió entero — no queda nada que despachar.</p>
           ) : info.destinations.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">Los rollos de {stationLabel(info.roll.station)} no se despachan a otra bodega.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {info.inMainWarehouse
+                ? `El rollo ${info.roll.code} ya está en la bodega principal: de ahí sale al cliente en un despacho.`
+                : `Los rollos de ${stationLabel(info.roll.station)} no se despachan a otra bodega.`}
+            </p>
           ) : (
             <form onSubmit={handleDispatch} className="space-y-4">
               {info.lastTransfer && (
@@ -364,7 +368,7 @@ export default function DespachoBodegas() {
                       }`}
                     >
                       {stationLabel(s)}
-                      {info.expectingStations?.includes(s) && (
+                      {(info.expectingStations as RollWarehouse[] | undefined)?.includes(s) && (
                         <span className={`block text-xs font-normal ${toStation === s ? "text-slate-200" : "text-emerald-700 dark:text-emerald-400"}`}>
                           Tiene OP abierta esperándolo
                         </span>
@@ -435,6 +439,7 @@ export default function DespachoBodegas() {
           <option value="impresion">Impresión</option>
           <option value="sellado">Sellado</option>
           <option value="precorte">Precorte</option>
+          <option value="principal">Bodega principal</option>
         </select>
         <input
           type="date"

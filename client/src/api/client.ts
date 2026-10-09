@@ -74,6 +74,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export type ProductionStation = "extrusion" | "impresion" | "sellado" | "precorte";
+/** Dónde puede estar un rollo: la bodega de una estación o la principal. */
+export type RollWarehouse = ProductionStation | "principal";
 
 /** Despacho de un rollo a la bodega de otra estación (ver RollTransfer en
  * server/prisma/schema.prisma). `createdAt`/`receivedAt` son hora del
@@ -83,8 +85,8 @@ export interface RollTransfer {
   id: number;
   rollId: number;
   rollCode: string;
-  fromStation: ProductionStation;
-  toStation: ProductionStation;
+  fromStation: RollWarehouse;
+  toStation: RollWarehouse;
   mode: "entrega" | "retiro";
   carrierName: string;
   registeredBy: { name: string };
@@ -137,12 +139,16 @@ export interface WarehouseRoll {
   stale: boolean;
   /** Estaciones con OP derivada abierta de su OP que lo están esperando. */
   pendingTo: ProductionStation[];
+  /** Producto terminado (Sellado/Precorte/Impresión final): no se consume ni se cuenta. */
+  finished: boolean;
+  /** Terminado y todavía en la bodega de su estación: falta devolverlo a la principal. */
+  pendingReturn: boolean;
 }
 
-export interface InTransitRoll extends Omit<WarehouseRoll, "days" | "stale" | "pendingTo"> {
+export interface InTransitRoll extends Omit<WarehouseRoll, "days" | "stale" | "pendingTo" | "pendingReturn"> {
   transferId: number;
-  fromStation: ProductionStation;
-  toStation: ProductionStation;
+  fromStation: RollWarehouse;
+  toStation: RollWarehouse;
   carrierName: string;
   hours: number;
   /** Más de staleTransitHours en camino: nadie lo recibió. */
@@ -154,11 +160,12 @@ export interface WarehouseInventory {
   staleDays: number;
   staleTransitHours: number;
   warehouses: {
-    station: ProductionStation;
+    station: RollWarehouse;
     label: string;
     rollCount: number;
     totalKg: number;
     staleCount: number;
+    pendingReturnCount: number;
     inTransitCount: number;
     staleTransitCount: number;
     inTransitKg: number;
@@ -179,7 +186,9 @@ export interface RollTransferScan {
     date: string;
     productionOrder: { id: number; orderNumber: string; product: { name: string; sku: string }; client: { id: number; name: string } | null };
   };
-  destinations: ProductionStation[];
+  destinations: RollWarehouse[];
+  /** Ya está en la bodega principal: de ahí sale al cliente, no hay a dónde mandarlo. */
+  inMainWarehouse: boolean;
   /** Destinos con OP derivada abierta esperando material de la OP del rollo. */
   expectingStations: ProductionStation[];
   /** "Material para" de la OP del rollo, como estación. */
@@ -407,7 +416,16 @@ export const api = {
   getDispatchItemRolls: (dispatchId: number, itemId: number) =>
     request<{
       reserved: boolean;
-      rolls: { id: number; code: string; label: string | null; weightKg: number; orderNumber: string; origin: "cliente" | "stock" }[];
+      rolls: {
+        id: number;
+        code: string;
+        label: string | null;
+        weightKg: number;
+        orderNumber: string;
+        origin: "cliente" | "stock";
+        location: string;
+        inMainWarehouse: boolean;
+      }[];
     }>(`/dispatches/${dispatchId}/items/${itemId}/rolls`),
   /** Cancela un despacho — si ya tenía ítems despachados, revierte ese
    * stock (y la ubicación de origen, si se había cargado una). */

@@ -20,9 +20,9 @@ Así se mueve el material en la planta del cliente (reunión del 2026-10-06). El
 1. Extrusión saca 3 o 4 rollos grandes (rollos madre, unos 200 kg).
 2. Un camión lleva los rollos madre de la **bodega principal** a la bodega de Sellado, Precorte o Impresión. Una persona los envía y otra los recibe (Despacho a bodegas).
 3. En esa bodega se cortan en rollos chicos, que se registran en cuanto salen.
-4. **No cubierto:** otro camión devuelve los rollos chicos a la bodega principal, con su envío y su recepción.
-5. **Parcial:** el despacho al cliente sale siempre de la bodega principal. El módulo Despachos descuenta del inventario, pero no distingue la bodega principal de las de planta.
-6. **No cubierto:** el orden no es fijo. Un rollo sellado puede pasar a Impresión, y un rollo chico puede volver a ser rollo madre. Hoy un rollo de Sellado o Precorte no se puede despachar a ninguna bodega.
+4. **Cubierto (2026-10-09):** otro camión devuelve los rollos chicos a la bodega principal, con su envío y su recepción (Despacho a bodegas, destino "Bodega principal"). Ver [Devolución a la bodega principal](#devolución-a-la-bodega-principal).
+5. **Cubierto:** el despacho al cliente sale de la bodega principal, escaneando los rollos exactos. El módulo Despachos avisa, rollo por rollo, si todavía está en otra bodega o en camino (aviso, no bloqueo).
+6. **No cubierto:** el orden no es fijo. Un rollo sellado puede pasar a Impresión, y un rollo chico puede volver a ser rollo madre. Hoy un rollo terminado solo se despacha a la bodega principal.
 
 El control existe porque la mercancía se pierde en el trayecto entre bodegas. Si un rollo no aparece en la bodega principal, tiene que estar en la otra. El registro dice qué usuario lo llevó. No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con saber cuánto hay en cada una.
 
@@ -36,8 +36,8 @@ El control existe porque la mercancía se pierde en el trayecto entre bodegas. S
  │                  │                                     │                             │
  │                  │ ◄───────────────────────────────────│ 3. cortan los rollos chicos │
  └──────────────────┘   4. camión con los rollos chicos   └─────────────────────────────┘
-          │                  [NO CUBIERTO]
-          │ 5. camión grande al cliente [PARCIAL]
+          │                  [Despacho a bodegas]
+          │ 5. camión grande al cliente [Despachos]
           ▼
  ┌──────────────────┐
  │ NEGOCIO DEL      │
@@ -148,6 +148,17 @@ Un rollo solo se consume en la estación donde está físicamente: en la bodega 
 - **Peso al recibir** (decisión de Gestión, 2026-10-02): si la bodega destino pesa el rollo al recibirlo, ese peso pasa a ser su saldo (ajuste `recepcion`, enlazado al despacho). Si difiere más de 0,5 kg de lo que salió, además se avisa a Gestión. Si difiere más de 5 kg o del 10 % (lo mayor), se toma como error de tipeo: el peso queda registrado pero el saldo no cambia, y se avisa a Gestión para que lo verifique con un conteo.
 - **Ajuste por conteo físico** (solo Gestión, con motivo obligatorio): el saldo pasa a lo pesado/contado; 0 significa que el rollo ya no está. No se puede ajustar un rollo en camino ni producto terminado. Queda en Trazabilidad y en Auditoría.
 - **Inventario de bodegas** (pantalla del mismo nombre): rollos con saldo en cada bodega, totales, rollos en camino y antigüedad; un rollo que lleva 7 días o más en una bodega se marca como parado. Solo cuenta rollos que alimentan a otra estación (salidos de Extrusión o Impresión): lo de Sellado/Precorte se trata como producto terminado y va por Calidad e Inventario. En la planta, esos rollos chicos esperan en la bodega de su estación hasta que un camión los devuelva a la bodega principal, y eso todavía no se registra. Un operario abre directo en la bodega de su estación.
+
+#### Devolución a la bodega principal
+
+Pedido del cliente (reunión 2026-10-06): lo que sale de Sellado, Precorte o Impresión vuelve en camión a la bodega principal, y de ahí salen los despachos a clientes. Es una opción explícita en Despacho a bodegas (destino **Bodega principal**), no se deduce del número de escaneos del QR.
+
+- **Salida:** el operario de la estación escanea el rollo (código + token) y elige "Bodega principal" — para un rollo terminado es el único destino, así que viene elegido —, y registra quién lo lleva (`entrega`) o se lleva él (`retiro`). Desde **Extrusión** no se devuelve (ahí nace el rollo madre).
+- **Recepción:** solo **Almacén o Gestión** reciben en la bodega principal (un operario de planta no). Escanean el mismo QR y pueden registrar el peso de la balanza: en un rollo terminado se guarda y, si difiere de lo despachado en más de 0,5 kg, se avisa a Gestión, pero no se corrige ningún saldo (un rollo terminado no se consume: su peso es lo que produjo y es el que va al despacho del cliente).
+- **Dónde está cada rollo:** Inventario de bodegas muestra la **Bodega principal** junto a las demás. Lo terminado nace en la bodega de su estación con "Falta devolverlo a la bodega principal" (y la tarjeta de la estación cuenta cuántos), en camino dice de dónde a dónde, quién lo lleva y para qué cliente, y en la principal queda sin marca de "parado". Un rollo que sale hacia un cliente (despacho no cancelado) deja de aparecer; si el despacho se cancela, vuelve.
+- **Control de pérdidas:** si un rollo no aparece en la principal tiene que estar en la otra bodega o en camino, y el registro dice qué usuario lo llevó y cuál lo recibió.
+- **Despacho al cliente:** el modal de Despachos dice, por rollo, "en la bodega principal" o "está en: Sellado (todavía no volvió a la principal)". Es solo un aviso: no se bloquea despachar un rollo que sigue en otra bodega (así los rollos que ya existían antes de esta función no quedan trabados).
+- Tabla: `roll_transfers.from_station`/`to_station` usan el tipo `RollWarehouse` (las 4 estaciones + `principal`); las estaciones de las OPs siguen siendo `ProductionStation`.
 
 #### Autocompletado en bodegas (2026-10-02)
 

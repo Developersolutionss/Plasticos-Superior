@@ -126,6 +126,12 @@ export default function DispatchItemModal({ dispatch, item, locations, onClose, 
                       <span className="text-slate-500 dark:text-slate-400">
                         {r.weightKg} kg{r.origin === "stock" ? " · stock" : ""}
                       </span>
+                      {/* El despacho al cliente sale de la bodega principal: si el
+                          rollo todavía está en otra bodega o en camino, se avisa
+                          (no se bloquea). */}
+                      <span className={`text-xs ${r.inMainWarehouse ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400 font-medium"}`}>
+                        {r.inMainWarehouse ? "· en la bodega principal" : `· está en: ${r.location} (todavía no volvió a la principal)`}
+                      </span>
                     </span>
                     {ok && (
                       <button type="button" className="text-xs text-slate-500 hover:text-red-600" onClick={() => setScanned(({ [r.id]: _x, ...rest }) => rest)}>

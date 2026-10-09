@@ -64,7 +64,7 @@ El avance real frente al plan se detalla a continuación.
 | 13 | Inventario | 🟡 Parcial (stock por producto, categorías, alertas de mínimo; lo fabricado para un cliente queda reservado: Existencias muestra total, reservado y disponible, y "Rollos para clientes" lista cada reserva con sus rollos. Falta definir con el cliente cuándo entra al inventario lo que sale de una OP: hoy entra al aprobar Calidad, y los rollos de Extrusión no entran — reunión 2026-10-06) |
 | 14 | Despachos | ✅ Implementado (crear despacho y marcar ítems → descuenta stock; cancelación que revierte el stock movido; despacho automático al aprobar en Calidad una OP con cliente asignado; sale escaneando los rollos exactos, con despacho parcial y en Trazabilidad — reunión 2026-10-06) |
 | 15 | Almacén / WMS | ✅ Implementado (ubicaciones de bodega, stock por ubicación complementario a `InventoryStock`, asignación de cantidades, QR imprimible por ubicación con acceso público sin login) |
-| — | Bodegas de planta (rollos) | 🟡 Parcial (cada estación tiene su bodega: el rollo se despacha y se recibe escaneando su QR, con transportista y hora; la recepción puede registrar el peso de la balanza como nuevo saldo; Inventario de bodegas muestra los rollos con saldo, los que van en camino, su antigüedad y el ajuste por conteo de Gestión. Falta el regreso de los rollos chicos a la bodega principal — reunión 2026-10-06) |
+| — | Bodegas de planta (rollos) | ✅ Implementado (cada estación tiene su bodega más la bodega principal: el rollo se despacha y se recibe escaneando su QR, con transportista y hora; lo terminado vuelve a la principal y de ahí sale al cliente; la recepción puede registrar el peso de la balanza como nuevo saldo; Inventario de bodegas muestra los rollos, los que van en camino, lo que falta devolver, su antigüedad y el ajuste por conteo de Gestión. Pendiente: que el orden de las bodegas no sea fijo — reunión 2026-10-06) |
 | 16 | Dashboard | ✅ Implementado (dashboard ejecutivo: ventas 6 meses, comparativa mensual, cartera pendiente, top clientes; dashboard de indicadores: tasa de aprobación de calidad, tiempo promedio de producción, top productos despachados) |
 | 17 | Exportaciones | ✅ Implementado (Excel con estilo de marca para inventario, pedidos, facturas y clientes) |
 
@@ -74,7 +74,7 @@ El avance real frente al plan se detalla a continuación.
 |---|---|---|
 | 18 | Etiquetas térmicas | ✅ Implementado (impresión de etiquetas con QR desde el navegador, en Productos; no es integración con hardware de impresora térmica específico) |
 | 19 | Escaneo QR / código de barras | ✅ Implementado (escaneo por cámara del navegador: producto en Despachos y Almacén, OP en la estación de producción, ubicación de bodega en Almacén) |
-| — | Despacho de rollos a bodegas | 🟡 Parcial (salida desde Extrusión/Impresión hacia las bodegas de Impresión, Sellado y Precorte, más recepción en destino, escaneando el QR con token de posesión; queda quién lo entregó, quién se lo llevó, quién lo recibió, la hora y la zona horaria del celular — ver `/api/roll-transfers`. Falta el traslado de vuelta a la bodega principal) |
+| — | Despacho de rollos a bodegas | ✅ Implementado (salida desde Extrusión/Impresión hacia las bodegas de Impresión, Sellado y Precorte, y de Impresión/Sellado/Precorte de vuelta a la bodega principal, más recepción en destino, escaneando el QR con token de posesión; queda quién lo entregó, quién se lo llevó, quién lo recibió, la hora y la zona horaria del celular — ver `/api/roll-transfers`) |
 | 20 | Notificaciones | ✅ Implementado (notificaciones in-app; hoy solo dos disparadores: OP lista para calidad y OP rechazada en calidad) |
 | 21 | Pruebas finales y despliegue | ❌ Pendiente |
 
@@ -82,8 +82,8 @@ El avance real frente al plan se detalla a continuación.
 
 | Estado | Cantidad |
 |---|---|
-| ✅ Implementado | 21 |
-| 🟡 Parcial | 3 |
+| ✅ Implementado | 22 |
+| 🟡 Parcial | 2 |
 | ❌ Pendiente | 1 |
 
 ## Backlog sin planificar
@@ -95,7 +95,7 @@ para cuando la interpretación de abajo no alcance a cubrir el detalle pedido.
 | Idea | Interpretación |
 |---|---|
 | Rollos hijos de un rollo madre | El sistema ya guarda de qué rollo(s) madre salió un rollo chico (`sourceRollId`, `RollConsumption` — ver [04 — Base de datos](04-database.md)), pero no hay una vista que haga el camino inverso: dado un rollo madre, listar todos los rollos hijos que salieron de él. Es la mitad que falta de la trazabilidad de rollo madre/hijo |
-| Devolver rollos a la bodega principal | Los rollos chicos que salen de las bodegas de Sellado, Precorte o Impresión vuelven en camión a la bodega principal, y de ahí salen los despachos a clientes. Hoy el despacho a bodegas solo va de Extrusión o Impresión hacia otra estación. Se decidió que la devolución sea una opción explícita ("despachar a inventario principal"), con quién la lleva y quién la recibe, y no una deducción del número de escaneos del QR. Ver [08 — Reglas de negocio](08-workflow.md) |
+| Devolver rollos a la bodega principal | **Hecho (2026-10-09):** los rollos de Impresión, Sellado y Precorte se despachan a la "Bodega principal" (opción explícita, con quién los lleva y quién los recibe: Almacén o Gestión), Inventario de bodegas muestra la principal y lo que falta devolver. Falta: que el orden no sea fijo (un rollo sellado que pasa a Impresión, un rollo chico que vuelve a ser madre). Ver [08 — Reglas de negocio](08-workflow.md#devolución-a-la-bodega-principal) |
 | Rollos de stock y rollos de cliente | **Hecho en parte (2026-10-09):** lo fabricado para un cliente queda reservado (no se puede despachar a otro), Existencias muestra reservado y disponible, hay una sección "Rollos para clientes" y al escanear un rollo en las bodegas se ve para quién es. Falta: que el despacho al cliente escanee sus rollos exactos (va con el rediseño de Despachos) |
 | Rediseño de Despachos | **Hecho (2026-10-09):** el despacho al cliente sale escaneando sus rollos exactos, la cantidad se llena sola con la suma de los rollos, se puede despachar menos (el resto queda pendiente y reservado), al elegir el cliente se ve lo que ya está fabricado para él, y Trazabilidad dice a qué cliente salió cada rollo. Falta: pasar a unidades lo que Calidad suma en kilos (ver el pendiente de unidades) |
 

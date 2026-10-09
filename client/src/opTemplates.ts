@@ -83,6 +83,17 @@ export const STATION_LABELS: Record<OpStation, string> = {
   precorte: "Precorte",
 };
 
+/** Dónde puede estar un rollo: la bodega de cada estación o la bodega
+ * principal (de donde salen los despachos a clientes). */
+export type RollWarehouse = OpStation | "principal";
+
+export const WAREHOUSE_LABELS: Record<RollWarehouse, string> = { ...STATION_LABELS, principal: "Bodega principal" };
+
+/** "la bodega de Sellado" / "la bodega principal", para armar frases. */
+export function warehousePhrase(w: string): string {
+  return w === "principal" ? "la bodega principal" : `la bodega de ${STATION_LABELS[w as OpStation] ?? w}`;
+}
+
 /** Prefijo del código de QR de un rollo (`EXT-<id>`, `IMP-<id>`, `SELL-<id>`,
  * `PRE-<id>`) según de qué proceso salió -- ver mismo mapa en el server,
  * server/src/services/opTemplates.ts. */

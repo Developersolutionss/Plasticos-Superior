@@ -31,7 +31,9 @@ inventario y despachos ("lo más grave"), después la devolución a la bodega pr
 bodega principal, debe estar en la otra. Si no está en ninguna, el registro dice qué usuario lo llevó.
 No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con saber cuánto hay en cada una.
 
-**1. Devolver rollos a la bodega principal.**
+**1. Devolver rollos a la bodega principal.** Hecho el 2026-10-09 (ver
+[08 — Reglas de negocio](08-workflow.md#devolución-a-la-bodega-principal)). Queda abierto el punto 6 del proceso
+(el orden no es fijo: un rollo sellado puede pasar a Impresión, un rollo chico puede volver a ser rollo madre).
 
 - Hoy el despacho a bodegas solo va de Extrusión o Impresión hacia otra estación. Falta el regreso a la
   bodega principal, con quién lo lleva y quién lo recibe.

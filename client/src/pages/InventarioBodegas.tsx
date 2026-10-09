@@ -9,7 +9,7 @@ import BarcodeScanner from "../components/BarcodeScanner";
 import { SkeletonRows } from "../components/Skeleton";
 import { PRODUCCION_GESTION } from "../components/navConfig";
 import { splitScannedCode } from "../lib/rollQr";
-import { STATION_LABELS, type OpStation } from "../opTemplates";
+import { WAREHOUSE_LABELS, warehousePhrase, type OpStation, type RollWarehouse } from "../opTemplates";
 
 /** Bodega de cada rol de operario (espejo de OPERARIO_STATIONS del server):
  * un operario abre directo en la suya — en el celular, ver todas las bodegas
@@ -22,7 +22,7 @@ const OPERARIO_STATION: Partial<Record<UserRole, OpStation>> = {
 };
 
 function stationLabel(station: string): string {
-  return STATION_LABELS[station as OpStation] ?? station;
+  return WAREHOUSE_LABELS[station as RollWarehouse] ?? station;
 }
 
 function antiguedad(days: number): string {
@@ -153,7 +153,7 @@ function RollRow({
         <div className="text-right">
           <p className="font-semibold text-slate-800 dark:text-slate-100">{roll.remainingKg} kg</p>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            {consumed > 0 ? `de ${roll.weightKg} kg` : "rollo completo"}
+            {roll.finished ? "producto terminado" : consumed > 0 ? `de ${roll.weightKg} kg` : "rollo completo"}
           </p>
         </div>
       </div>
@@ -163,6 +163,12 @@ function RollRow({
           Está acá {antiguedad(roll.days)}
           {roll.stale && ` (más de ${staleDays} días sin usarse)`}
         </span>
+        {roll.pendingReturn && (
+          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium">
+            <Send size={12} aria-hidden="true" />
+            Falta devolverlo a la bodega principal
+          </span>
+        )}
         {roll.pendingTo.length > 0 && (
           <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium">
             <Send size={12} aria-hidden="true" />
@@ -175,7 +181,7 @@ function RollRow({
             {new Date(roll.lastCount.createdAt).toLocaleDateString()}
           </span>
         )}
-        {canCount && !counting && (
+        {canCount && !counting && !roll.finished && (
           <button type="button" onClick={() => setCounting(true)} className="inline-flex items-center gap-1 text-sky-700 dark:text-sky-400 hover:underline">
             <Scale size={12} aria-hidden="true" /> Ajustar por conteo
           </button>
@@ -219,7 +225,7 @@ export default function InventarioBodegas() {
       setLocated({ code });
       setScanMessage({
         ok: true,
-        text: `${code} está en camino a ${stationLabel(transit.toStation)} (lo lleva ${transit.carrierName}) — todavía no lo recibieron`,
+        text: `${code} está en camino a ${warehousePhrase(transit.toStation)} (lo lleva ${transit.carrierName}) — todavía no lo recibieron`,
       });
       return;
     }
@@ -227,7 +233,7 @@ export default function InventarioBodegas() {
     if (warehouse) {
       setFilter(warehouse.station);
       setLocated({ code });
-      setScanMessage({ ok: true, text: `${code} está en la bodega de ${warehouse.label}` });
+      setScanMessage({ ok: true, text: `${code} está en ${warehousePhrase(warehouse.station)}` });
       return;
     }
     setLocated(null);
@@ -242,8 +248,9 @@ export default function InventarioBodegas() {
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Inventario de bodegas</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Rollos con saldo en cada bodega de planta y los que están en camino. Tocá una bodega para ver solo esa (tocala de nuevo para ver
-          todas). Lo que sale de Sellado y Precorte es producto terminado y se ve en Inventario.
+          Rollos en cada bodega y los que están en camino. Los rollos de Extrusión e Impresión que alimentan a otra estación se cuentan con su
+          saldo. Lo terminado en Sellado y Precorte nace en la bodega de su estación y vuelve en camión a la bodega principal (de ahí salen
+          los despachos a clientes). Tocá una bodega para ver solo esa (tocala de nuevo para ver todas).
         </p>
       </div>
 
@@ -275,7 +282,7 @@ export default function InventarioBodegas() {
           const visibles = data.warehouses.filter((w) => !filter || w.station === filter);
           return (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 {data.warehouses.map((w) => (
                   <button
                     key={w.station}
@@ -296,6 +303,11 @@ export default function InventarioBodegas() {
                       {w.rollCount} {w.rollCount === 1 ? "rollo" : "rollos"}
                       {w.inTransitCount > 0 && ` · ${w.inTransitCount} en camino (${w.inTransitKg} kg)`}
                     </p>
+                    {w.pendingReturnCount > 0 && (
+                      <p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                        {w.pendingReturnCount} por devolver a la principal
+                      </p>
+                    )}
                     {w.staleTransitCount > 0 && (
                       <p className="mt-1 text-xs font-medium text-red-700 dark:text-red-400">
                         {w.staleTransitCount} sin recibir hace más de {data.staleTransitHours} h
@@ -348,7 +360,7 @@ export default function InventarioBodegas() {
               {visibles.map((w) => (
                 <section key={w.station} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Bodega de {w.label}</p>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{w.station === "principal" ? w.label : `Bodega de ${w.label}`}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {w.rollCount} {w.rollCount === 1 ? "rollo" : "rollos"} · {w.totalKg} kg
                     </p>

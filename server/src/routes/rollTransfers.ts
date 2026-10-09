@@ -3,7 +3,17 @@ import { z } from "zod";
 import type { Prisma, ProductionRoll } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
-import { DERIVATIONS, OpStation, ROLL_CODE_PREFIX, STATION_LABELS } from "../services/opTemplates";
+import {
+  DERIVATIONS,
+  OpStation,
+  ROLL_CODE_PREFIX,
+  STATION_LABELS,
+  WAREHOUSE_LABELS,
+  rollProducedKg,
+  transferDestinations,
+  warehousePhrase,
+  type RollWarehouse,
+} from "../services/opTemplates";
 import { adjustRollBalance, remainingSourceKg } from "../services/rollBalance";
 import { verifyPossessionToken } from "../services/rollPossessionToken";
 import { checkRateLimit } from "../services/rateLimiter";
@@ -33,6 +43,8 @@ rollTransfersRouter.use(requireRole(...ROLES.DESPACHO_BODEGAS));
 const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
 
 const STATIONS = ["extrusion", "impresion", "sellado", "precorte"] as const;
+/** Las bodegas donde puede estar un rollo: la de cada estación y la principal. */
+const WAREHOUSES = [...STATIONS, "principal"] as const;
 
 /** Mismo límite que la verificación de token en productionOrders.ts, con su
  * propia clave -- un loop acá no le come el cupo al operario en su OP. */
@@ -149,7 +161,7 @@ rollTransfersRouter.get("/", async (req, res) => {
   const { status, toStation, fromStation, from, to } = req.query as Record<string, string | undefined>;
   if (status && status !== "en_transito" && status !== "recibido") return res.status(400).json({ error: "Estado inválido" });
   for (const s of [toStation, fromStation]) {
-    if (s && !(STATIONS as readonly string[]).includes(s)) return res.status(400).json({ error: "Estación inválida" });
+    if (s && !(WAREHOUSES as readonly string[]).includes(s)) return res.status(400).json({ error: "Estación inválida" });
   }
   if ((from && !DATE_RE.test(from)) || (to && !DATE_RE.test(to))) {
     return res.status(400).json({ error: "Fecha inválida (formato YYYY-MM-DD)" });
@@ -158,8 +170,8 @@ rollTransfersRouter.get("/", async (req, res) => {
   const transfers = await prisma.rollTransfer.findMany({
     where: {
       status: status as "en_transito" | "recibido" | undefined,
-      toStation: toStation as OpStation | undefined,
-      fromStation: fromStation as OpStation | undefined,
+      toStation: toStation as RollWarehouse | undefined,
+      fromStation: fromStation as RollWarehouse | undefined,
       createdAt: from || to ? { gte: from ? localDayBoundary(from, false) : undefined, lte: to ? localDayBoundary(to, true) : undefined } : undefined,
     },
     orderBy: { id: "desc" },
@@ -207,23 +219,36 @@ function materialParaStation(specs: unknown): OpStation | null {
 }
 
 /**
- * Inventario de las bodegas de planta: qué rollos hay HOY en cada una
- * (Extrusión, Impresión, Sellado, Precorte), con su saldo, desde cuándo
- * están ahí, y cuáles están en camino. Solo cuenta rollos que alimentan a
- * otra estación (salidos de Extrusión o Impresión, ver DERIVATIONS) y con
- * saldo: lo que sale de Sellado/Precorte es producto terminado, que pasa por
- * Calidad e Inventario de producto, no por estas bodegas.
+ * Inventario de las bodegas: qué rollos hay HOY en cada una (Extrusión,
+ * Impresión, Sellado, Precorte y la bodega principal), con su saldo, desde
+ * cuándo están ahí, y cuáles están en camino.
+ *
+ * - Rollos que alimentan a otra estación (salidos de Extrusión o Impresión,
+ *   ver DERIVATIONS): los que todavía tienen saldo.
+ * - Rollos terminados (de Sellado y Precorte, y los de Impresión que no
+ *   alimentan nada): mientras no hayan salido hacia un cliente. Nacen en la
+ *   bodega de su estación y vuelven en camión a la bodega principal
+ *   (`finished: true`); de ahí salen los despachos a clientes.
  */
 rollTransfersRouter.get("/inventory", async (_req, res) => {
   const feeding = (STATIONS as readonly OpStation[]).filter((s) => DERIVATIONS[s].length > 0);
+  const terminadas = STATIONS.filter((s) => DERIVATIONS[s].length === 0);
   const rolls = await prisma.productionRoll.findMany({
-    where: { station: { in: feeding } },
+    where: {
+      OR: [
+        { station: { in: feeding } },
+        // Producto terminado que todavía no salió hacia un cliente (un
+        // despacho cancelado lo libera, igual que en Despachos).
+        { station: { in: [...terminadas] }, dispatchItems: { none: { dispatchItem: { dispatch: { status: { not: "cancelada" } } } } } },
+      ],
+    },
     select: {
       id: true,
       station: true,
       stationSequence: true,
       label: true,
       weightKg: true,
+      details: true,
       createdAt: true,
       productionOrderId: true,
       // Para quién es (la OP guarda el cliente destino): la bodega lo ve en
@@ -255,10 +280,14 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
   const now = Date.now();
   const DAY = 86_400_000;
 
-  const stock: Record<string, any[]> = Object.fromEntries((STATIONS as readonly string[]).map((s) => [s, []]));
+  const stock: Record<string, any[]> = Object.fromEntries((WAREHOUSES as readonly string[]).map((s) => [s, []]));
   const inTransit: any[] = [];
   for (const r of rolls) {
-    const remainingKg = Math.round((Number(r.weightKg) - (consumedBy.get(r.id) ?? 0) + (adjustedBy.get(r.id) ?? 0)) * 100) / 100;
+    const finished = DERIVATIONS[r.station as OpStation].length === 0;
+    // Un rollo terminado no se consume: su "saldo" es lo que produjo.
+    const remainingKg = finished
+      ? Math.round(rollProducedKg(r.station as OpStation, r) * 100) / 100
+      : Math.round((Number(r.weightKg) - (consumedBy.get(r.id) ?? 0) + (adjustedBy.get(r.id) ?? 0)) * 100) / 100;
     if (remainingKg <= 0.005) continue;
     const last = r.transfers[0];
     const base = {
@@ -267,6 +296,7 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
       label: r.label,
       weightKg: Number(r.weightKg),
       remainingKg,
+      finished,
       productionOrder: r.productionOrder,
       lastCount: lastCountBy.get(r.id) ?? null,
     };
@@ -285,26 +315,37 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
       });
       continue;
     }
-    const station = last?.status === "recibido" ? last.toStation : r.station;
+    const station: RollWarehouse = last?.status === "recibido" ? last.toStation : (r.station as OpStation);
     const since = last?.status === "recibido" && last.receivedAt ? last.receivedAt : r.createdAt;
     const days = Math.floor((now - since.getTime()) / DAY);
     // A dónde lo están esperando: OP derivada abierta de su OP en otra
     // estación (si ya está en esa bodega, no hace falta despacharlo).
-    const pendingTo = (expectingBy.get(r.productionOrderId) ?? []).filter(
-      (s) => s !== station && DERIVATIONS[r.station as OpStation].includes(s)
-    );
-    stock[station].push({ ...base, since, days, stale: days >= STALE_DAYS, pendingTo });
+    const pendingTo = finished
+      ? []
+      : (expectingBy.get(r.productionOrderId) ?? []).filter((s) => s !== station && DERIVATIONS[r.station as OpStation].includes(s));
+    stock[station].push({
+      ...base,
+      since,
+      days,
+      // En la bodega principal esperar al cliente es normal: no es "parado".
+      stale: station !== "principal" && days >= STALE_DAYS,
+      pendingTo,
+      // Terminado y todavía en la bodega de su estación: falta que un camión
+      // lo devuelva a la bodega principal.
+      pendingReturn: finished && station !== "principal",
+    });
   }
 
-  const warehouses = (STATIONS as readonly OpStation[]).map((station) => {
+  const warehouses = (WAREHOUSES as readonly RollWarehouse[]).map((station) => {
     const items = stock[station].sort((a, b) => b.days - a.days);
     const transit = inTransit.filter((t) => t.toStation === station);
     return {
       station,
-      label: STATION_LABELS[station],
+      label: WAREHOUSE_LABELS[station],
       rollCount: items.length,
       totalKg: Math.round(items.reduce((acc, i) => acc + i.remainingKg, 0) * 100) / 100,
       staleCount: items.filter((i) => i.stale).length,
+      pendingReturnCount: items.filter((i) => i.pendingReturn).length,
       inTransitCount: transit.length,
       staleTransitCount: transit.filter((t) => t.stale).length,
       inTransitKg: Math.round(transit.reduce((acc, t) => acc + t.remainingKg, 0) * 100) / 100,
@@ -341,7 +382,7 @@ rollTransfersRouter.post("/rolls/:rollId/count", requireProduccionGestion, async
   const result = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM production_rolls WHERE id = ${rollId} FOR UPDATE`;
     const location = await getRollLocation(tx, roll);
-    if (location.status === "en_transito") return { error: `El rollo ${rollCode(roll)} está en camino a ${STATION_LABELS[location.toStation]} — primero hay que recibirlo` };
+    if (location.status === "en_transito") return { error: `El rollo ${rollCode(roll)} está en camino a ${warehousePhrase(location.toStation)} — primero hay que recibirlo` };
     const adj = await adjustRollBalance(tx, {
       rollId,
       newKg: parsed.data.countedKg,
@@ -420,7 +461,7 @@ rollTransfersRouter.get("/scan/:code", async (req, res) => {
   ]);
 
   // Sin la bodega donde ya está (ver el mismo chequeo en POST /).
-  const destinations = DERIVATIONS[roll.station as OpStation].filter(
+  const destinations = transferDestinations(roll.station as OpStation).filter(
     (s) => s !== (lastTransfer?.status === "recibido" ? lastTransfer.toStation : roll.station)
   );
   const expecting = (await expectingStationsByOrder([detail.productionOrder.id])).get(detail.productionOrder.id) ?? [];
@@ -431,6 +472,8 @@ rollTransfersRouter.get("/scan/:code", async (req, res) => {
     // Para autocompletar el destino: a qué estaciones tiene OP abierta
     // esperando material la OP de este rollo, y su "Material para".
     expectingStations: expecting.filter((s) => destinations.includes(s)),
+    // Ya está en la bodega principal: no hay a dónde mandarlo (de ahí sale al cliente).
+    inMainWarehouse: (lastTransfer?.status === "recibido" ? lastTransfer.toStation : roll.station) === "principal",
     materialPara: materialParaStation(specs),
     openTransfer: openTransfer ? withRollCode(openTransfer) : null,
     lastTransfer: lastTransfer ? withRollCode(lastTransfer) : null,
@@ -441,7 +484,7 @@ const createSchema = z
   .object({
     code: z.string().trim().min(1),
     token: z.string().trim().min(1),
-    toStation: z.enum(STATIONS),
+    toStation: z.enum(WAREHOUSES),
     mode: z.enum(["entrega", "retiro"]),
     /** Solo en `entrega`: a quién se lo entrega el operario (lo tipea). */
     carrierName: z.string().trim().max(100).optional(),
@@ -467,11 +510,11 @@ rollTransfersRouter.post("/", async (req, res) => {
   // Solo hacia estaciones que de verdad procesan lo que sale de esta
   // (mismo mapa que la derivación de OPs): un rollo de Extrusión va a
   // Impresión/Sellado/Precorte, uno de Impresión a Sellado/Precorte.
-  const destinations = DERIVATIONS[roll.station as OpStation];
+  const destinations = transferDestinations(roll.station as OpStation);
   if (!destinations.includes(data.toStation)) {
     return res.status(400).json({
       error: destinations.length
-        ? `Un rollo de ${STATION_LABELS[roll.station as OpStation]} solo se despacha a ${destinations.map((s) => STATION_LABELS[s]).join(", ")}`
+        ? `Un rollo de ${STATION_LABELS[roll.station as OpStation]} solo se despacha a ${destinations.map((s) => WAREHOUSE_LABELS[s]).join(", ")}`
         : `Los rollos de ${STATION_LABELS[roll.station as OpStation]} no se despachan a otra bodega`,
     });
   }
@@ -498,7 +541,7 @@ rollTransfersRouter.post("/", async (req, res) => {
     const location = await getRollLocation(tx, roll);
     const fromStation = location.status === "en_bodega" ? location.station : roll.station;
     if (fromStation === data.toStation) {
-      return { open: null, transfer: null, error: `El rollo ${code} ya está en la bodega de ${STATION_LABELS[data.toStation]}` };
+      return { open: null, transfer: null, error: `El rollo ${code} ya está en ${warehousePhrase(data.toStation)}` };
     }
     const transfer = await tx.rollTransfer.create({
       data: {
@@ -524,7 +567,7 @@ rollTransfersRouter.post("/", async (req, res) => {
   if (created.error) return res.status(400).json({ error: created.error });
   if (created.open) {
     return res.status(409).json({
-      error: `El rollo ${code} ya salió hacia ${STATION_LABELS[created.open.toStation as OpStation]} (lo lleva ${created.open.carrierName}) y todavía no lo recibieron — primero tiene que recibirse allá`,
+      error: `El rollo ${code} ya salió hacia ${WAREHOUSE_LABELS[created.open.toStation]} (lo lleva ${created.open.carrierName}) y todavía no lo recibieron — primero tiene que recibirse allá`,
     });
   }
   res.status(201).json(withRollCode(created.transfer!));
@@ -556,7 +599,7 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
     return res.status(400).json({ error: "El QR escaneado no es el del rollo de este despacho" });
   }
   if (!canReceiveAt(req.user!.role, transfer.toStation)) {
-    return res.status(403).json({ error: `Este rollo va para la bodega de ${STATION_LABELS[transfer.toStation as OpStation]} — lo tiene que recibir un operario de allá` });
+    return res.status(403).json({ error: `Este rollo va para ${warehousePhrase(transfer.toStation)} — lo tiene que recibir ${transfer.toStation === "principal" ? "Almacén o Gestión" : "un operario de allá"}` });
   }
 
   const received = await prisma.$transaction(async (tx) => {
@@ -583,7 +626,11 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
     // ajuste con su historial. El peso original del rollo no se toca. Salvo
     // una diferencia demasiado grande (ver receiveAutoAdjustLimitKg).
     let balanceAdjusted = false;
-    if (data.receivedKg != null) {
+    // Un rollo terminado no se consume: su peso es lo que produjo, y es el
+    // que va al despacho del cliente. Se registra lo que marcó la balanza (y
+    // se avisa la diferencia) pero no se corrige un saldo que no existe.
+    const finishedRoll = DERIVATIONS[result.roll.station as OpStation].length === 0;
+    if (data.receivedKg != null && !finishedRoll) {
       const current = await remainingSourceKg(tx, transfer.rollId);
       const reference = transfer.dispatchedKg != null ? Number(transfer.dispatchedKg) : current;
       const tooFar = Math.abs(data.receivedKg - reference) > receiveAutoAdjustLimitKg(reference);
@@ -605,6 +652,7 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
 
   const full = await prisma.rollTransfer.findUniqueOrThrow({ where: { id }, include: transferInclude });
   const balanceNotAdjusted =
+    DERIVATIONS[result.roll.station as OpStation].length > 0 &&
     data.receivedKg != null && full.dispatchedKg != null && Math.abs(data.receivedKg - Number(full.dispatchedKg)) > receiveAutoAdjustLimitKg(Number(full.dispatchedKg));
   const response = { ...withRollCode(full), balanceAdjusted: received.balanceAdjusted, balanceNotAdjusted };
 
@@ -617,7 +665,7 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
       await notifyRoles(ROLES.PRODUCCION_GESTION, {
         type: "despacho_diferencia_peso",
         message:
-          `El rollo ${response.rollCode} salió de ${STATION_LABELS[full.fromStation as OpStation]} con ${Number(full.dispatchedKg)} kg y llegó a ${STATION_LABELS[full.toStation as OpStation]} con ${data.receivedKg} kg (${diff > 0 ? "+" : ""}${diff} kg). Lo llevó ${full.carrierName}.` +
+          `El rollo ${response.rollCode} salió de ${WAREHOUSE_LABELS[full.fromStation]} con ${Number(full.dispatchedKg)} kg y llegó a ${WAREHOUSE_LABELS[full.toStation]} con ${data.receivedKg} kg (${diff > 0 ? "+" : ""}${diff} kg). Lo llevó ${full.carrierName}.` +
           (balanceNotAdjusted ? " La diferencia es demasiado grande: NO se ajustó el saldo — verificalo con un conteo en Inventario de bodegas." : ""),
         link: "/produccion/despacho-bodegas",
       });

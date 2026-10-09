@@ -1,4 +1,4 @@
-import type { OpStation } from "../opTemplates";
+import type { OpStation, RollWarehouse } from "../opTemplates";
 
 /**
  * Qué se puede precargar al escanear un rollo en Despacho a bodegas, a
@@ -20,14 +20,14 @@ import type { OpStation } from "../opTemplates";
  * lleva él), "entrega" en cualquier otro caso.
  */
 export function suggestDispatch(
-  info: { destinations: OpStation[]; expectingStations?: OpStation[]; materialPara?: OpStation | null },
+  info: { destinations: RollWarehouse[]; expectingStations?: OpStation[]; materialPara?: OpStation | null },
   ownStation: OpStation | undefined
-): { toStation: OpStation | ""; mode: "entrega" | "retiro" } {
+): { toStation: RollWarehouse | ""; mode: "entrega" | "retiro" } {
   const destinations = info.destinations;
   const expecting = (info.expectingStations ?? []).filter((s) => destinations.includes(s));
   const materialPara = info.materialPara ?? null;
 
-  let toStation: OpStation | "" = "";
+  let toStation: RollWarehouse | "" = "";
   if (ownStation && destinations.includes(ownStation)) toStation = ownStation;
   else if (expecting.length === 1) toStation = expecting[0];
   else if (expecting.length > 1) toStation = materialPara && expecting.includes(materialPara) ? materialPara : "";

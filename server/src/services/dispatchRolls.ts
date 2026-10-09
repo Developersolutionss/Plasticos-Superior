@@ -1,7 +1,7 @@
 import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import type { TxClient } from "./stockService";
-import { ROLL_CODE_PREFIX, rollProducedKg, type OpStation } from "./opTemplates";
+import { ROLL_CODE_PREFIX, STATION_LABELS, WAREHOUSE_LABELS, rollProducedKg, type OpStation } from "./opTemplates";
 import { rollWhereFromCode } from "./rollCode";
 import { verifyPossessionToken } from "./rollPossessionToken";
 
@@ -27,6 +27,11 @@ export interface CandidateRoll {
   orderNumber: string;
   /** "cliente": de la OP del cliente de este despacho; "stock": libre. */
   origin: "cliente" | "stock";
+  /** Dónde está físicamente (ej. "Bodega principal", "Sellado", "En camino a Bodega principal"). */
+  location: string;
+  /** El despacho al cliente sale de la bodega principal: `false` = todavía
+   * hay que devolverlo (se avisa, no se bloquea). */
+  inMainWarehouse: boolean;
 }
 
 const rollCodeOf = (r: { station: string; stationSequence: number }) => `${ROLL_CODE_PREFIX[r.station as OpStation]}-${r.stationSequence}`;
@@ -39,6 +44,7 @@ const ROLL_SELECT = {
   weightKg: true,
   details: true,
   possessionTokenHash: true,
+  transfers: { orderBy: { id: "desc" }, take: 1, select: { status: true, toStation: true } },
   productionOrder: { select: { id: true, orderNumber: true, clientId: true, productId: true, status: true, station: true } },
 } as const;
 
@@ -80,14 +86,20 @@ export async function candidateRolls(dispatchId: number, productId: number): Pro
     reserved,
     rolls: rolls
       .filter((r) => !taken.has(r.id))
-      .map((r) => ({
-        id: r.id,
-        code: rollCodeOf(r),
-        label: r.label,
-        weightKg: Math.round(rollProducedKg(r.station as OpStation, r) * 100) / 100,
-        orderNumber: r.productionOrder.orderNumber,
-        origin: r.productionOrder.clientId == null ? ("stock" as const) : ("cliente" as const),
-      })),
+      .map((r) => {
+        const last = r.transfers[0];
+        const where = last?.status === "recibido" ? last.toStation : (r.station as OpStation);
+        return {
+          id: r.id,
+          code: rollCodeOf(r),
+          label: r.label,
+          weightKg: Math.round(rollProducedKg(r.station as OpStation, r) * 100) / 100,
+          orderNumber: r.productionOrder.orderNumber,
+          origin: r.productionOrder.clientId == null ? ("stock" as const) : ("cliente" as const),
+          location: last?.status === "en_transito" ? `En camino a ${WAREHOUSE_LABELS[last.toStation]}` : where === "principal" ? WAREHOUSE_LABELS.principal : STATION_LABELS[where],
+          inMainWarehouse: last?.status !== "en_transito" && where === "principal",
+        };
+      }),
   };
 }
 

@@ -199,7 +199,7 @@ describe("InventarioBodegas", () => {
     await user.click(screen.getByRole("button", { name: /Escanear rollo/ }));
     await user.type(screen.getByPlaceholderText("código escaneado"), "EXT-3");
     await user.click(screen.getByRole("button", { name: "Usar código" }));
-    expect(await screen.findByText(/EXT-3 está en camino a Precorte \(lo lleva Juan Camionero\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/EXT-3 está en camino a la bodega de Precorte \(lo lleva Juan Camionero\)/)).toBeInTheDocument();
     expect(screen.getByText("Bodega de Precorte")).toBeInTheDocument();
     // Un operario no cuenta: no se abre nada.
     expect(screen.queryByLabelText(/Peso contado/)).not.toBeInTheDocument();
@@ -208,5 +208,46 @@ describe("InventarioBodegas", () => {
     await user.type(screen.getByPlaceholderText("código escaneado"), "EXT-99");
     await user.click(screen.getByRole("button", { name: "Usar código" }));
     expect(await screen.findByText(/EXT-99 no está en ninguna bodega con saldo/)).toBeInTheDocument();
+  });
+
+  it("la bodega principal aparece con lo terminado que ya volvió; lo terminado que sigue en su estación dice que falta devolverlo, y no se cuenta", async () => {
+    const terminado = (over: Record<string, unknown>) => roll({ finished: true, pendingReturn: false, weightKg: 18, remainingKg: 18, ...over });
+    vi.mocked(api.getWarehouseInventory).mockResolvedValue({
+      ...INVENTORY,
+      warehouses: [
+        ...INVENTORY.warehouses.map((w) =>
+          w.station === "precorte"
+            ? { ...w, rollCount: 1, totalKg: 18, pendingReturnCount: 1, items: [terminado({ rollId: 20, code: "PRE-7", pendingReturn: true })] }
+            : { ...w, pendingReturnCount: 0 }
+        ),
+        {
+          station: "principal",
+          label: "Bodega principal",
+          rollCount: 1,
+          totalKg: 18,
+          staleCount: 0,
+          pendingReturnCount: 0,
+          inTransitCount: 0,
+          staleTransitCount: 0,
+          inTransitKg: 0,
+          items: [terminado({ rollId: 21, code: "SELL-4" })],
+        },
+      ],
+    } as any);
+    renderPage("gerente_produccion");
+    expect((await screen.findAllByText("Bodega principal")).length).toBeGreaterThan(0);
+    expect(screen.getByText("1 por devolver a la principal")).toBeInTheDocument();
+
+    const falta = screen.getByText("PRE-7").closest("li") as HTMLElement;
+    expect(within(falta).getByText("Falta devolverlo a la bodega principal")).toBeInTheDocument();
+    expect(within(falta).getByText("producto terminado")).toBeInTheDocument();
+    expect(within(falta).queryByText("Ajustar por conteo")).not.toBeInTheDocument();
+
+    const enPrincipal = screen.getByText("SELL-4").closest("li") as HTMLElement;
+    expect(within(enPrincipal).queryByText("Falta devolverlo a la bodega principal")).not.toBeInTheDocument();
+    // Tocar la tarjeta filtra a la principal.
+    await userEvent.setup().click(screen.getByRole("button", { name: /Bodega principal.*18 kg/ }));
+    expect(screen.queryByText("PRE-7")).not.toBeInTheDocument();
+    expect(screen.getByText("SELL-4")).toBeInTheDocument();
   });
 });

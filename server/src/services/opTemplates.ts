@@ -80,6 +80,28 @@ export const STATION_LABELS: Record<OpStation, string> = {
   precorte: "Precorte",
 };
 
+/** Dónde puede estar un rollo: la bodega de cada estación o la bodega
+ * principal (de donde salen los despachos a clientes, reunión 2026-10-06). */
+export type RollWarehouse = OpStation | "principal";
+
+export const WAREHOUSE_LABELS: Record<RollWarehouse, string> = { ...STATION_LABELS, principal: "Bodega principal" };
+
+/** "la bodega de Sellado" / "la bodega principal", para armar frases. */
+export function warehousePhrase(w: RollWarehouse): string {
+  return w === "principal" ? "la bodega principal" : `la bodega de ${STATION_LABELS[w]}`;
+}
+
+/**
+ * A qué bodegas puede ir un rollo que sale de la estación `station`: a las
+ * estaciones que lo procesan (ver DERIVATIONS) y, desde Impresión, Sellado y
+ * Precorte, de vuelta a la bodega principal — los rollos chicos que salen de
+ * esas estaciones vuelven en camión a la principal, con su envío y su
+ * recepción registrados. Extrusión no: ahí nace el rollo madre.
+ */
+export function transferDestinations(station: OpStation): RollWarehouse[] {
+  return station === "extrusion" ? [...DERIVATIONS[station]] : [...DERIVATIONS[station], "principal"];
+}
+
 /** Prefijo del código de QR de un rollo (`EXT-<id>`, `IMP-<id>`, `SELL-<id>`,
  * `PRE-<id>`) según de qué proceso salió -- antes todos los rollos de
  * cualquier estación usaban el mismo prefijo genérico "RL", así que dos
