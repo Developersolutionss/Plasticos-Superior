@@ -23,6 +23,7 @@ import {
   ROLL_CODE_PREFIX,
   inheritSpecs,
   normalizeSpecOptions,
+  rollProducedKg,
   specOptionIssuesMessage,
 } from "../services/opTemplates";
 import {
@@ -133,14 +134,6 @@ function sourceRollCode(info: SourceRollInfo | undefined): string {
 async function nextStationSequence(tx: TxClient, station: OpStation): Promise<number> {
   const max = await tx.productionRoll.aggregate({ where: { station }, _max: { stationSequence: true } });
   return (max._max.stationSequence ?? 0) + 1;
-}
-
-function rollProducedKg(station: OpStation | null, roll: { weightKg: unknown; details?: unknown }): number {
-  const base = Number(roll.weightKg);
-  if (station !== "precorte") return base;
-  const details = roll.details && typeof roll.details === "object" ? (roll.details as Record<string, unknown>) : {};
-  const r2 = Number(details.pesoR2);
-  return base + (Number.isFinite(r2) ? r2 : 0);
 }
 
 productionOrdersRouter.get("/", async (req, res) => {

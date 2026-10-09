@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { getLowStockAlerts, getStockByCategory } from "../services/stockService";
+import { clientReservations } from "../services/reservations";
 
 export const inventoryRouter = Router();
 inventoryRouter.use(requireAuth);
@@ -13,6 +14,12 @@ inventoryRouter.get("/", requireExistencias, async (req, res) => {
   const stock = await getStockByCategory();
   const category = req.query.category as string | undefined;
   res.json(category ? stock.filter((p) => p.category === category) : stock);
+});
+
+/** "Rollos para clientes": lo fabricado para cada cliente que todavía no se
+ * le despachó (ver services/reservations.ts). */
+inventoryRouter.get("/client-reservations", requireExistencias, async (_req, res) => {
+  res.json(await clientReservations());
 });
 
 inventoryRouter.get("/alerts", requireExistencias, async (_req, res) => {

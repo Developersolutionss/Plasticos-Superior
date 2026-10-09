@@ -111,13 +111,26 @@ export interface RollTransfer {
 }
 
 /** Rollo con saldo en una bodega de planta (ver GET /roll-transfers/inventory). */
+/** Una reserva para un cliente: el despacho que generó Calidad al aprobar
+ * una OP con cliente, mientras no salga (ver server/src/services/reservations.ts). */
+export interface ClientReservation {
+  dispatchId: number;
+  status: "pendiente" | "en_proceso";
+  client: { id: number; name: string };
+  productionOrder: { id: number; orderNumber: string; station: ProductionStation | null };
+  approvedAt: string;
+  items: { id: number; product: { id: number; sku: string; name: string; unit: string }; quantityRequested: number; quantityDispatched: number | null }[];
+  reservedQuantity: number;
+  rolls: { id: number; code: string; label: string | null; weightKg: number }[];
+}
+
 export interface WarehouseRoll {
   rollId: number;
   code: string;
   label: string | null;
   weightKg: number;
   remainingKg: number;
-  productionOrder: { id: number; orderNumber: string; product: { name: string; sku: string } };
+  productionOrder: { id: number; orderNumber: string; product: { name: string; sku: string }; client: { id: number; name: string } | null };
   lastCount: { createdAt: string; newKg: string; createdBy: { name: string } } | null;
   since: string;
   days: number;
@@ -164,7 +177,7 @@ export interface RollTransferScan {
     remainingKg: number;
     operatorName: string;
     date: string;
-    productionOrder: { id: number; orderNumber: string; product: { name: string; sku: string } };
+    productionOrder: { id: number; orderNumber: string; product: { name: string; sku: string }; client: { id: number; name: string } | null };
   };
   destinations: ProductionStation[];
   /** Destinos con OP derivada abierta esperando material de la OP del rollo. */
@@ -198,6 +211,8 @@ export const api = {
 
   getInventory: (category?: string) => request<any[]>(`/inventory${category ? `?category=${category}` : ""}`),
   getAlerts: () => request<any[]>("/inventory/alerts"),
+  /** Lo fabricado para cada cliente que todavía no se le despachó. */
+  getClientReservations: () => request<ClientReservation[]>("/inventory/client-reservations"),
   getProducts: () => request<any[]>("/inventory/products"),
 
   /** Catálogo completo (incluye inactivos) para la pantalla de gestión de

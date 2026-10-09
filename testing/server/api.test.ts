@@ -6876,3 +6876,165 @@ describe("bodegas: datos para autocompletar (destino esperado, transportista, en
   });
 });
 
+describe("reservas para clientes: lo fabricado para un cliente no se despacha a otro", () => {
+  const stamp = Date.now();
+  let productId = 0;
+  let clienteA = 0;
+  let clienteB = 0;
+  const orderIds: number[] = [];
+
+  before(async () => {
+    productId = (
+      await prisma.product.create({
+        data: { sku: `TEST-RESERVA-${stamp}`, name: `Rollo reserva ${stamp}`, category: "rollos_prec_lam", unit: "kg", minStock: 0 },
+      })
+    ).id;
+    clienteA = (await prisma.client.create({ data: { name: `TEST-RESERVA-A-${stamp}` } })).id;
+    clienteB = (await prisma.client.create({ data: { name: `TEST-RESERVA-B-${stamp}` } })).id;
+  });
+
+  after(async () => {
+    const dispatches = await prisma.dispatch.findMany({ where: { items: { some: { productId } } }, select: { id: true } });
+    await prisma.dispatchItem.deleteMany({ where: { productId } });
+    await prisma.dispatch.deleteMany({ where: { id: { in: dispatches.map((d) => d.id) } } });
+    for (const id of orderIds) {
+      await prisma.notification.deleteMany({ where: { type: "despacho_generado_desde_op", link: "/despachos", message: { contains: `OP-TEST-RES-${stamp}` } } });
+      await prisma.qualityCheck.deleteMany({ where: { productionOrderId: id } });
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: id } });
+      await prisma.productionOrder.delete({ where: { id } }).catch(() => {});
+    }
+    await prisma.inventoryMovement.deleteMany({ where: { productId } });
+    await prisma.stockLocation.deleteMany({ where: { productId } });
+    await prisma.inventoryStock.deleteMany({ where: { productId } });
+    await prisma.product.delete({ where: { id: productId } });
+    await prisma.client.deleteMany({ where: { id: { in: [clienteA, clienteB] } } });
+  });
+
+  /** OP final con un rollo de `kg`, aprobada en Calidad (como en planta). */
+  async function aprobada(kg: number, clientId?: number) {
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-RES-${stamp}-${orderIds.length}`, station: "sellado", productId, clientId, quantityPlanned: kg, status: "pendiente_calidad" },
+    });
+    orderIds.push(order.id);
+    await createTestRoll(order.id, { weightKg: kg });
+    const res = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
+      method: "POST",
+      headers: headersFor("calidad"),
+      body: JSON.stringify({ result: "aprobado" }),
+    });
+    assert.equal(res.status, 201);
+    return order;
+  }
+  const stock = async () =>
+    ((await (await fetch(`${baseUrl}/api/inventory`, { headers: headersFor("almacen") })).json()) as any[]).find((p) => p.id === productId);
+  const despachoManual = async (clientId: number, quantityRequested: number) =>
+    (await (
+      await fetch(`${baseUrl}/api/dispatches`, {
+        method: "POST",
+        headers: headersFor("almacen"),
+        body: JSON.stringify({ clientId, items: [{ productId, quantityRequested }] }),
+      })
+    ).json()) as any;
+  const marcar = (dispatch: any, quantityDispatched: number) =>
+    fetch(`${baseUrl}/api/dispatches/${dispatch.id}/items/${dispatch.items[0].id}`, {
+      method: "PATCH",
+      headers: headersFor("almacen"),
+      body: JSON.stringify({ quantityDispatched }),
+    });
+
+  it("al aprobar una OP con cliente, sus kilos quedan reservados: Existencias separa total, reservado y disponible", async () => {
+    await aprobada(10); // stock libre
+    const paraA = await aprobada(25, clienteA);
+
+    const p = await stock();
+    assert.equal(p.currentStock, 35, "todo está físicamente en el inventario");
+    assert.equal(p.reservedStock, 25);
+    assert.equal(p.availableStock, 10);
+
+    const reservas = (await (await fetch(`${baseUrl}/api/inventory/client-reservations`, { headers: headersFor("ventas") })).json()) as any[];
+    const r = reservas.find((x) => x.productionOrder.id === paraA.id);
+    assert.ok(r, "aparece en Rollos para clientes");
+    assert.equal(r.client.id, clienteA);
+    assert.equal(r.reservedQuantity, 25);
+    assert.equal(r.rolls.length, 1);
+    assert.match(r.rolls[0].code, /^SELL-\d+$/);
+    assert.equal(r.rolls[0].weightKg, 25);
+
+    const lista = (await (await fetch(`${baseUrl}/api/dispatches?clientId=${clienteA}`, { headers: headersFor("almacen") })).json()) as any[];
+    assert.equal(lista[0].productionOrder.orderNumber, paraA.orderNumber, "el despacho del cliente dice de qué OP viene");
+  });
+
+  it("un despacho a OTRO cliente solo puede llevarse lo libre; el mensaje dice para quién está reservado", async () => {
+    const aB = await despachoManual(clienteB, 12);
+    const res = await marcar(aB, 12);
+    assert.equal(res.status, 400);
+    const { error } = (await res.json()) as { error: string };
+    assert.match(error, /Solo hay 10 kg libres/);
+    assert.match(error, new RegExp(`TEST-RESERVA-A-${stamp} \\(25`));
+    assert.equal((await stock()).currentStock, 35, "no se movió nada");
+    assert.equal(
+      (await prisma.dispatchItem.findUniqueOrThrow({ where: { id: aB.items[0].id } })).quantityDispatched,
+      null,
+      "el ítem queda pendiente, no a medio marcar"
+    );
+
+    const libre = await despachoManual(clienteB, 10);
+    assert.equal((await marcar(libre, 10)).status, 200, "lo libre sí se despacha");
+    const p = await stock();
+    assert.equal(p.currentStock, 25);
+    assert.equal(p.availableStock, 0);
+  });
+
+  it("el despacho del propio cliente se lleva su reserva, sin pedir estante aunque no quede nada libre", async () => {
+    const delA = (await prisma.dispatch.findFirstOrThrow({ where: { clientId: clienteA, productionOrderId: { not: null } }, include: { items: true } })) as any;
+    assert.equal((await marcar(delA, 25)).status, 200);
+    const p = await stock();
+    assert.equal(p.currentStock, 0);
+    assert.equal(p.reservedStock, 0, "despachado: ya no hay reserva");
+  });
+
+  it("si el cliente cancela, su reserva pasa a stock libre y se puede despachar a otro", async () => {
+    await aprobada(8, clienteA);
+    assert.equal((await stock()).availableStock, 0);
+    const reserva = await prisma.dispatch.findFirstOrThrow({ where: { clientId: clienteA, status: "pendiente", productionOrderId: { not: null } } });
+    const cancel = await fetch(`${baseUrl}/api/dispatches/${reserva.id}/cancel`, { method: "POST", headers: headersFor("almacen") });
+    assert.equal(cancel.status, 200);
+
+    const p = await stock();
+    assert.equal(p.reservedStock, 0);
+    assert.equal(p.availableStock, 8);
+    const aB = await despachoManual(clienteB, 8);
+    assert.equal((await marcar(aB, 8)).status, 200);
+  });
+
+  it("una reserva de varios ítems a medio despachar solo sigue reservando lo que falta", async () => {
+    const op = await aprobada(6, clienteA);
+    const reserva = await prisma.dispatch.findFirstOrThrow({ where: { productionOrderId: op.id }, include: { items: true } });
+    // Segundo ítem del mismo producto (ej. el despacho se armó en dos partes).
+    await prisma.dispatchItem.create({ data: { dispatchId: reserva.id, productId, quantityRequested: 4 } });
+    await applyMovement(prisma as any, { productId, quantity: 4, movementType: "ajuste", referenceType: "manual_adjustment" });
+    assert.equal((await stock()).reservedStock, 10);
+
+    assert.equal((await marcar(reserva, 6)).status, 200);
+    const p = await stock();
+    assert.equal((await prisma.dispatch.findUniqueOrThrow({ where: { id: reserva.id } })).status, "en_proceso");
+    assert.equal(p.reservedStock, 4, "lo ya despachado deja de estar reservado");
+  });
+
+  it("al escanear un rollo en Despacho a bodegas y en Inventario de bodegas se ve para qué cliente es", async () => {
+    const op = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-RES-${stamp}-EXT`, station: "extrusion", productId, clientId: clienteA, quantityPlanned: 50 },
+    });
+    orderIds.push(op.id);
+    const roll = await createTestRoll(op.id, { weightKg: 30 });
+    const scan = (await (
+      await fetch(`${baseUrl}/api/roll-transfers/scan/EXT-${roll.stationSequence}?token=${roll.possessionToken}`, { headers: headersFor("produccion") })
+    ).json()) as any;
+    assert.equal(scan.roll.productionOrder.client.name, `TEST-RESERVA-A-${stamp}`);
+
+    const inv = (await (await fetch(`${baseUrl}/api/roll-transfers/inventory`, { headers: headersFor("produccion") })).json()) as any;
+    const item = inv.warehouses.flatMap((w: any) => w.items).find((i: any) => i.rollId === roll.id);
+    assert.equal(item.productionOrder.client.id, clienteA);
+  });
+});
+

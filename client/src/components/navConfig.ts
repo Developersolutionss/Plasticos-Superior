@@ -186,6 +186,7 @@ export const navSections: NavEntry[] = [
     group: "Inventario",
     children: [
       { id: "inventario-existencias", label: "Existencias", to: "/inventario/existencias", roles: EXISTENCIAS },
+      { id: "inventario-rollos-clientes", label: "Rollos para clientes", to: "/inventario/rollos-clientes", roles: EXISTENCIAS },
       { id: "inventario-productos", label: "Productos", to: "/inventario/productos", roles: CATALOGO_GESTION },
       { id: "inventario-materia-prima", label: "Materia prima", to: "/inventario/materia-prima", roles: CATALOGO_GESTION },
       { id: "inventario-movimientos", label: "Movimientos", to: "/inventario/movimientos", roles: ALMACEN },

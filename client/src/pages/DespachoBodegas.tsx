@@ -272,6 +272,9 @@ export default function DespachoBodegas() {
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 {info.roll.productionOrder.product.name} · OP {info.roll.productionOrder.orderNumber}
               </p>
+              <p className={`text-sm font-medium ${info.roll.productionOrder.client ? "text-sky-800 dark:text-sky-300" : "text-slate-500 dark:text-slate-400"}`}>
+                {info.roll.productionOrder.client ? `Para ${info.roll.productionOrder.client.name}` : "Para stock (sin cliente)"}
+              </p>
             </div>
             <div className="text-right text-sm">
               <p className="text-slate-800 dark:text-slate-100">{Number(info.roll.weightKg)} kg</p>

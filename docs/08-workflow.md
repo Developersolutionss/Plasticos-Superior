@@ -76,7 +76,7 @@ El `measure` de la entrada hereda del producto si no se indica.
 
 Cuando se marca un ítem como despachado (`PATCH /api/dispatches/:dispatchId/items/:itemId`) — una sola transacción:
 
-1. Actualiza `quantity_dispatched` del ítem.
+1. Actualiza `quantity_dispatched` del ítem. Si el despacho no es la reserva de un cliente, verifica que no se lleve stock reservado (ver [Reservas para clientes](#reservas-para-clientes)).
 2. `applyMovement(tx, { quantity: -kilos, movementType: "salida_despacho", referenceType: "dispatch_item" })`:
    - Registra el movimiento de salida.
    - **Decrementa** `inventory_stock.current_quantity`.
@@ -84,6 +84,17 @@ Cuando se marca un ítem como despachado (`PATCH /api/dispatches/:dispatchId/ite
    - Si **no quedan** pendientes → `status: "despachado"` y fija `dispatched_date`.
    - Si **quedan** → `status: "en_proceso"`.
 4. **Fuera** de la transacción, si ese `PATCH` fue el que recién dejó el despacho `despachado` (no si ya lo estaba), intenta avisarle al cliente por WhatsApp (`sendWhatsAppMessage`, al contacto principal o al primero con teléfono). Sin credenciales de Meta configuradas, o si el cliente no tiene teléfono, no pasa nada — no rompe el flujo de despacho. Un reintento sobre el mismo ítem ya despachado no reenvía el aviso.
+
+### Reservas para clientes
+
+Pedido del cliente en la reunión del 2026-10-06: lo fabricado para un cliente no debe poder despacharse a otro (alguien veía "900 kg, sobra" y se los llevaba).
+
+- Lo que produce una OP con cliente entra al inventario igual que siempre (al aprobar Calidad) y queda **reservado** para ese cliente. No hay tabla aparte: la reserva es el despacho que Calidad genera solo para ese cliente (`Dispatch.productionOrderId`), mientras siga `pendiente` o `en_proceso`, por sus ítems que todavía no salieron (`services/reservations.ts`).
+- **Disponible** = stock − reservado. Existencias muestra las tres cifras; "Rollos para clientes" lista cada reserva con su cliente, su OP y sus rollos.
+- Un despacho que no es la reserva de un cliente (uno armado a mano, u otra reserva) solo puede llevarse lo disponible: si pide más, `PATCH /api/dispatches/:id/items/:itemId` responde 400 y dice para quién está reservado. Si pide más que el stock total, el mensaje es el de stock insuficiente de siempre. La fila de `inventory_stock` del producto se bloquea (`FOR UPDATE`) para que dos despachos simultáneos no lean el mismo disponible.
+- El despacho del propio cliente se lleva su reserva sin exigir estante (lo recién producido entra "sin ubicar"); puede elegir uno si ya se ubicó.
+- Si el cliente cancela, se cancela su despacho: la reserva desaparece y esos kilos quedan libres para otro cliente.
+- El cliente de la OP también se ve en Despacho a bodegas al escanear un rollo ("Para Cliente X" o "Para stock") y en cada rollo de Inventario de bodegas.
 
 ### 3. Producción por Órdenes de Trabajo (OP)
 
@@ -170,7 +181,7 @@ Cada estación (`services/opTemplates.ts`, con espejo en el frontend) define qu�
 
 #### Destino de la OP y reapertura
 
-- **Destino** (estantería o cliente): el `clientId` de la OP es explícito y editable mientras la OP siga `borrador` o abierta (`PATCH /:id`) — una OP sin cliente entra a inventario general ("a estantería"); una OP con cliente asignado, además de sumar a inventario, genera su despacho automáticamente al aprobarse (ver "Control de calidad" abajo). **Limitación:** el cliente de la OP queda guardado (y se llega a él desde cada rollo), pero la producción de una OP con cliente se suma al stock general del producto y las pantallas no muestran para quién es. El cliente pidió diferenciarla, para que nadie despache como stock lo que es de un cliente.
+- **Destino** (estantería o cliente): el `clientId` de la OP es explícito y editable mientras la OP siga `borrador` o abierta (`PATCH /:id`) — una OP sin cliente entra a inventario general ("a estantería"); una OP con cliente asignado, además de sumar a inventario, genera su despacho automáticamente al aprobarse (ver "Control de calidad" abajo). La producción de una OP con cliente se suma al stock del producto pero queda **reservada** para ese cliente mientras su despacho siga abierto (ver [Reservas para clientes](#reservas-para-clientes)).
 - `POST /:id/reopen` reabre una OP cerrada por error (desde `finalizada`, `pendiente_calidad` o `detenida`) y la deja `en_proceso` otra vez, editable y lista para cargar o borrar rollos. Revierte cualquier efecto de inventario que ya se hubiera aplicado, para que ningún kilo quede "fantasma" en el stock:
   - si tenía un control de calidad **aprobado**, revierte la entrada de producto terminado y borra el control (al volver a cerrar, pasa por Calidad de nuevo);
   - si tenía un control **rechazado**, solo borra el control;
@@ -191,7 +202,7 @@ Cada estación (`services/opTemplates.ts`, con espejo en el frontend) define qu�
 
 `POST /api/production-orders/:id/quality-check` decide el destino del lote:
 
-- **Aprobado**: se genera la entrada de inventario (`applyMovement` con la suma de kg de los rollos) y la OP pasa a `finalizada`. Si la OP tiene **cliente asignado** (destino "a cliente", no "a estantería"), el sistema además crea un `Dispatch` automático en `pendiente` para ese cliente, con el producto y la cantidad ya cargados — Almacén solo confirma la salida física en vez de armar el despacho desde cero. El sistema notifica a `ROLES.ALMACEN` cuando esto pasa. El stock de ese lote queda mezclado con el stock general del producto (ver la limitación en "Destino de la OP y reapertura").
+- **Aprobado**: se genera la entrada de inventario (`applyMovement` con la suma de kg de los rollos) y la OP pasa a `finalizada`. Si la OP tiene **cliente asignado** (destino "a cliente", no "a estantería"), el sistema además crea un `Dispatch` automático en `pendiente` para ese cliente, con el producto y la cantidad ya cargados — Almacén solo confirma la salida física en vez de armar el despacho desde cero. El sistema notifica a `ROLES.ALMACEN` cuando esto pasa. Ese despacho es la reserva: mientras siga abierto, esos kilos no cuentan como disponibles para otro cliente (ver [Reservas para clientes](#reservas-para-clientes)).
 - **Rechazado**: la OP queda `detenida` sin mover stock (Producción decide qué hacer). El sistema notifica a `ROLES.PRODUCCION_GESTION`.
 - La OP debe estar `pendiente_calidad` y no tener aún un control registrado (una sola revisión por OP, `quality_checks.production_order_id` es único).
 

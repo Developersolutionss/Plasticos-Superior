@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
-import { ScanLine } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Lock, ScanLine } from "lucide-react";
 import { api } from "../api/client";
 import BarcodeScanner from "../components/BarcodeScanner";
 import Modal from "../components/Modal";
@@ -55,6 +56,10 @@ export default function Dispatches() {
   // despachar nunca tocaba las ubicaciones, así que el QR de cada estante
   // quedaba desincronizado del stock real apenas salía la primera mercadería).
   const { data: warehouseStock } = useQuery({ queryKey: ["warehouseStock"], queryFn: api.getWarehouseStock });
+  // Cuánto está libre de cada producto (el resto está reservado para un
+  // cliente y el servidor no deja llevárselo en otro despacho).
+  const { data: inventory } = useQuery({ queryKey: ["inventory", ""], queryFn: () => api.getInventory() });
+  const stockOf = (productId: string) => inventory?.find((p: any) => String(p.id) === productId);
 
   async function markDispatched(dispatchId: number, itemId: number, quantityRequested: number, locationId?: number) {
     setDispatchingItemId(itemId);
@@ -71,8 +76,9 @@ export default function Dispatches() {
     }
   }
 
-  async function handleCancelDispatch(dispatchId: number) {
-    if (!confirm("¿Cancelar este despacho? Si ya tenía ítems despachados, se revierte ese stock (y la ubicación de origen, si se había elegido una).")) return;
+  async function handleCancelDispatch(dispatchId: number, reserved = false) {
+    const reservedNote = reserved ? " Lo reservado para este cliente pasa a stock libre y se puede despachar a otro." : "";
+    if (!confirm(`¿Cancelar este despacho? Si ya tenía ítems despachados, se revierte ese stock (y la ubicación de origen, si se había elegido una).${reservedNote}`)) return;
     setCancellingId(dispatchId);
     try {
       await api.cancelDispatch(dispatchId);
@@ -107,7 +113,8 @@ export default function Dispatches() {
     const locations = (warehouseStock?.find((p: any) => p.productId === match.item.product.id)?.locations ?? []).filter(
       (l: any) => l.quantity > 0
     );
-    if (locations.length > 0) {
+    // Lo reservado para un cliente se despacha sin elegir estante (ver abajo).
+    if (locations.length > 0 && !match.dispatch.productionOrder) {
       setScanMessage(`${match.item.product.name} tiene stock ubicado en estantes — marcalo despachado a mano abajo para elegir de cuál sale.`);
       return;
     }
@@ -181,6 +188,13 @@ export default function Dispatches() {
                   </option>
                 ))}
               </select>
+              {item.productId && stockOf(item.productId) && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Libres: {stockOf(item.productId).availableStock} {stockOf(item.productId).unit}
+                  {stockOf(item.productId).reservedStock > 0 &&
+                    ` (hay ${stockOf(item.productId).reservedStock} ${stockOf(item.productId).unit} más reservados para clientes)`}
+                </p>
+              )}
               <div className="flex items-center gap-2">
                 <input
                   className="border rounded px-2 py-2 text-sm min-w-0 flex-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
@@ -255,6 +269,15 @@ export default function Dispatches() {
             <div className="flex flex-wrap justify-between items-center gap-1 mb-2">
               <span className="font-medium">
                 Pedido #{d.id} - {d.client.name}
+                {d.productionOrder && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal rounded-full px-2 py-0.5 bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300">
+                    <Lock size={11} aria-hidden="true" />
+                    Reservado de{" "}
+                    <Link to={`/produccion/ordenes/${d.productionOrder.id}`} onClick={(e) => e.stopPropagation()} className="underline">
+                      {d.productionOrder.orderNumber}
+                    </Link>
+                  </span>
+                )}
               </span>
               <span className="flex items-center gap-2">
                 <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{d.status}</span>
@@ -265,7 +288,7 @@ export default function Dispatches() {
                     disabled={cancellingId === d.id}
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleCancelDispatch(d.id);
+                      handleCancelDispatch(d.id, !!d.productionOrder);
                     }}
                   >
                     {cancellingId === d.id ? "Cancelando..." : "Cancelar"}
@@ -286,7 +309,11 @@ export default function Dispatches() {
                 // realidad (el QR pegado en el estante "miente"). Un
                 // producto sin ninguna ubicación asignada todavía no
                 // necesita este paso.
-                const locationRequired = locations.length > 0;
+                // Lo reservado para un cliente (lo generó Calidad desde su OP)
+                // es lo recién producido, que entró "sin ubicar": no se le
+                // exige estante, aunque se puede elegir uno si ya se ubicó.
+                const reserved = !!d.productionOrder;
+                const locationRequired = locations.length > 0 && !reserved;
                 const chosenLocation = locationChoice[item.id] ?? (locationRequired ? String(locations[0].locationId) : "");
                 return (
                   <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-2">
@@ -296,13 +323,14 @@ export default function Dispatches() {
                     </span>
                     {canManage && item.quantityDispatched == null && d.status !== "cancelada" && (
                       <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                        {locationRequired && (
+                        {locations.length > 0 && (
                           <select
                             className="border rounded px-1.5 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                             value={chosenLocation}
                             onChange={(e) => setLocationChoice((prev) => ({ ...prev, [item.id]: e.target.value }))}
                             title="De qué ubicación física sale (obligatorio: este producto ya tiene stock ubicado)"
                           >
+                            {!locationRequired && <option value="">Sin estante (recién producido)</option>}
                             {locations.map((l: any) => (
                               <option key={l.locationId} value={l.locationId}>
                                 {l.code} ({l.quantity})
@@ -395,7 +423,7 @@ export default function Dispatches() {
                 type="button"
                 className="text-red-600 dark:text-red-400 text-sm hover:underline disabled:opacity-50"
                 disabled={cancellingId === selectedDispatch.id}
-                onClick={() => handleCancelDispatch(selectedDispatch.id)}
+                onClick={() => handleCancelDispatch(selectedDispatch.id, !!selectedDispatch.productionOrder)}
               >
                 {cancellingId === selectedDispatch.id ? "Cancelando..." : "Cancelar despacho"}
               </button>

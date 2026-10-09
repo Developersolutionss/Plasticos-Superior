@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { TriangleAlert } from "lucide-react";
 import { api } from "../api/client";
 import AsyncState from "../components/AsyncState";
@@ -87,6 +88,10 @@ export default function InventoryDashboard() {
                     <th className="p-3">Producto</th>
                     <th className="p-3">Medida</th>
                     <th className="p-3">Stock actual</th>
+                    <th className="p-3" title="Fabricado para un cliente y todavía no despachado: no se puede vender a otro">
+                      Reservado
+                    </th>
+                    <th className="p-3">Disponible</th>
                     <th className="p-3">Mínimo</th>
                     <th className="p-3">Estado</th>
                   </tr>
@@ -99,6 +104,18 @@ export default function InventoryDashboard() {
                       <td className="p-3">{p.measure ?? "-"}</td>
                       <td className="p-3">
                         {p.currentStock} {p.unit}
+                      </td>
+                      <td className="p-3">
+                        {p.reservedStock > 0 ? (
+                          <Link to="/inventario/rollos-clientes" className="text-sky-700 dark:text-sky-400 hover:underline">
+                            {p.reservedStock} {p.unit}
+                          </Link>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className={`p-3 font-medium ${p.availableStock < 0 ? "text-red-600 dark:text-red-400" : ""}`}>
+                        {p.availableStock} {p.unit}
                       </td>
                       <td className="p-3">{p.minStock}</td>
                       <td className="p-3">
@@ -130,6 +147,17 @@ export default function InventoryDashboard() {
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     {p.measure ?? "-"} · Stock: {p.currentStock} {p.unit} · Mínimo: {p.minStock}
                   </p>
+                  {p.reservedStock > 0 && (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      <Link to="/inventario/rollos-clientes" className="text-sky-700 dark:text-sky-400 hover:underline">
+                        Reservado: {p.reservedStock} {p.unit}
+                      </Link>{" "}
+                      · Disponible:{" "}
+                      <span className={`font-medium ${p.availableStock < 0 ? "text-red-600 dark:text-red-400" : "text-slate-700 dark:text-slate-200"}`}>
+                        {p.availableStock} {p.unit}
+                      </span>
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

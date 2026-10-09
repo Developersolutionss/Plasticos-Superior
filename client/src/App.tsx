@@ -15,6 +15,7 @@ import ProduccionPorOperario from "./pages/ProduccionPorOperario";
 import EtiquetasBulto from "./pages/EtiquetasBulto";
 import DespachoBodegas from "./pages/DespachoBodegas";
 import InventarioBodegas from "./pages/InventarioBodegas";
+import RollosClientes from "./pages/RollosClientes";
 import OrdenProduccionDetalle from "./pages/OrdenProduccionDetalle";
 import Planeacion from "./pages/Planeacion";
 import Calidad from "./pages/Calidad";
@@ -155,6 +156,14 @@ export default function App() {
           element={
             <RequireRole roles={EXISTENCIAS}>
               <InventoryDashboard />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="inventario/rollos-clientes"
+          element={
+            <RequireRole roles={EXISTENCIAS}>
+              <RollosClientes />
             </RequireRole>
           }
         />

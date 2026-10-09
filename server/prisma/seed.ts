@@ -635,6 +635,68 @@ async function main() {
     }
   }
 
+  // OP de Precorte hecha para un cliente y ya aprobada en Calidad, con su
+  // despacho automático todavía pendiente: es una reserva (ver
+  // services/reservations.ts), para que "Rollos para clientes" y la columna
+  // "Reservado" de Existencias no estén vacías. Idempotente por orderNumber.
+  if (acme && rollo) {
+    const existingClientOp = await prisma.productionOrder.findFirst({ where: { orderNumber: "OP-SEED-CLIENTE" } });
+    if (!existingClientOp) {
+      const weights = [22, 18];
+      // Los dos números se piden de una: nextSeedStationSequence mira lo ya
+      // guardado, y estos rollos se crean recién abajo.
+      const firstSeq = await nextSeedStationSequence("precorte");
+      const rolls = [];
+      for (const [i, weightKg] of weights.entries()) {
+        const seq = firstSeq + i;
+        rolls.push({
+          station: "precorte" as const,
+          stationSequence: seq,
+          date: new Date(Date.now() - 3 * 60 * 60 * 1000),
+          machine: "Cortadora 1",
+          operatorName: "Operario Demo",
+          weightKg,
+          notes: "Rollo demo fabricado para Cliente ACME",
+          possessionTokenHash: seedPossessionTokenHash("precorte", seq),
+        });
+      }
+      const totalKg = weights.reduce((a, b) => a + b, 0);
+      await prisma.$transaction(async (tx) => {
+        const op = await tx.productionOrder.create({
+          data: {
+            orderNumber: "OP-SEED-CLIENTE",
+            station: "precorte",
+            productId: rollo.id,
+            clientId: acme.id,
+            quantityPlanned: totalKg,
+            measure: rollo.measure,
+            status: "finalizada",
+            rolls: { create: rolls },
+          },
+        });
+        await tx.qualityCheck.create({ data: { productionOrderId: op.id, result: "aprobado", observations: "Control de calidad demo (OP con cliente)" } });
+        // Igual que POST /:id/quality-check: entra al inventario y nace el
+        // despacho para el cliente, que es lo que lo deja reservado.
+        await applyMovement(tx, {
+          productId: rollo.id,
+          quantity: totalKg,
+          movementType: "entrada_produccion",
+          referenceType: "production_order",
+          referenceId: op.id,
+        });
+        await tx.dispatch.create({
+          data: {
+            clientId: acme.id,
+            productionOrderId: op.id,
+            items: {
+              create: [{ productId: rollo.id, quantityRequested: totalKg, notes: "Generado automáticamente al aprobar la OP #OP-SEED-CLIENTE en Calidad" }],
+            },
+          },
+        });
+      });
+    }
+  }
+
   // Despacho demo ya completado, para que el ranking de "Top productos
   // despachados" de Indicadores tenga datos. Idempotente por un marcador
   // fijo en las notas del ítem (Dispatch no tiene un campo único propio).

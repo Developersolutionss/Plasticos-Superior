@@ -226,7 +226,9 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
       weightKg: true,
       createdAt: true,
       productionOrderId: true,
-      productionOrder: { select: { id: true, orderNumber: true, product: { select: { name: true, sku: true } } } },
+      // Para quién es (la OP guarda el cliente destino): la bodega lo ve en
+      // cada rollo y nadie lo toma como material de stock.
+      productionOrder: { select: { id: true, orderNumber: true, product: { select: { name: true, sku: true } }, client: { select: { id: true, name: true } } } },
       transfers: {
         orderBy: { id: "desc" },
         take: 1,
@@ -407,7 +409,9 @@ rollTransfersRouter.get("/scan/:code", async (req, res) => {
         weightKg: true,
         operatorName: true,
         date: true,
-        productionOrder: { select: { id: true, orderNumber: true, specs: true, product: { select: { name: true, sku: true } } } },
+        productionOrder: {
+          select: { id: true, orderNumber: true, specs: true, product: { select: { name: true, sku: true } }, client: { select: { id: true, name: true } } },
+        },
       },
     }),
     remainingSourceKg(prisma, roll.id),

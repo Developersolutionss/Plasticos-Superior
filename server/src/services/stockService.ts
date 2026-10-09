@@ -1,6 +1,7 @@
 import { prisma } from "../prisma";
 import { ROLES } from "../middleware/auth";
 import { notifyRolesTx } from "./notify";
+import { reservedByProduct } from "./reservations";
 
 // `prisma` está envuelto en `$extends` (auditExtension.ts), así que el tipo
 // del cliente de transacción ya no es el `Prisma.TransactionClient` genérico
@@ -166,14 +167,20 @@ export async function incrementLocationStock(tx: TxClient, productId: number, lo
 }
 
 export async function getStockByCategory() {
-  const products = await prisma.product.findMany({
-    include: { stock: true },
-    orderBy: [{ category: "asc" }, { name: "asc" }],
-  });
+  const [products, reserved] = await Promise.all([
+    prisma.product.findMany({
+      include: { stock: true },
+      orderBy: [{ category: "asc" }, { name: "asc" }],
+    }),
+    reservedByProduct(prisma),
+  ]);
 
   return products.map((p) => {
     const currentStock = Number(p.stock?.currentQuantity ?? 0);
     const minStock = Number(p.minStock);
+    // Lo fabricado para un cliente sigue en el stock (está físicamente en la
+    // bodega) pero no está libre para otro cliente — ver services/reservations.ts.
+    const reservedStock = reserved.get(p.id) ?? 0;
     return {
       id: p.id,
       sku: p.sku,
@@ -183,6 +190,8 @@ export async function getStockByCategory() {
       unit: p.unit,
       minStock,
       currentStock,
+      reservedStock,
+      availableStock: Math.round((currentStock - reservedStock) * 100) / 100,
       active: p.active,
       belowMinimum: currentStock < minStock,
     };

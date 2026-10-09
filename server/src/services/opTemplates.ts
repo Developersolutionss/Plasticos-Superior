@@ -94,6 +94,18 @@ export const ROLL_CODE_PREFIX: Record<OpStation, string> = {
   precorte: "PRE",
 };
 
+/** Kilos que produjo una fila: su peso, más el segundo par ETIQUETA R / PESO R
+ * en Precorte (`details.pesoR2`, el excedente que salió del siguiente rollo
+ * madre) — es material real que cuenta en la meta y en la entrada a
+ * inventario igual que el peso base. */
+export function rollProducedKg(station: OpStation | null, roll: { weightKg: unknown; details?: unknown }): number {
+  const base = Number(roll.weightKg);
+  if (station !== "precorte") return base;
+  const details = roll.details && typeof roll.details === "object" ? (roll.details as Record<string, unknown>) : {};
+  const r2 = Number(details.pesoR2);
+  return base + (Number.isFinite(r2) ? r2 : 0);
+}
+
 const FORMA_MATERIAL = ["Tubular", "Semitubular", "Lám. PH", "Lám. Indiv.", "Fuelles"];
 const SI_NO = ["SI", "NO"];
 const DENSIDAD = ["ALTA", "BAJA"];

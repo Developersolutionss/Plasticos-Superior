@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { applyMovement, InsufficientStockError } from "../services/stockService";
+import { reservationHolders, reservedByProduct } from "../services/reservations";
 import { sendWhatsAppMessage } from "../services/whatsapp";
 
 class ItemAlreadyDispatchedError extends Error {}
@@ -31,7 +32,14 @@ dispatchesRouter.get("/", async (req, res) => {
       clientId: clientId ? Number(clientId) : undefined,
       status: statusParam as (typeof DISPATCH_STATUSES)[number] | undefined,
     },
-    include: { client: true, items: { include: { product: true } }, createdBy: { select: { name: true } } },
+    include: {
+      client: true,
+      items: { include: { product: true } },
+      createdBy: { select: { name: true } },
+      // Si lo generó Calidad al aprobar una OP con cliente, es una reserva:
+      // la pantalla lo marca y no exige estante (ver PATCH de abajo).
+      productionOrder: { select: { id: true, orderNumber: true } },
+    },
     orderBy: { requestedDate: "desc" },
   });
   res.json(dispatches);
@@ -163,7 +171,7 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
   // ahora" de "ya estaba despachado y esto es un doble click/reintento" —
   // si no, dos requests casi simultáneas (o un reintento de red del último
   // ítem) mandarían el WhatsApp de "despachado" dos o tres veces seguidas.
-  const dispatchBefore = await prisma.dispatch.findUnique({ where: { id: dispatchId }, select: { status: true } });
+  const dispatchBefore = await prisma.dispatch.findUnique({ where: { id: dispatchId }, select: { status: true, productionOrderId: true } });
   if (dispatchBefore?.status === "cancelada") {
     return res.status(400).json({ error: "Este despacho está cancelado" });
   }
@@ -189,6 +197,31 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
         data: { quantityDispatched: parsed.data.quantityDispatched, locationId: parsed.data.locationId },
       });
       if (claimed.count === 0) throw new ItemAlreadyDispatchedError();
+
+      // Stock reservado para clientes (ver services/reservations.ts): un
+      // despacho que NO es la reserva de un cliente solo puede llevarse lo
+      // libre. Se bloquea la fila de stock del producto para que dos
+      // despachos simultáneos no lean el mismo "libre".
+      await tx.$queryRaw`SELECT product_id FROM inventory_stock WHERE product_id = ${item.productId} FOR UPDATE`;
+      if (!dispatchBefore?.productionOrderId) {
+        const [stock, reserved] = await Promise.all([
+          tx.inventoryStock.findUnique({ where: { productId: item.productId }, select: { currentQuantity: true } }),
+          reservedByProduct(tx, { productIds: [item.productId], excludeDispatchId: dispatchId }),
+        ]);
+        const reservedKg = reserved.get(item.productId) ?? 0;
+        const total = Number(stock?.currentQuantity ?? 0);
+        const free = Math.round((total - reservedKg) * 100) / 100;
+        // Si ni con lo reservado alcanza, el problema es falta de stock: ese
+        // mensaje lo da applyMovement más abajo.
+        if (reservedKg > 0 && parsed.data.quantityDispatched > free + 0.005 && parsed.data.quantityDispatched <= total + 0.005) {
+          const holders = await reservationHolders(tx, item.productId, dispatchId);
+          const product = await tx.product.findUnique({ where: { id: item.productId }, select: { name: true, unit: true } });
+          throw new InsufficientStockError(
+            `Solo hay ${Math.max(0, free)} ${product?.unit ?? ""} libres de ${product?.name ?? "este producto"}: el resto está reservado para ` +
+              holders.map((h) => `${h.clientName} (${h.quantity}, ${h.orderNumber})`).join(", ")
+          );
+        }
+      }
 
       await applyMovement(tx, {
         productId: item.productId,

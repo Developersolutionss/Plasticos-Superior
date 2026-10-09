@@ -146,6 +146,9 @@ function RollRow({
             </Link>{" "}
             · {roll.productionOrder.product.name}
           </p>
+          {roll.productionOrder.client && (
+            <p className="text-xs font-medium text-sky-800 dark:text-sky-300">Para {roll.productionOrder.client.name}</p>
+          )}
         </div>
         <div className="text-right">
           <p className="font-semibold text-slate-800 dark:text-slate-100">{roll.remainingKg} kg</p>
@@ -325,6 +328,7 @@ export default function InventarioBodegas() {
                           <span className="text-slate-800 dark:text-slate-100">
                             <strong>{t.code}</strong> · {stationLabel(t.fromStation)} <ArrowRight size={12} className="inline" aria-hidden="true" />{" "}
                             {stationLabel(t.toStation)} · lo lleva {t.carrierName}
+                            {t.productionOrder.client && <span className="text-sky-800 dark:text-sky-300"> · para {t.productionOrder.client.name}</span>}
                           </span>
                           <span
                             className={`text-xs inline-flex items-center gap-1 ${

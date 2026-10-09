@@ -135,7 +135,8 @@ Reglas de validación: en los endpoints de **contactos**, el `:id` debe ser num�
 
 | Método | Ruta | Query/Param | Descripción |
 |---|---|---|---|
-| GET | `/api/inventory` | `?category=rollos_fuelle` (opcional) | Stock de todos los productos (o filtrado por categoría). Incluye `currentStock`, `minStock`, `belowMinimum` |
+| GET | `/api/inventory` | `?category=rollos_fuelle` (opcional) | Stock de todos los productos (o filtrado por categoría). Incluye `currentStock`, `reservedStock` (fabricado para un cliente y todavía no despachado), `availableStock` (`currentStock − reservedStock`, puede ser negativo si hay un descuadre), `minStock`, `belowMinimum` |
+| GET | `/api/inventory/client-reservations` | — | (rol de Existencias) "Rollos para clientes": cada reserva abierta con `dispatchId`, `status`, `client`, `productionOrder` (`id`, `orderNumber`, `station`), `approvedAt`, `items`, `reservedQuantity` (lo que falta despachar) y `rolls` (`code`, `weightKg` producido). Ver [08 — Reglas de negocio](08-workflow.md#reservas-para-clientes) |
 | GET | `/api/inventory/alerts` | — | Solo productos bajo el stock mínimo |
 | GET | `/api/inventory/products` | — | Catálogo de productos activos |
 | GET | `/api/inventory/movements` | `?productId=&movementType=&page=&pageSize=` (rol almacén) | Historial paginado de `InventoryMovement` (`pageSize` tope 200, default 50). Devuelve `{ items, total, page, pageSize }`; cada item trae `origin: { label, link? }` con de dónde salió (OP aprobada en Calidad o su reversión, despacho, carga de producción, ajuste manual) |
@@ -266,10 +267,10 @@ Un despacho puede nacer manual (`POST /`, Almacén) o **automático**: al aproba
 
 | Método | Ruta | Cuerpo/Query | Descripción |
 |---|---|---|---|
-| GET | `/api/dispatches` | `?clientId=1&status=pendiente\|en_proceso\|despachado\|cancelada` | (almacén o ventas) Lista despachos (cliente + ítems con producto), por fecha desc |
+| GET | `/api/dispatches` | `?clientId=1&status=pendiente\|en_proceso\|despachado\|cancelada` | (almacén o ventas) Lista despachos (cliente + ítems con producto + `productionOrder` `{ id, orderNumber }` si lo generó Calidad desde una OP con cliente), por fecha desc |
 | GET | `/api/dispatches/summary-by-client` | — | (almacén o ventas) Histórico de cuánto se le ha despachado a cada cliente, agrupado por cliente + producto: cantidad total, número de despachos y fecha del último. Solo cuenta lo efectivamente despachado (no lo pendiente) y excluye despachos cancelados |
 | POST | `/api/dispatches` | `{ clientId, items: [{ productId, quantityRequested, labelCode?, notes? }] }` | Crea un despacho con sus ítems (almacén). `404` si el cliente o algún producto no existen; `400` si algún producto está desactivado |
-| PATCH | `/api/dispatches/:dispatchId/items/:itemId` | `{ quantityDispatched, locationId? }` | (almacén) Marca un ítem despachado. Descuenta stock (del total y, si se manda `locationId`, también de esa ubicación puntual) y actualiza el estado del despacho, en una transacción. `400` si se pide despachar más de lo solicitado, si el despacho está `cancelada`, o si la ubicación indicada no tiene suficiente cantidad |
+| PATCH | `/api/dispatches/:dispatchId/items/:itemId` | `{ quantityDispatched, locationId? }` | (almacén) Marca un ítem despachado. Descuenta stock (del total y, si se manda `locationId`, también de esa ubicación puntual) y actualiza el estado del despacho, en una transacción. `400` si se pide despachar más de lo solicitado, si el despacho está `cancelada`, si la ubicación indicada no tiene suficiente cantidad, o si un despacho que no es la reserva de un cliente se quiere llevar stock reservado ("Solo hay X kg libres de …: el resto está reservado para Cliente (kg, OP)") |
 | POST | `/api/dispatches/:dispatchId/cancel` | — | (almacén) **Cancela** un despacho. Si ya tenía ítems marcados como despachados, revierte esos movimientos de stock (y de la ubicación de origen, si se había cargado una) dentro de la misma transacción. El histórico de `quantityDispatched` de cada ítem no se borra — solo cambia el estado del despacho. `400` si ya estaba cancelado |
 
 Cuando el `PATCH` de un ítem deja el despacho en `despachado` (recién en ese momento, no en reintentos posteriores), el sistema intenta avisar por WhatsApp al contacto principal del cliente (`services/whatsapp.ts`, `sendWhatsAppMessage`). El resultado del intento queda **guardado en el despacho**, no solo en un log de servidor: `notifiedAt` sin `notifyError` significa que se mandó bien; `notifyError` con un mensaje (p. ej. "El cliente no tiene teléfono de contacto cargado") significa que no se pudo avisar. Sin `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID` configuradas, el envío queda en modo no-op silencioso (igual que `email.ts` sin `RESEND_API_KEY`), pero igual queda su constancia en `notifyError`.
@@ -427,6 +428,8 @@ Configuración pendiente (documentada en `server/src/routes/whatsappWebhook.ts`)
     "unit": "unidad",
     "minStock": 50,
     "currentStock": 120,
+    "reservedStock": 30,
+    "availableStock": 90,
     "belowMinimum": false
   }
 ]
