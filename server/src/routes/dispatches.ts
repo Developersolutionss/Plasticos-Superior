@@ -4,6 +4,9 @@ import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { applyMovement, InsufficientStockError } from "../services/stockService";
 import { reservationHolders, reservedByProduct } from "../services/reservations";
+import { DispatchRollError, candidateRolls, resolveDispatchRolls } from "../services/dispatchRolls";
+import { checkRateLimit } from "../services/rateLimiter";
+import { ROLL_CODE_PREFIX, type OpStation } from "../services/opTemplates";
 import { sendWhatsAppMessage } from "../services/whatsapp";
 
 class ItemAlreadyDispatchedError extends Error {}
@@ -34,7 +37,7 @@ dispatchesRouter.get("/", async (req, res) => {
     },
     include: {
       client: true,
-      items: { include: { product: true } },
+      items: { include: { product: true, rolls: { include: { roll: { select: { station: true, stationSequence: true } } } } } },
       createdBy: { select: { name: true } },
       // Si lo generó Calidad al aprobar una OP con cliente, es una reserva:
       // la pantalla lo marca y no exige estante (ver PATCH de abajo).
@@ -42,7 +45,16 @@ dispatchesRouter.get("/", async (req, res) => {
     },
     orderBy: { requestedDate: "desc" },
   });
-  res.json(dispatches);
+  // Los rollos que salieron en cada ítem, con su código legible.
+  res.json(
+    dispatches.map((d) => ({
+      ...d,
+      items: d.items.map((i) => ({
+        ...i,
+        rolls: i.rolls.map(({ roll, ...r }) => ({ ...r, code: `${ROLL_CODE_PREFIX[roll.station as OpStation]}-${roll.stationSequence}` })),
+      })),
+    }))
+  );
 });
 
 /**
@@ -142,11 +154,31 @@ dispatchesRouter.post("/", requireAlmacen, async (req, res) => {
 
 const dispatchItemSchema = z.object({
   quantityDispatched: z.number().positive(),
+  /** Los rollos/bultos que salen, escaneados (código + token del QR). En la
+   * reserva de un cliente son obligatorios; en un despacho a mano, opcionales. */
+  rolls: z
+    .array(z.object({ code: z.string().trim().min(1), token: z.string().trim().default("") }))
+    .max(200)
+    .optional(),
   /** Ubicación física de la que sale el producto (opcional — un producto
    * sin stock ubicado sigue pudiendo despacharse, solo contra el total
    * agregado, igual que antes). Si se manda y esa ubicación no tiene
    * suficiente cantidad, se rechaza (ver decrementLocationStock). */
   locationId: z.number().int().optional(),
+});
+
+/**
+ * Rollos/bultos que se pueden despachar en un ítem (para que la pantalla los
+ * muestre y se escaneen). `reserved`: el despacho es la reserva de una OP
+ * con cliente, y escanear es obligatorio.
+ */
+dispatchesRouter.get("/:dispatchId/items/:itemId/rolls", async (req, res) => {
+  const dispatchId = Number(req.params.dispatchId);
+  const itemId = Number(req.params.itemId);
+  if (!Number.isInteger(dispatchId) || !Number.isInteger(itemId)) return res.status(400).json({ error: "IDs inválidos" });
+  const item = await prisma.dispatchItem.findFirst({ where: { id: itemId, dispatchId }, select: { productId: true } });
+  if (!item) return res.status(404).json({ error: "Item de despacho no encontrado" });
+  res.json(await candidateRolls(dispatchId, item.productId));
 });
 
 /** Marca un item del despacho como despachado: descuenta stock automáticamente. */
@@ -171,12 +203,28 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
   // ahora" de "ya estaba despachado y esto es un doble click/reintento" —
   // si no, dos requests casi simultáneas (o un reintento de red del último
   // ítem) mandarían el WhatsApp de "despachado" dos o tres veces seguidas.
-  const dispatchBefore = await prisma.dispatch.findUnique({ where: { id: dispatchId }, select: { status: true, productionOrderId: true } });
+  const dispatchBefore = await prisma.dispatch.findUnique({
+    where: { id: dispatchId },
+    select: { status: true, productionOrderId: true, clientId: true, id: true },
+  });
   if (dispatchBefore?.status === "cancelada") {
     return res.status(400).json({ error: "Este despacho está cancelado" });
   }
+  const scannedRolls = parsed.data.rolls ?? [];
+  if (scannedRolls.length && !checkRateLimit(`dispatch-roll-token:${req.user!.userId}`, 100, 60_000)) {
+    return res.status(429).json({ error: "Demasiados escaneos seguidos — esperá un momento y volvé a intentar" });
+  }
+  // La reserva de un cliente sale con sus rollos escaneados (si la OP los
+  // tiene): es lo que ata el despacho a lo recién producido.
+  if (dispatchBefore?.productionOrderId && !scannedRolls.length) {
+    const hay = (await candidateRolls(dispatchId, item.productId)).rolls.length;
+    if (hay > 0) {
+      return res.status(400).json({ error: "Escaneá los rollos que salen: este despacho es lo fabricado para el cliente y tiene que salir con sus rollos" });
+    }
+  }
 
   let dispatchCompleted = false;
+  let partial: { remainingItemId: number; remaining: number } | null = null;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -197,6 +245,39 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
         data: { quantityDispatched: parsed.data.quantityDispatched, locationId: parsed.data.locationId },
       });
       if (claimed.count === 0) throw new ItemAlreadyDispatchedError();
+
+      // Rollos escaneados: se validan con las filas bloqueadas y se guardan
+      // atados a este ítem (ver services/dispatchRolls.ts).
+      if (scannedRolls.length) {
+        const rolls = await resolveDispatchRolls(tx, dispatchBefore!, item, scannedRolls);
+        const sumKg = Math.round(rolls.reduce((acc, r) => acc + r.weightKg, 0) * 100) / 100;
+        const unit = (await tx.product.findUniqueOrThrow({ where: { id: item.productId }, select: { unit: true } })).unit;
+        if (unit === "kg" && Math.abs(sumKg - parsed.data.quantityDispatched) > 0.01) {
+          throw new DispatchRollError(`Los rollos escaneados suman ${sumKg} kg y se quiere despachar ${parsed.data.quantityDispatched} kg — tienen que coincidir`);
+        }
+        await tx.dispatchItemRoll.createMany({
+          data: rolls.map((r) => ({ dispatchItemId: itemId, rollId: r.id, weightKg: r.weightKg, scannedById: req.user!.userId })),
+        });
+      }
+
+      // Despacho parcial: si sale menos de lo pedido, lo que falta queda como
+      // un ítem pendiente aparte (y sigue reservado si es de un cliente). El
+      // ítem despachado queda con lo que de verdad salió.
+      const requested = Number(item.quantityRequested);
+      if (parsed.data.quantityDispatched < requested - 0.005) {
+        const remaining = Math.round((requested - parsed.data.quantityDispatched) * 100) / 100;
+        const rest = await tx.dispatchItem.create({
+          data: { dispatchId, productId: item.productId, quantityRequested: remaining, notes: item.notes, labelCode: item.labelCode },
+        });
+        await tx.dispatchItem.update({
+          where: { id: itemId },
+          data: {
+            quantityRequested: parsed.data.quantityDispatched,
+            notes: `${item.notes ? `${item.notes} · ` : ""}Despacho parcial: se pidieron ${requested}, salieron ${parsed.data.quantityDispatched}`,
+          },
+        });
+        partial = { remainingItemId: rest.id, remaining };
+      }
 
       // Stock reservado para clientes (ver services/reservations.ts): un
       // despacho que NO es la reserva de un cliente solo puede llevarse lo
@@ -260,7 +341,7 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
     if (err instanceof ItemAlreadyDispatchedError) {
       return res.status(400).json({ error: "Este ítem ya fue despachado, o el despacho se canceló mientras se procesaba" });
     }
-    if (err instanceof InsufficientStockError) {
+    if (err instanceof InsufficientStockError || err instanceof DispatchRollError) {
       return res.status(400).json({ error: err.message });
     }
     throw err;
@@ -294,7 +375,7 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
     }
   }
 
-  res.json({ ok: true });
+  res.json({ ok: true, partial });
 });
 
 /**

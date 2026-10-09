@@ -392,11 +392,23 @@ export const api = {
   getDispatchSummaryByClient: () => request<any[]>("/dispatches/summary-by-client"),
   createDispatch: (clientId: number, items: any[]) =>
     request<any>("/dispatches", { method: "POST", body: JSON.stringify({ clientId, items }) }),
-  markItemDispatched: (dispatchId: number, itemId: number, quantityDispatched: number, locationId?: number) =>
-    request<any>(`/dispatches/${dispatchId}/items/${itemId}`, {
+  markItemDispatched: (
+    dispatchId: number,
+    itemId: number,
+    quantityDispatched: number,
+    locationId?: number,
+    rolls?: { code: string; token: string }[]
+  ) =>
+    request<{ ok: true; partial: { remainingItemId: number; remaining: number } | null }>(`/dispatches/${dispatchId}/items/${itemId}`, {
       method: "PATCH",
-      body: JSON.stringify({ quantityDispatched, locationId }),
+      body: JSON.stringify({ quantityDispatched, locationId, rolls }),
     }),
+  /** Rollos/bultos que se pueden despachar en un ítem (para escanearlos). */
+  getDispatchItemRolls: (dispatchId: number, itemId: number) =>
+    request<{
+      reserved: boolean;
+      rolls: { id: number; code: string; label: string | null; weightKg: number; orderNumber: string; origin: "cliente" | "stock" }[];
+    }>(`/dispatches/${dispatchId}/items/${itemId}/rolls`),
   /** Cancela un despacho — si ya tenía ítems despachados, revierte ese
    * stock (y la ubicación de origen, si se había cargado una). */
   cancelDispatch: (dispatchId: number) => request<{ ok: boolean; reversedTotal: number }>(`/dispatches/${dispatchId}/cancel`, { method: "POST" }),

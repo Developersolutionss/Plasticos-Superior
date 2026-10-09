@@ -39,9 +39,8 @@ No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con sa
   escaneos del QR (un escaneo repetido por error no debe contar como un movimiento).
 - Mientras el rollo esté fuera, debe poder verse dónde está y quién lo tiene.
 
-**2. Distinguir rollos de stock y rollos de cliente.** Hecho en parte el 2026-10-09 (reservas, ver
-[08 — Reglas de negocio](08-workflow.md#reservas-para-clientes)). Falta que el despacho al cliente salga
-escaneando sus rollos exactos (va con el punto 3).
+**2. Distinguir rollos de stock y rollos de cliente.** Hecho el 2026-10-09 (reservas y despacho con los
+rollos exactos, ver [08 — Reglas de negocio](08-workflow.md#reservas-para-clientes)).
 
 - Una OP hecha para un cliente (por ejemplo 1000 kg) no debe cargar su producción como stock general. Si lo
   hace, alguien ve "900 kg, sobra" y los despacha, y el cliente se queda sin su pedido.
@@ -52,7 +51,7 @@ escaneando sus rollos exactos (va con el punto 3).
   despacharlo, debe salir hacia ese cliente de forma automática.
 - La OP ya guarda el cliente destino. Falta que el inventario lo muestre y lo respete.
 
-**3. Rediseñar Despachos.**
+**3. Rediseñar Despachos.** Hecho el 2026-10-09 (ver [08 — Reglas de negocio](08-workflow.md#reservas-para-clientes)).
 
 - Hoy se escribe cliente, producto y cantidad, y la cantidad hay que repetirla aunque ya se planificó.
 - Se pidió: elegir el cliente y ver sus rollos más los de stock; que la cantidad se llene sola con lo

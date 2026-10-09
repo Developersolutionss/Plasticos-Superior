@@ -93,6 +93,10 @@ Pedido del cliente en la reunión del 2026-10-06: lo fabricado para un cliente n
 - **Disponible** = stock − reservado. Existencias muestra las tres cifras; "Rollos para clientes" lista cada reserva con su cliente, su OP y sus rollos.
 - Un despacho que no es la reserva de un cliente (uno armado a mano, u otra reserva) solo puede llevarse lo disponible: si pide más, `PATCH /api/dispatches/:id/items/:itemId` responde 400 y dice para quién está reservado. Si pide más que el stock total, el mensaje es el de stock insuficiente de siempre. La fila de `inventory_stock` del producto se bloquea (`FOR UPDATE`) para que dos despachos simultáneos no lean el mismo disponible.
 - El despacho del propio cliente se lleva su reserva sin exigir estante (lo recién producido entra "sin ubicar"); puede elegir uno si ya se ubicó.
+- **Sale con sus rollos:** para despachar la reserva se escanea cada rollo/bulto que sale (código + token del QR, como en las bodegas), y se guardan en `dispatch_item_rolls` atados al ítem. Solo se pueden escanear los de la OP del despacho; en un producto por kg la cantidad despachada tiene que ser la suma de sus kilos. Un rollo sale una sola vez: si el despacho se cancela, el rollo queda libre.
+- **Despacho parcial:** se puede despachar menos de lo pedido (al cliente llegan rollos chicos). El ítem queda con lo que salió y el resto se convierte en un ítem pendiente nuevo del mismo despacho, que sigue reservado; el despacho pasa a `en_proceso` hasta que salga todo.
+- **Despacho a mano:** los rollos son opcionales; si se escanean, tienen que ser de stock libre (OPs aprobadas en Calidad sin cliente) o de una OP de ese mismo cliente, nunca de otro cliente.
+- **Trazabilidad:** cada rollo muestra "Despachado al cliente X (despacho #N) con K kg", quién lo escaneó y cuándo.
 - Si el cliente cancela, se cancela su despacho: la reserva desaparece y esos kilos quedan libres para otro cliente.
 - El cliente de la OP también se ve en Despacho a bodegas al escanear un rollo ("Para Cliente X" o "Para stock") y en cada rollo de Inventario de bodegas.
 

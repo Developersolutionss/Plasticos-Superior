@@ -529,6 +529,17 @@ productionOrdersRouter.get("/:id", async (req, res) => {
             },
           },
           bultoLabel: { select: { code: true } },
+          // A qué cliente salió este rollo (despachos no cancelados).
+          dispatchItems: {
+            where: { dispatchItem: { dispatch: { status: { not: "cancelada" } } } },
+            orderBy: { id: "asc" },
+            select: {
+              createdAt: true,
+              weightKg: true,
+              scannedBy: { select: { name: true } },
+              dispatchItem: { select: { dispatch: { select: { id: true, status: true, dispatchedDate: true, client: { select: { id: true, name: true } } } } } },
+            },
+          },
           // Correcciones de saldo (peso al recibir / conteo físico).
           adjustments: {
             orderBy: { id: "asc" },

@@ -368,6 +368,13 @@ export default function Trazabilidad() {
                       {a.notes ? ` · ${a.notes}` : ""}
                     </p>
                   ))}
+                  {r.dispatchItems?.map((d: any, i: number) => (
+                    <p key={`disp-${i}`} className="text-xs font-medium text-sky-800 dark:text-sky-300 mt-0.5">
+                      Despachado al cliente {d.dispatchItem.dispatch.client.name} (despacho #{d.dispatchItem.dispatch.id}) con {Number(d.weightKg)} kg ·{" "}
+                      {new Date(d.createdAt).toLocaleString()}
+                      {d.scannedBy?.name ? ` · escaneó ${d.scannedBy.name}` : ""}
+                    </p>
+                  ))}
                   {r.transfers?.map((t: any) => (
                     <p key={t.id} className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                       Despachado {STATION_LABELS[t.fromStation]} → {STATION_LABELS[t.toStation]}

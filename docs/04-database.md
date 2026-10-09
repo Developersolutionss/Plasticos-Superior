@@ -419,7 +419,22 @@ Adjuntos de una OP (fotos, fichas técnicas, artes). Espejo del patrón de `pedi
 | quantityDispatched | Decimal? | `NULL` hasta marcarlo despachado. No se borra al cancelar el despacho — queda como histórico de lo que se llegó a despachar |
 | labelCode | String? | `@map("label_code")` |
 | locationId | Int? | `@map("location_id")`. FK → warehouse_locations, opcional. De qué ubicación física salió (`POST /warehouse/assign` la asigna antes; si no hay ubicación cargada, el descuento sigue siendo solo contra el total agregado) |
-| notes | String? | |
+| notes | String? | Un despacho parcial lo anota ("Despacho parcial: se pidieron X, salieron Y") |
+
+### `dispatch_item_rolls`
+
+Los rollos/bultos de producto terminado (Sellado/Precorte) que salieron hacia un cliente en un ítem de despacho. Se llena al despachar, escaneando el QR de cada uno (ver [08 — Reglas de negocio](08-workflow.md#reservas-para-clientes)). Un rollo sale una sola vez: para saber si ya salió se miran solo los despachos que no están `cancelada` (cancelar libera los rollos).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | Int | PK |
+| dispatchItemId | Int | `@map("dispatch_item_id")`. FK → dispatch_items (`ON DELETE CASCADE`) |
+| rollId | Int | `@map("roll_id")`. FK → production_rolls. Índice |
+| weightKg | Decimal | `@map("weight_kg")`. Kilos que produjo el rollo, copiados al despachar |
+| scannedById | Int? | `@map("scanned_by")`. FK → users: quién lo escaneó |
+| createdAt | DateTime | |
+
+`@@unique([dispatchItemId, rollId])`.
 
 ### `import_logs`
 
@@ -563,6 +578,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260926130000_reference_type_production_order` / `20260926130100_relink_quality_inventory_movements` | Suma `production_order` a `ReferenceType` y reetiqueta los movimientos existentes de Calidad/reapertura, que antes quedaban como `manual_adjustment` |
 | `20260929120000_restore_production_rolls_source_roll_idx` | Recrea el índice de `production_rolls.source_roll_id` que borró por error `add_production_order_presets` |
 | `20261002120000_roll_adjustments` | Tabla `roll_adjustments` y enum `RollAdjustmentReason` (ajustes de saldo por recepción y conteo físico) |
+| `20261009120000_dispatch_item_rolls` | Tabla `dispatch_item_rolls` (rollos/bultos que salen hacia un cliente en cada ítem de despacho) |
 
 Para aplicar cambios nuevos:
 

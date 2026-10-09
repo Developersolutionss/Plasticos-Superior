@@ -5,6 +5,7 @@ import { Lock, ScanLine } from "lucide-react";
 import { api } from "../api/client";
 import BarcodeScanner from "../components/BarcodeScanner";
 import Modal from "../components/Modal";
+import DispatchItemModal from "../components/DispatchItemModal";
 import { useAuth } from "../auth/AuthContext";
 import { ALMACEN } from "../components/navConfig";
 
@@ -17,16 +18,21 @@ const emptyItem: ItemDraft = { productId: "", quantity: "" };
 
 export default function Dispatches() {
   const [clientId, setClientId] = useState<string>("");
-  const [status, setStatus] = useState<string>("pendiente");
+  // "abiertos" = pendiente + en proceso: un despacho parcial pasa a "en
+  // proceso" y no tiene que desaparecer de la lista por defecto (falta lo que
+  // no salió). Es un filtro de la pantalla, el servidor recibe un estado real.
+  const [status, setStatus] = useState<string>("abiertos");
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [doneMessage, setDoneMessage] = useState<string | null>(null);
   const [selectedDispatch, setSelectedDispatch] = useState<any>(null);
   // Ítem que se está marcando despachado ahora mismo — deshabilita SU botón
   // mientras la request está en vuelo. Antes no había ningún estado de
   // "enviando", así que un doble clic o un reintento por señal lenta en
   // bodega mandaba dos requests y descontaba el stock dos veces.
   const [dispatchingItemId, setDispatchingItemId] = useState<number | null>(null);
-  const [locationChoice, setLocationChoice] = useState<Record<number, string>>({});
+  // Ítem que se está despachando en el modal (rollos, cantidad, estante).
+  const [dispatchTarget, setDispatchTarget] = useState<{ dispatch: any; item: any } | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
 
   const [newClientId, setNewClientId] = useState("");
@@ -47,10 +53,12 @@ export default function Dispatches() {
   // (GET /clients ahora acepta Ventas o Almacén, ver clients.ts).
   const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: api.getClients });
   const { data: products } = useQuery({ queryKey: ["products"], queryFn: api.getProducts });
-  const { data: dispatches, isLoading } = useQuery({
-    queryKey: ["dispatches", clientId, status],
-    queryFn: () => api.getDispatches({ clientId: clientId ? Number(clientId) : undefined, status: status || undefined }),
+  const { data: allDispatches, isLoading } = useQuery({
+    queryKey: ["dispatches", clientId, status === "abiertos" ? "" : status],
+    queryFn: () =>
+      api.getDispatches({ clientId: clientId ? Number(clientId) : undefined, status: status && status !== "abiertos" ? status : undefined }),
   });
+  const dispatches = status === "abiertos" ? allDispatches?.filter((d: any) => d.status === "pendiente" || d.status === "en_proceso") : allDispatches;
   // Para el selector opcional de ubicación al marcar despachado — de qué
   // estante puntual sale el producto (ver auditoría de inventario: antes
   // despachar nunca tocaba las ubicaciones, así que el QR de cada estante
@@ -60,21 +68,10 @@ export default function Dispatches() {
   // cliente y el servidor no deja llevárselo en otro despacho).
   const { data: inventory } = useQuery({ queryKey: ["inventory", ""], queryFn: () => api.getInventory() });
   const stockOf = (productId: string) => inventory?.find((p: any) => String(p.id) === productId);
-
-  async function markDispatched(dispatchId: number, itemId: number, quantityRequested: number, locationId?: number) {
-    setDispatchingItemId(itemId);
-    try {
-      await api.markItemDispatched(dispatchId, itemId, quantityRequested, locationId);
-      queryClient.invalidateQueries({ queryKey: ["dispatches"] });
-      queryClient.invalidateQueries({ queryKey: ["inventory"] });
-      queryClient.invalidateQueries({ queryKey: ["alerts"] });
-      queryClient.invalidateQueries({ queryKey: ["warehouseStock"] });
-    } catch (err: any) {
-      setScanMessage(err?.message || "No se pudo marcar el ítem como despachado");
-    } finally {
-      setDispatchingItemId(null);
-    }
-  }
+  // Lo que ya está fabricado para el cliente que se eligió: se despacha desde
+  // su pedido (con sus rollos), no armando uno nuevo a mano.
+  const { data: reservations } = useQuery({ queryKey: ["clientReservations"], queryFn: api.getClientReservations });
+  const clientReserved = newClientId ? (reservations ?? []).filter((r) => String(r.client.id) === newClientId) : [];
 
   async function handleCancelDispatch(dispatchId: number, reserved = false) {
     const reservedNote = reserved ? " Lo reservado para este cliente pasa a stock libre y se puede despachar a otro." : "";
@@ -119,7 +116,9 @@ export default function Dispatches() {
       return;
     }
     setScanMessage(null);
-    await markDispatched(match.dispatch.id, match.item.id, Number(match.item.quantityRequested));
+    // Despachar ahora pide los rollos y la cantidad (puede ser parcial): el
+    // escaneo del producto solo ubica el ítem y abre ese paso.
+    setDispatchTarget({ dispatch: match.dispatch, item: match.item });
   }
 
   function updateItem(i: number, patch: Partial<ItemDraft>) {
@@ -172,6 +171,17 @@ export default function Dispatches() {
             </option>
           ))}
         </select>
+        {clientReserved.length > 0 && (
+          <div className="rounded border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40 px-3 py-2 text-xs text-sky-900 dark:text-sky-200 space-y-0.5">
+            <p className="font-medium">Ya hay fabricado para este cliente (se despacha desde su pedido de abajo, con sus rollos):</p>
+            {clientReserved.map((r) => (
+              <p key={r.dispatchId}>
+                Pedido #{r.dispatchId} · {r.items[0]?.product.name} · {r.reservedQuantity} {r.items[0]?.product.unit} ({r.productionOrder.orderNumber}
+                {r.rolls.length > 0 ? `: ${r.rolls.map((x) => x.code).join(", ")}` : ""})
+              </p>
+            ))}
+          </div>
+        )}
 
         <div className="space-y-2">
           {items.map((item, i) => (
@@ -248,6 +258,7 @@ export default function Dispatches() {
           ))}
         </select>
         <select className="border rounded px-3 py-2 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="abiertos">Abiertos (pendiente y en proceso)</option>
           <option value="">Todos los estados</option>
           <option value="pendiente">Pendiente</option>
           <option value="en_proceso">En proceso</option>
@@ -257,6 +268,7 @@ export default function Dispatches() {
       </div>
 
       {scanMessage && <p className="text-red-600 dark:text-red-400 text-sm">{scanMessage}</p>}
+      {doneMessage && <p className="text-emerald-700 dark:text-emerald-400 text-sm bg-emerald-50 dark:bg-emerald-950 rounded px-3 py-2">{doneMessage}</p>}
       {isLoading && <p className="text-slate-500 dark:text-slate-400">Cargando...</p>}
 
       <div className="space-y-3">
@@ -301,52 +313,24 @@ export default function Dispatches() {
                 const locations = (warehouseStock?.find((p: any) => p.productId === item.product.id)?.locations ?? []).filter(
                   (l: any) => l.quantity > 0
                 );
-                // Si el producto ya tiene stock ubicado en algún estante,
-                // elegir de cuál sale pasa a ser obligatorio (no queda
-                // "Sin ubicación puntual" como opción) — si no, despachar
-                // sin elegir sigue descontando solo el total agregado y la
-                // ubicación queda con un número que ya no coincide con la
-                // realidad (el QR pegado en el estante "miente"). Un
-                // producto sin ninguna ubicación asignada todavía no
-                // necesita este paso.
-                // Lo reservado para un cliente (lo generó Calidad desde su OP)
-                // es lo recién producido, que entró "sin ubicar": no se le
-                // exige estante, aunque se puede elegir uno si ya se ubicó.
-                const reserved = !!d.productionOrder;
-                const locationRequired = locations.length > 0 && !reserved;
-                const chosenLocation = locationChoice[item.id] ?? (locationRequired ? String(locations[0].locationId) : "");
                 return (
                   <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-2">
                     <span>
                       {item.product.name} — solicitado: {item.quantityRequested} {item.product.unit}
                       {item.quantityDispatched != null && ` · despachado: ${item.quantityDispatched}`}
+                      {item.rolls?.length > 0 && (
+                        <span className="block text-xs text-slate-500 dark:text-slate-400">
+                          Rollos: {item.rolls.map((r: any) => `${r.code} (${Number(r.weightKg)} kg)`).join(", ")}
+                        </span>
+                      )}
                     </span>
                     {canManage && item.quantityDispatched == null && d.status !== "cancelada" && (
                       <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                        {locations.length > 0 && (
-                          <select
-                            className="border rounded px-1.5 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                            value={chosenLocation}
-                            onChange={(e) => setLocationChoice((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                            title="De qué ubicación física sale (obligatorio: este producto ya tiene stock ubicado)"
-                          >
-                            {!locationRequired && <option value="">Sin estante (recién producido)</option>}
-                            {locations.map((l: any) => (
-                              <option key={l.locationId} value={l.locationId}>
-                                {l.code} ({l.quantity})
-                              </option>
-                            ))}
-                          </select>
-                        )}
                         <button
                           className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded disabled:opacity-50"
-                          disabled={dispatchingItemId === item.id || (locationRequired && !chosenLocation)}
-                          onClick={() => {
-                            const locationId = chosenLocation ? Number(chosenLocation) : undefined;
-                            markDispatched(d.id, item.id, Number(item.quantityRequested), locationId);
-                          }}
+                          onClick={() => setDispatchTarget({ dispatch: d, item })}
                         >
-                          {dispatchingItemId === item.id ? "Enviando..." : "Marcar despachado"}
+                          Despachar
                         </button>
                       </span>
                     )}
@@ -361,6 +345,20 @@ export default function Dispatches() {
 
       {scanning && (
         <BarcodeScanner title="Escanear producto" onDetected={handleScanned} onClose={() => setScanning(false)} />
+      )}
+
+      {dispatchTarget && (
+        <DispatchItemModal
+          dispatch={dispatchTarget.dispatch}
+          item={dispatchTarget.item}
+          locations={(warehouseStock?.find((p: any) => p.productId === dispatchTarget.item.product.id)?.locations ?? []).filter((l: any) => l.quantity > 0)}
+          onClose={() => setDispatchTarget(null)}
+          onDone={(message) => {
+            setDispatchTarget(null);
+            setScanMessage(null);
+            setDoneMessage(message);
+          }}
+        />
       )}
 
       {selectedDispatch && (

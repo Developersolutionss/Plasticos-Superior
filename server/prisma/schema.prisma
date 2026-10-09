@@ -225,6 +225,7 @@ model User {
   notifications         Notification[]
   rawMaterialMovements  RawMaterialMovement[]
   bultoLabelsUsed       BultoLabel[] @relation("BultoLabelUsedBy")
+  dispatchRollsScanned  DispatchItemRoll[] @relation("DispatchItemRollScannedBy")
   bultoLabelsCreated    BultoLabel[] @relation("BultoLabelCreatedBy")
   clientManualProducts  ClientManualProduct[]
   productionOrderPresets ProductionOrderPreset[]
@@ -633,8 +634,33 @@ model DispatchItem {
   /// contra el total agregado (InventoryStock), igual que antes.
   locationId Int?              @map("location_id")
   location   WarehouseLocation? @relation(fields: [locationId], references: [id])
+  /// Los rollos/bultos exactos que salieron en este ítem (se escanean al
+  /// despachar) -- ver `DispatchItemRoll`.
+  rolls      DispatchItemRoll[]
 
   @@map("dispatch_items")
+}
+
+/// Un rollo/bulto de producto terminado (Sellado/Precorte) que salió hacia un
+/// cliente en un ítem de despacho. Se llena al despachar, escaneando su QR:
+/// así el despacho queda atado a lo recién producido y Trazabilidad dice a
+/// qué cliente fue cada rollo. Un despacho cancelado libera sus rollos (se
+/// ignoran los de despachos `cancelada`). `weightKg` es lo que produjo el
+/// rollo (copia, por si después se edita).
+model DispatchItemRoll {
+  id             Int            @id @default(autoincrement())
+  dispatchItemId Int            @map("dispatch_item_id")
+  dispatchItem   DispatchItem   @relation(fields: [dispatchItemId], references: [id], onDelete: Cascade)
+  rollId         Int            @map("roll_id")
+  roll           ProductionRoll @relation(fields: [rollId], references: [id])
+  weightKg       Decimal        @map("weight_kg") @db.Decimal(12, 2)
+  scannedById    Int?           @map("scanned_by")
+  scannedBy      User?          @relation("DispatchItemRollScannedBy", fields: [scannedById], references: [id])
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  @@unique([dispatchItemId, rollId])
+  @@index([rollId])
+  @@map("dispatch_item_rolls")
 }
 
 model ImportLog {
@@ -809,6 +835,8 @@ model ProductionRoll {
   bultoLabel        BultoLabel?
   transfers         RollTransfer[]
   adjustments       RollAdjustment[]
+  /// Despachos a cliente en los que salió este rollo (producto terminado).
+  dispatchItems     DispatchItemRoll[]
 
   @@unique([station, stationSequence])
   /// Búsquedas de los rollos hijos de un rollo madre (consumedBy,
