@@ -17,17 +17,17 @@ function fecha(iso: string): string {
  * como disponible en Existencias y Despachos no deja llevárselo a otro
  * cliente. Cancelar el despacho del cliente lo libera.
  */
-export default function RollosClientes() {
+export default function RollosClientes({ embedded = false }: { embedded?: boolean }) {
   const [clientFilter, setClientFilter] = useState("");
   const query = useQuery({ queryKey: ["clientReservations"], queryFn: api.getClientReservations });
 
   return (
     <div className="space-y-4 max-w-5xl">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Rollos para clientes</h1>
+        {!embedded && <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Rollos para clientes</h1>}
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Lo que se fabricó para un cliente y todavía no se le despachó. Está en el inventario pero reservado: no cuenta como disponible y no
-          se puede despachar a otro cliente. Si el cliente cancela, cancelá su despacho y pasa a stock libre.
+          Lo que se fabricó para un cliente y todavía no se le despachó. Está en el inventario pero reservado: no cuenta como stock general y
+          no se puede despachar a otro cliente. Si el cliente cancela, cancelá su despacho y pasa a stock general.
         </p>
       </div>
 

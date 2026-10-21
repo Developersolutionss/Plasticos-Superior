@@ -61,6 +61,10 @@ rollos exactos, ver [08 — Reglas de negocio](08-workflow.md#reservas-para-clie
   despachado; y que todo quede en Trazabilidad.
 - Si el cliente cancela un pedido, sus rollos deben poder pasar a stock y de ahí asignarse a otro cliente.
 
+**Definido por el cliente (2026-10-20):** lo que sale de una OP con cliente queda en el inventario de ese
+cliente, y lo que sale de una OP sin cliente va al inventario general; en ambos casos entra al inventario al
+aprobar Calidad. Existencias se organiza así: pestañas "Stock general" y "Por cliente".
+
 **Por definir con el cliente antes de programar:**
 
 1. **Cuándo entra al inventario lo que sale de una OP.** Hoy entra cuando Calidad aprueba, y Extrusión nunca

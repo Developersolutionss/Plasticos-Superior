@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { TriangleAlert } from "lucide-react";
 import { api } from "../api/client";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
+import RollosClientes from "./RollosClientes";
 
 const CATEGORIES = [
   { value: "", label: "Todos" },
@@ -21,6 +21,9 @@ const CATEGORIES = [
 
 export default function InventoryDashboard() {
   const [category, setCategory] = useState("");
+  // "general": lo fabricado sin cliente (y lo que se compra/ajusta); "clientes":
+  // lo fabricado para cada cliente. Entra al inventario al aprobar Calidad.
+  const [view, setView] = useState<"general" | "clientes">("general");
 
   const stockQuery = useQuery({
     queryKey: ["inventory", category],
@@ -31,8 +34,26 @@ export default function InventoryDashboard() {
   // que se dejan sin AsyncState y simplemente no se muestran.
   const { data: alerts } = useQuery({ queryKey: ["alerts"], queryFn: api.getAlerts });
 
+  const tabClass = (active: boolean) =>
+    `px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+      active ? "border-slate-800 dark:border-slate-200 text-slate-900 dark:text-slate-100" : "border-transparent text-slate-500 dark:text-slate-400"
+    }`;
+
   return (
     <div className="space-y-4">
+      <div role="tablist" className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+        <button type="button" role="tab" aria-selected={view === "general"} className={tabClass(view === "general")} onClick={() => setView("general")}>
+          Stock general
+        </button>
+        <button type="button" role="tab" aria-selected={view === "clientes"} className={tabClass(view === "clientes")} onClick={() => setView("clientes")}>
+          Por cliente
+        </button>
+      </div>
+
+      {view === "clientes" ? (
+        <RollosClientes embedded />
+      ) : (
+        <>
       <div className="hidden md:flex gap-2 overflow-x-auto">
         {CATEGORIES.map((c) => (
           <button
@@ -89,9 +110,11 @@ export default function InventoryDashboard() {
                     <th className="p-3">Medida</th>
                     <th className="p-3">Stock actual</th>
                     <th className="p-3" title="Fabricado para un cliente y todavía no despachado: no se puede vender a otro">
-                      Reservado
+                      Para clientes
                     </th>
-                    <th className="p-3">Disponible</th>
+                    <th className="p-3" title="Lo que se puede despachar a cualquier cliente">
+                      Stock general
+                    </th>
                     <th className="p-3">Mínimo</th>
                     <th className="p-3">Estado</th>
                   </tr>
@@ -107,9 +130,9 @@ export default function InventoryDashboard() {
                       </td>
                       <td className="p-3">
                         {p.reservedStock > 0 ? (
-                          <Link to="/inventario/rollos-clientes" className="text-sky-700 dark:text-sky-400 hover:underline">
+                          <button type="button" onClick={() => setView("clientes")} className="text-sky-700 dark:text-sky-400 hover:underline">
                             {p.reservedStock} {p.unit}
-                          </Link>
+                          </button>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
@@ -149,10 +172,10 @@ export default function InventoryDashboard() {
                   </p>
                   {p.reservedStock > 0 && (
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                      <Link to="/inventario/rollos-clientes" className="text-sky-700 dark:text-sky-400 hover:underline">
-                        Reservado: {p.reservedStock} {p.unit}
-                      </Link>{" "}
-                      · Disponible:{" "}
+                      <button type="button" onClick={() => setView("clientes")} className="text-sky-700 dark:text-sky-400 hover:underline">
+                        Para clientes: {p.reservedStock} {p.unit}
+                      </button>{" "}
+                      · Stock general:{" "}
                       <span className={`font-medium ${p.availableStock < 0 ? "text-red-600 dark:text-red-400" : "text-slate-700 dark:text-slate-200"}`}>
                         {p.availableStock} {p.unit}
                       </span>
@@ -164,6 +187,8 @@ export default function InventoryDashboard() {
           </>
         )}
       </AsyncState>
+        </>
+      )}
     </div>
   );
 }

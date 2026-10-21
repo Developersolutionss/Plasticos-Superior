@@ -77,7 +77,7 @@ describe("Rollos para clientes", () => {
 });
 
 describe("Existencias: total, reservado y disponible", () => {
-  it("muestra lo reservado (con enlace a Rollos para clientes) y lo disponible", async () => {
+  it("separa stock general y lo fabricado para clientes; la pestaña Por cliente lista cada cliente con sus rollos", async () => {
     vi.mocked(api.getAlerts).mockResolvedValue([]);
     vi.mocked(api.getInventory).mockResolvedValue([
       { id: 7, sku: "ROL-PL-001", name: "Rollo Precintado 20x30", category: "rollos_prec_lam", measure: "20x30", unit: "kg", minStock: 100, currentStock: 1054, reservedStock: 27, availableStock: 1027, belowMinimum: false },
@@ -85,9 +85,19 @@ describe("Existencias: total, reservado y disponible", () => {
     ]);
     renderWith(<InventoryDashboard />);
     const fila = (await screen.findAllByText("ROL-PL-001"))[0].closest("tr") as HTMLElement;
-    expect(within(fila).getByRole("link", { name: "27 kg" })).toHaveAttribute("href", "/inventario/rollos-clientes");
+    expect(screen.getByRole("columnheader", { name: "Para clientes" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Stock general" })).toBeInTheDocument();
     expect(within(fila).getByText("1027 kg")).toBeInTheDocument();
     const otra = screen.getAllByText("TIR-1")[0].closest("tr") as HTMLElement;
     expect(within(otra).getByText("—")).toBeInTheDocument();
+
+    // Tocar lo que está para clientes lleva a la pestaña Por cliente.
+    vi.mocked(api.getClientReservations).mockResolvedValue([reserva({})] as any);
+    await userEvent.setup().click(within(fila).getByRole("button", { name: "27 kg" }));
+    expect(screen.getByRole("tab", { name: "Por cliente" })).toHaveAttribute("aria-selected", "true");
+    const acme = (await screen.findByText("Cliente ACME", { selector: "p" })).closest("section") as HTMLElement;
+    expect(within(acme).getByText("SELL-10").closest("li")).toHaveTextContent("SELL-10 · 15 kg");
+    await userEvent.setup().click(screen.getByRole("tab", { name: "Stock general" }));
+    expect(screen.getByRole("columnheader", { name: "Stock general" })).toBeInTheDocument();
   });
 });

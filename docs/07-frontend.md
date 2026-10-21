@@ -279,10 +279,12 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - Formulario de recuperación y de nueva contraseña (lee `?token=` de la URL).
 
 ### `InventoryDashboard.tsx`
-- Filtro por categoría. Alerta superior si hay productos bajo el mínimo (`api.getAlerts`). Tabla de stock con SKU, producto, medida, stock actual, **reservado** (enlace a Rollos para clientes; "—" si no hay), **disponible** (en rojo si es negativo), mínimo y estado. En celular, reservado y disponible van en una línea aparte solo si hay algo reservado.
+- Filtro por categoría. Alerta superior si hay productos bajo el mínimo (`api.getAlerts`). Dos pestañas (decisión del cliente, 2026-10-20: lo fabricado con cliente queda en el inventario de ese cliente; lo fabricado sin cliente es el inventario general, y todo entra al aprobar Calidad):
+- **Stock general** (por defecto): tabla con SKU, producto, medida, stock actual, **para clientes** (botón que lleva a la otra pestaña; "—" si no hay), **stock general** (lo que se puede despachar a cualquiera; en rojo si es negativo), mínimo y estado. En celular, "para clientes" y "stock general" van en una línea aparte solo si hay algo reservado.
+- **Por cliente**: el contenido de `RollosClientes` (abajo).
 
-### `RollosClientes.tsx` (Inventario → Rollos para clientes, `/inventario/rollos-clientes`)
-- Mismos roles que Existencias. Lista `api.getClientReservations`: por cliente (filtro arriba), cada OP con su producto y SKU, enlace a la hoja de la OP, estación, fecha de aprobación en Calidad, lo reservado (candado) con enlace a su despacho, y los rollos/bultos que produjo la OP (código y kilos). Ver [08 — Reglas de negocio](08-workflow.md#reservas-para-clientes).
+### `RollosClientes.tsx` (pestaña "Por cliente" de Existencias; la ruta `/inventario/rollos-clientes` sigue funcionando)
+- Mismos roles que Existencias. Ya no tiene ítem propio en el menú. Lista `api.getClientReservations`: por cliente (filtro arriba), cada OP con su producto y SKU, enlace a la hoja de la OP, estación, fecha de aprobación en Calidad, lo reservado (candado) con enlace a su despacho, y los rollos/bultos que produjo la OP (código y kilos). Ver [08 — Reglas de negocio](08-workflow.md#reservas-para-clientes).
 
 ### `ProductionUpload.tsx`
 - Sube Excel/CSV → `api.previewImport` → preview válidas/inválidas → "Confirmar" → `api.confirmImport` e invalida inventario/alertas.
