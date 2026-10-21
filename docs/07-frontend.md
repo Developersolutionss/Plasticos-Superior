@@ -368,6 +368,9 @@ Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía r
 - **Filtro inicial.** Un operario ve primero lo que llega a su bodega (`toStationFilter`). Extrusión no recibe rollos, por eso no se filtra.
 - **Recepción con peso.** El campo "Peso en la balanza al recibir (kg)" toma el foco solo y no se precarga con el peso de salida: el objetivo es medirlo de nuevo. Si el operario pesa el rollo, ese peso pasa a ser su saldo y el mensaje dice "Saldo del rollo: X kg". Si el peso es muy distinto de lo que salió, el servidor no cambia el saldo (`balanceNotAdjusted`). El mensaje lo dice y avisa que se notificó a Gestión. Ver [08 — Reglas de negocio](08-workflow.md).
 
+### `Trazabilidad.tsx` — rollos hijos
+- En cada rollo madre de la OP, "Rollos hijos (N): SELL-10 (15 kg), SELL-11 (12 kg) — total sacado: 27 kg". Cada código es un enlace que abre la trazabilidad de ese hijo (puede ser de otra OP, la derivada). Es el camino inverso de "Salió de: …". Los datos vienen de `consumedAsSource` en `GET /production-orders/:id`.
+
 ### `InventarioBodegas.tsx`
 - Ruta `/produccion/inventario-bodegas` (roles `DESPACHO_BODEGAS`). Está en el menú Inventario → "Inventario de bodegas". Lee `api.getWarehouseInventory` (`GET /roll-transfers/inventory`, clave de caché `["warehouseInventory"]`).
 - **Bodega principal y producto terminado.** Además de las cuatro estaciones hay una tarjeta "Bodega principal". Lo terminado (Sellado, Precorte) aparece como "producto terminado" (sin botón de conteo): en la bodega de su estación dice "Falta devolverlo a la bodega principal" (y la tarjeta cuenta "N por devolver a la principal"), y en la principal ya no se marca como parado. Lo que sale hacia un cliente deja de aparecer.

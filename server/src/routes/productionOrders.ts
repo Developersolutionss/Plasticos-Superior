@@ -511,6 +511,17 @@ productionOrdersRouter.get("/:id", async (req, res) => {
             orderBy: { id: "asc" },
             select: { quantityKg: true, sourceRoll: { select: { id: true, label: true, station: true, stationSequence: true } } },
           },
+          // El camino inverso: los rollos HIJOS que salieron de este rollo
+          // (con los kilos que le sacó cada uno), de cualquier OP.
+          consumedAsSource: {
+            orderBy: { id: "asc" },
+            select: {
+              quantityKg: true,
+              roll: {
+                select: { id: true, station: true, stationSequence: true, productionOrder: { select: { id: true, orderNumber: true } } },
+              },
+            },
+          },
           transfers: {
             orderBy: { id: "asc" },
             select: {

@@ -7,8 +7,8 @@ no alcance a cubrir el detalle, o quede ambigua. Lo que ya se hizo se quita de a
 
 ## Rollos hijos de un rollo madre (2026-09-22)
 
-Nota original: "Implementar los rollos hijos de los rollos madres". El sistema ya guarda de qué rollo madre salió
-cada rollo chico. Falta la vista inversa: dado un rollo madre, listar todos sus rollos hijos (ver el Backlog de
+Nota original: "Implementar los rollos hijos de los rollos madres". Hecho el 2026-10-20: Trazabilidad lista, en
+cada rollo madre, los rollos hijos que salieron de él con los kilos de cada uno (ver el Backlog de
 [00 — Hoja de ruta](00-roadmap.md)).
 
 ## Reunión con el cliente 2026-10-06
@@ -67,13 +67,14 @@ rollos exactos, ver [08 — Reglas de negocio](08-workflow.md#reservas-para-clie
    entra. El cliente pidió que todo lo que sale de una OP aparezca en el inventario. Falta saber si Calidad
    debe aprobar antes y si eso cubre también los rollos de Extrusión.
 2. **Dónde quedan los rollos chicos y quién los aprueba.** El cliente dijo que los rollos chicos se guardan en la
-   bodega de Sellado, Precorte o Impresión y se registran en cuanto salen. Hoy un rollo de Sellado o Precorte
-   figura en la bodega de su estación, pero Inventario de bodegas no lo muestra y no se puede despachar a
-   ninguna parte. Falta saber si Calidad los aprueba antes de entrar al inventario o después de volver a la
+   bodega de Sellado, Precorte o Impresión y se registran en cuanto salen. Desde el 2026-10-09 Inventario de
+   bodegas los muestra ("producto terminado", "falta devolverlo a la bodega principal") y se despachan a la
+   bodega principal. Falta saber si Calidad los aprueba antes de entrar al inventario o después de volver a la
    bodega principal.
 3. **El nombre del cliente en las listas de productos y rollos**, para identificar su procedencia: en qué
-   pantallas debe verse (Inventario, Inventario de bodegas, Despachos, Trazabilidad). Hoy `GET /inventory` y
-   `GET /roll-transfers/inventory` no traen el cliente, aunque la OP de cada rollo sí lo tiene.
+   pantallas debe verse. Desde el 2026-10-09 se ve en Despacho a bodegas, Inventario de bodegas, Rollos para
+   clientes, Despachos (etiqueta "Reservado de OP-…") y Trazabilidad. Falta confirmar con el cliente si quiere
+   verlo también en Existencias (hoy ahí solo se ve la cantidad reservada).
 4. **Separar el inventario principal de las bodegas de planta**, y registrar el movimiento de los productos
    entre ambos (ver el punto 1 de los requisitos).
 

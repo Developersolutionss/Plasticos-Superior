@@ -362,6 +362,28 @@ export default function Trazabilidad() {
                       </p>
                     )
                   )}
+                  {r.consumedAsSource?.length > 0 && (
+                    // Rollos hijos: los que salieron de este rollo, con los kg
+                    // que le sacó cada uno (se ve el consumo del saldo).
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Rollos hijos ({r.consumedAsSource.length}):{" "}
+                      {r.consumedAsSource.map((c: any, i: number) => (
+                        <span key={c.roll.id}>
+                          {i > 0 && ", "}
+                          <button
+                            type="button"
+                            className="text-sky-700 dark:text-sky-400 hover:underline"
+                            onClick={() => traceCode(rollCode(c.roll))}
+                            title={`OP ${c.roll.productionOrder.orderNumber}`}
+                          >
+                            {rollCode(c.roll)}
+                          </button>{" "}
+                          ({Number(c.quantityKg)} kg)
+                        </span>
+                      ))}{" "}
+                      — total sacado: {Math.round(r.consumedAsSource.reduce((acc: number, c: any) => acc + Number(c.quantityKg), 0) * 100) / 100} kg
+                    </p>
+                  )}
                   {r.adjustments?.map((a: any) => (
                     <p key={`adj-${a.id}`} className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
                       Saldo corregido {a.reason === "recepcion" ? "al recibirlo" : "por conteo"}: {Number(a.previousKg)} → {Number(a.newKg)} kg (

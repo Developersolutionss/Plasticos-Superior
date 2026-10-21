@@ -7310,6 +7310,30 @@ describe("devolución a la bodega principal: lo terminado vuelve de la bodega de
     await prisma.client.delete({ where: { id: client.id } });
   });
 
+  it("rollos hijos: la hoja de la OP dice, por cada rollo madre, qué rollos salieron de él y cuántos kilos le sacó cada uno", async () => {
+    const madreOp = await op("extrusion", { status: "finalizada" });
+    const madre = await createTestRoll(madreOp.id, { weightKg: 50 });
+    const hijaOp = await op("sellado");
+    const h1 = await createTestRoll(hijaOp.id, { weightKg: 20, sourceRollId: madre.id });
+    const h2 = await createTestRoll(hijaOp.id, { weightKg: 12, sourceRollId: madre.id });
+    await prisma.rollConsumption.createMany({
+      data: [
+        { rollId: h1.id, sourceRollId: madre.id, quantityKg: 20 },
+        { rollId: h2.id, sourceRollId: madre.id, quantityKg: 12 },
+      ],
+    });
+    const detalle = (await (await fetch(`${baseUrl}/api/production-orders/${madreOp.id}`, { headers: headersFor("produccion") })).json()) as any;
+    const hijos = detalle.rolls[0].consumedAsSource;
+    assert.deepEqual(
+      hijos.map((c: any) => [c.roll.stationSequence, Number(c.quantityKg), c.roll.productionOrder.id]),
+      [[h1.stationSequence, 20, hijaOp.id], [h2.stationSequence, 12, hijaOp.id]],
+      "los hijos, con sus kilos y su OP"
+    );
+    const hija = (await (await fetch(`${baseUrl}/api/production-orders/${hijaOp.id}`, { headers: headersFor("produccion") })).json()) as any;
+    assert.equal(hija.rolls[0].consumedAsSource.length, 0, "un rollo sin hijos no lista nada");
+    await prisma.rollConsumption.deleteMany({ where: { sourceRollId: madre.id } });
+  });
+
   it("al despachar al cliente, cada rollo dice dónde está: en la principal o todavía en otra bodega", async () => {
     const client = await prisma.client.create({ data: { name: `TEST-DEV2-${stamp}` } });
     try {
