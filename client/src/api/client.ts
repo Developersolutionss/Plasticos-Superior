@@ -113,6 +113,17 @@ export interface RollTransfer {
 }
 
 /** Rollo con saldo en una bodega de planta (ver GET /roll-transfers/inventory). */
+export interface ExtrusionRollsByProduct {
+  productId: number;
+  sku: string;
+  name: string;
+  unit: string;
+  rollCount: number;
+  totalKg: number;
+  general: { rollCount: number; kg: number };
+  clients: { clientId: number; clientName: string; rollCount: number; kg: number }[];
+}
+
 /** Una reserva para un cliente: el despacho que generó Calidad al aprobar
  * una OP con cliente, mientras no salga (ver server/src/services/reservations.ts). */
 export interface ClientReservation {
@@ -220,6 +231,8 @@ export const api = {
 
   getInventory: (category?: string) => request<any[]>(`/inventory${category ? `?category=${category}` : ""}`),
   getAlerts: () => request<any[]>("/inventory/alerts"),
+  /** Rollos de Extrusión con material sin consumir, por producto. */
+  getExtrusionRolls: () => request<ExtrusionRollsByProduct[]>("/inventory/extrusion-rolls"),
   /** Lo fabricado para cada cliente que todavía no se le despachó. */
   getClientReservations: () => request<ClientReservation[]>("/inventory/client-reservations"),
   getProducts: () => request<any[]>("/inventory/products"),

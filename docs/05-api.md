@@ -136,6 +136,7 @@ Reglas de validación: en los endpoints de **contactos**, el `:id` debe ser num�
 | Método | Ruta | Query/Param | Descripción |
 |---|---|---|---|
 | GET | `/api/inventory` | `?category=rollos_fuelle` (opcional) | Stock de todos los productos (o filtrado por categoría). Incluye `currentStock`, `reservedStock` (fabricado para un cliente y todavía no despachado), `availableStock` (`currentStock − reservedStock`, puede ser negativo si hay un descuadre), `minStock`, `belowMinimum` |
+| GET | `/api/inventory/extrusion-rolls` | — | (rol de Existencias) Rollos de Extrusión con material sin consumir, por producto: `rollCount`, `totalKg` (saldo real: peso − consumido + ajustes; los agotados no cuentan), `general` (OP sin cliente) y `clients` (OP con cliente, con su nombre, rollos y kilos). **No suma a `currentStock`**: es material que se consume en las OPs derivadas, y el producto terminado suma al aprobar Calidad |
 | GET | `/api/inventory/client-reservations` | — | (rol de Existencias) "Rollos para clientes": cada reserva abierta con `dispatchId`, `status`, `client`, `productionOrder` (`id`, `orderNumber`, `station`), `approvedAt`, `items`, `reservedQuantity` (lo que falta despachar) y `rolls` (`code`, `weightKg` producido). Ver [08 — Reglas de negocio](08-workflow.md#reservas-para-clientes) |
 | GET | `/api/inventory/alerts` | — | Solo productos bajo el stock mínimo |
 | GET | `/api/inventory/products` | — | Catálogo de productos activos |

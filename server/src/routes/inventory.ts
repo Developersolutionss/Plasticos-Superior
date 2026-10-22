@@ -3,6 +3,7 @@ import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { getLowStockAlerts, getStockByCategory } from "../services/stockService";
 import { clientReservations } from "../services/reservations";
+import { extrusionRollsInventory } from "../services/extrusionRolls";
 
 export const inventoryRouter = Router();
 inventoryRouter.use(requireAuth);
@@ -20,6 +21,12 @@ inventoryRouter.get("/", requireExistencias, async (req, res) => {
  * le despachó (ver services/reservations.ts). */
 inventoryRouter.get("/client-reservations", requireExistencias, async (_req, res) => {
   res.json(await clientReservations());
+});
+
+/** Rollos de Extrusión con material sin consumir, por producto: cuántos hay y
+ * cuántos kilos, general vs. de cada cliente (ver services/extrusionRolls.ts). */
+inventoryRouter.get("/extrusion-rolls", requireExistencias, async (_req, res) => {
+  res.json(await extrusionRollsInventory());
 });
 
 inventoryRouter.get("/alerts", requireExistencias, async (_req, res) => {

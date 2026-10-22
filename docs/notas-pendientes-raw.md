@@ -69,9 +69,11 @@ aprobar Calidad. Existencias se organiza así: pestañas "Stock general" y "Por 
 
 1. **Cuándo entra al inventario lo que sale de una OP.** Hoy entra cuando Calidad aprueba, y Extrusión nunca
    entra. **Decidido el 2026-10-21:** los rollos de Extrusión sí entran al inventario, pero SOLO cuando la OP no
-   es para un cliente (van al inventario general). Falta implementarlo; antes hay que resolver cómo evitar contar
-   dos veces el mismo material cuando esos rollos se consumen en una OP derivada (el producto terminado también
-   suma al aprobar Calidad). El cliente pidió que todo lo que sale de una OP aparezca en el inventario. Falta saber si Calidad
+   es para un cliente (van al inventario general). Hecho en parte (2026-10-21): hay una pestaña "Rollos de Extrusión" en Existencias con cuántos
+   rollos y kilos hay (general y por cliente), aparte del stock de producto terminado para no contar doble el
+   material que se consume en una OP derivada. Falta decidir si, además, una OP de Extrusión sin cliente y sin
+   derivar debe sumar al stock del producto (hoy la app no sabe cuándo una OP es la etapa final: Extrusión
+   siempre cierra `finalizada`; Impresión/Sellado/Precorte siempre van a Calidad). El cliente pidió que todo lo que sale de una OP aparezca en el inventario. Falta saber si Calidad
    debe aprobar antes y si eso cubre también los rollos de Extrusión.
 2. **Dónde quedan los rollos chicos y quién los aprueba.** El cliente dijo que los rollos chicos se guardan en la
    bodega de Sellado, Precorte o Impresión y se registran en cuanto salen. Desde el 2026-10-09 Inventario de

@@ -10,7 +10,7 @@ vi.mock("../../client/src/api/client", async () => {
   const actual = await vi.importActual<typeof import("../../client/src/api/client")>("../../client/src/api/client");
   return {
     ApiError: actual.ApiError,
-    api: { getClientReservations: vi.fn(), getInventory: vi.fn(), getAlerts: vi.fn() },
+    api: { getClientReservations: vi.fn(), getInventory: vi.fn(), getAlerts: vi.fn(), getExtrusionRolls: vi.fn() },
   };
 });
 
@@ -99,5 +99,32 @@ describe("Existencias: total, reservado y disponible", () => {
     expect(within(acme).getByText("SELL-10").closest("li")).toHaveTextContent("SELL-10 · 15 kg");
     await userEvent.setup().click(screen.getByRole("tab", { name: "Stock general" }));
     expect(screen.getByRole("columnheader", { name: "Stock general" })).toBeInTheDocument();
+  });
+});
+
+describe("Existencias: pestaña Rollos de Extrusión", () => {
+  it("dice cuántos rollos y kilos hay, general y por cliente, y aclara que no suman al producto terminado", async () => {
+    vi.mocked(api.getAlerts).mockResolvedValue([]);
+    vi.mocked(api.getInventory).mockResolvedValue([]);
+    vi.mocked(api.getExtrusionRolls).mockResolvedValue([
+      {
+        productId: 7,
+        sku: "ROL-PL-001",
+        name: "Rollo Precintado 20x30",
+        unit: "kg",
+        rollCount: 3,
+        totalKg: 105,
+        general: { rollCount: 2, kg: 55 },
+        clients: [{ clientId: 1, clientName: "Cliente ACME", rollCount: 1, kg: 50 }],
+      },
+    ]);
+    renderWith(<InventoryDashboard />);
+    await userEvent.setup().click(await screen.findByRole("tab", { name: "Rollos de Extrusión" }));
+    expect(await screen.findByText("En total: 3 rollos · 105 kg")).toBeInTheDocument();
+    const fila = screen.getByText("ROL-PL-001", { exact: false }).closest("tr") as HTMLElement;
+    expect(within(fila).getByText("2 rollos · 55 kg")).toBeInTheDocument();
+    expect(within(fila).getByText("Cliente ACME")).toBeInTheDocument();
+    expect(within(fila).getByText(/1 rollo · 50 kg/)).toBeInTheDocument();
+    expect(screen.getByText(/no se suma al stock de producto terminado/)).toBeInTheDocument();
   });
 });

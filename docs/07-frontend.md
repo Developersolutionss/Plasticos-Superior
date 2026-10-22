@@ -281,6 +281,7 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 ### `InventoryDashboard.tsx`
 - Filtro por categoría. Alerta superior si hay productos bajo el mínimo (`api.getAlerts`). Dos pestañas (decisión del cliente, 2026-10-20: lo fabricado con cliente queda en el inventario de ese cliente; lo fabricado sin cliente es el inventario general, y todo entra al aprobar Calidad):
 - **Stock general** (por defecto): tabla con SKU, producto, medida, stock actual, **para clientes** (botón que lleva a la otra pestaña; "—" si no hay), **stock general** (lo que se puede despachar a cualquiera; en rojo si es negativo), mínimo y estado. En celular, "para clientes" y "stock general" van en una línea aparte solo si hay algo reservado.
+- **Rollos de Extrusión** (`RollosExtrusion.tsx`): cuántos rollos y kilos de Extrusión quedan sin consumir, por producto, con el total arriba y dividido entre "General (sin cliente)" y "Para clientes" (cada cliente con sus rollos y kilos). Aclara que no se suma al stock de producto terminado. Lee `api.getExtrusionRolls`.
 - **Por cliente**: el contenido de `RollosClientes` (abajo).
 
 ### `RollosClientes.tsx` (pestaña "Por cliente" de Existencias; la ruta `/inventario/rollos-clientes` sigue funcionando)

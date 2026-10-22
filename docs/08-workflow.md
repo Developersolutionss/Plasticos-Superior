@@ -85,6 +85,10 @@ Cuando se marca un ítem como despachado (`PATCH /api/dispatches/:dispatchId/ite
    - Si **quedan** → `status: "en_proceso"`.
 4. **Fuera** de la transacción, si ese `PATCH` fue el que recién dejó el despacho `despachado` (no si ya lo estaba), intenta avisarle al cliente por WhatsApp (`sendWhatsAppMessage`, al contacto principal o al primero con teléfono). Sin credenciales de Meta configuradas, o si el cliente no tiene teléfono, no pasa nada — no rompe el flujo de despacho. Un reintento sobre el mismo ítem ya despachado no reenvía el aviso.
 
+### Rollos de Extrusión en el inventario
+
+Decisión del cliente (2026-10-21): los rollos de Extrusión entran al inventario y hay que saber cuántos hay. Un rollo de Extrusión no es producto terminado: se consume en las OPs derivadas (Impresión, Sellado, Precorte), y el producto terminado suma al inventario al aprobar Calidad. Sumar los dos contaría dos veces el mismo material, así que los rollos de Extrusión se muestran **aparte** (Existencias → "Rollos de Extrusión", `GET /api/inventory/extrusion-rolls`): por producto, cuántos rollos y kilos con material sin consumir (saldo real), separando la OP sin cliente (general) de la de cada cliente. No suman a `inventory_stock`.
+
 ### Reservas para clientes
 
 Pedido del cliente en la reunión del 2026-10-06: lo fabricado para un cliente no debe poder despacharse a otro (alguien veía "900 kg, sobra" y se los llevaba).

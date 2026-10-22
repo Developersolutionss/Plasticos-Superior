@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
 import RollosClientes from "./RollosClientes";
+import RollosExtrusion from "./RollosExtrusion";
 
 const CATEGORIES = [
   { value: "", label: "Todos" },
@@ -23,7 +24,7 @@ export default function InventoryDashboard() {
   const [category, setCategory] = useState("");
   // "general": lo fabricado sin cliente (y lo que se compra/ajusta); "clientes":
   // lo fabricado para cada cliente. Entra al inventario al aprobar Calidad.
-  const [view, setView] = useState<"general" | "clientes">("general");
+  const [view, setView] = useState<"general" | "extrusion" | "clientes">("general");
 
   const stockQuery = useQuery({
     queryKey: ["inventory", category],
@@ -45,6 +46,9 @@ export default function InventoryDashboard() {
         <button type="button" role="tab" aria-selected={view === "general"} className={tabClass(view === "general")} onClick={() => setView("general")}>
           Stock general
         </button>
+        <button type="button" role="tab" aria-selected={view === "extrusion"} className={tabClass(view === "extrusion")} onClick={() => setView("extrusion")}>
+          Rollos de Extrusión
+        </button>
         <button type="button" role="tab" aria-selected={view === "clientes"} className={tabClass(view === "clientes")} onClick={() => setView("clientes")}>
           Por cliente
         </button>
@@ -52,6 +56,8 @@ export default function InventoryDashboard() {
 
       {view === "clientes" ? (
         <RollosClientes embedded />
+      ) : view === "extrusion" ? (
+        <RollosExtrusion />
       ) : (
         <>
       <div className="hidden md:flex gap-2 overflow-x-auto">

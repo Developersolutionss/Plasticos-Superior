@@ -7363,3 +7363,68 @@ describe("devolución a la bodega principal: lo terminado vuelve de la bodega de
   });
 });
 
+describe("rollos de Extrusión en el inventario: cuántos hay y cuántos kilos, general vs cliente", () => {
+  const stamp = Date.now();
+  let productId = 0;
+  let clientId = 0;
+  const orderIds: number[] = [];
+
+  before(async () => {
+    productId = (
+      await prisma.product.create({ data: { sku: `TEST-EXTR-${stamp}`, name: `Rollo extrusión ${stamp}`, category: "tubular", unit: "kg", minStock: 0 } })
+    ).id;
+    clientId = (await prisma.client.create({ data: { name: `TEST-EXTR-CLI-${stamp}` } })).id;
+  });
+
+  after(async () => {
+    for (const id of orderIds.reverse()) {
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: id } });
+      await prisma.productionOrder.delete({ where: { id } }).catch(() => {});
+    }
+    await prisma.product.delete({ where: { id: productId } });
+    await prisma.client.delete({ where: { id: clientId } });
+  });
+
+  it("cuenta los rollos con material sin consumir, separando la OP sin cliente (general) de la de un cliente; lo agotado no cuenta", async () => {
+    const general = await prisma.productionOrder.create({ data: { orderNumber: `OP-TEST-EXTR-${stamp}-G`, station: "extrusion", productId, quantityPlanned: 100, status: "finalizada" } });
+    const deCliente = await prisma.productionOrder.create({ data: { orderNumber: `OP-TEST-EXTR-${stamp}-C`, station: "extrusion", productId, clientId, quantityPlanned: 100, status: "finalizada" } });
+    orderIds.push(general.id, deCliente.id);
+    const g1 = await createTestRoll(general.id, { weightKg: 40 });
+    await createTestRoll(general.id, { weightKg: 30 });
+    const agotado = await createTestRoll(general.id, { weightKg: 20 });
+    await createTestRoll(deCliente.id, { weightKg: 50 });
+
+    // g1 ya se consumió en parte (15 kg) y otro rollo entero: el agotado no debe contar.
+    const hija = await prisma.productionOrder.create({ data: { orderNumber: general.orderNumber, station: "sellado", productId, quantityPlanned: 40, parentOrderId: general.id } });
+    orderIds.push(hija.id);
+    const h1 = await createTestRoll(hija.id, { weightKg: 15, sourceRollId: g1.id });
+    const h2 = await createTestRoll(hija.id, { weightKg: 20, sourceRollId: agotado.id });
+    await prisma.rollConsumption.createMany({
+      data: [
+        { rollId: h1.id, sourceRollId: g1.id, quantityKg: 15 },
+        { rollId: h2.id, sourceRollId: agotado.id, quantityKg: 20 },
+      ],
+    });
+
+    const res = await fetch(`${baseUrl}/api/inventory/extrusion-rolls`, { headers: headersFor("planeacion") });
+    assert.equal(res.status, 200, "Planeación (rol de Existencias) puede verlo");
+    const mio = ((await res.json()) as any[]).find((p) => p.productId === productId);
+    assert.equal(mio.rollCount, 3, "g1 (25 kg), el de 30 y el del cliente (50): el agotado no cuenta");
+    assert.equal(mio.totalKg, 105);
+    assert.deepEqual(mio.general, { rollCount: 2, kg: 55 });
+    assert.equal(mio.clients.length, 1);
+    assert.equal(mio.clients[0].clientName, `TEST-EXTR-CLI-${stamp}`);
+    assert.equal(mio.clients[0].rollCount, 1);
+    assert.equal(mio.clients[0].kg, 50);
+
+    await prisma.rollConsumption.deleteMany({ where: { sourceRollId: { in: [g1.id, agotado.id] } } });
+  });
+
+  it("no suma al stock de producto terminado (no se cuenta dos veces) y un rol sin acceso a Existencias no lo ve", async () => {
+    const inv = ((await (await fetch(`${baseUrl}/api/inventory`, { headers: headersFor("almacen") })).json()) as any[]).find((p) => p.id === productId);
+    assert.equal(inv.currentStock, 0);
+    const sin = await fetch(`${baseUrl}/api/inventory/extrusion-rolls`, { headers: headersFor("operario_extrusion") });
+    assert.equal(sin.status, 403);
+  });
+});
+
