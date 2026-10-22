@@ -70,7 +70,8 @@ export async function candidateRolls(dispatchId: number, productId: number): Pro
     where: reserved
       ? { productionOrderId: dispatch.productionOrderId! }
       : {
-          station: { in: ["sellado", "precorte"] },
+          // Producto terminado: OP aprobada en Calidad (solo la etapa final
+          // pasa por Calidad), de cualquier estación — el orden no es fijo.
           productionOrder: {
             productId,
             status: "finalizada",

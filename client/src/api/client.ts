@@ -514,7 +514,12 @@ export const api = {
     notes?: string;
   }) => request<any>("/production-orders/presets", { method: "POST", body: JSON.stringify(data) }),
   deleteProductionOrderPreset: (id: number) => request<void>(`/production-orders/presets/${id}`, { method: "DELETE" }),
-  closeProductionOrder: (id: number) => request<any>(`/production-orders/${id}/close`, { method: "POST" }),
+  /** Cierra la etapa. `finalStage`: true = producto final (va a Calidad),
+   * false = etapa terminada (su material sigue a otra estación). */
+  closeProductionOrder: (id: number, finalStage?: boolean) =>
+    request<any>(`/production-orders/${id}/close`, { method: "POST", body: JSON.stringify(finalStage === undefined ? {} : { finalStage }) }),
+  /** Gestión: una etapa terminada que en realidad era el producto final pasa a Calidad. */
+  sendProductionOrderToQuality: (id: number) => request<any>(`/production-orders/${id}/send-to-quality`, { method: "POST" }),
   reopenProductionOrder: (id: number) => request<any>(`/production-orders/${id}/reopen`, { method: "POST" }),
   releaseProductionOrder: (id: number) => request<any>(`/production-orders/${id}/release`, { method: "POST" }),
   createProductionRoll: (

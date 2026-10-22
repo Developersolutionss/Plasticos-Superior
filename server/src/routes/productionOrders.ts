@@ -23,6 +23,7 @@ import {
   ROLL_CODE_PREFIX,
   inheritSpecs,
   normalizeSpecOptions,
+  orderIsFinalStage,
   rollProducedKg,
   specOptionIssuesMessage,
 } from "../services/opTemplates";
@@ -603,6 +604,7 @@ productionOrdersRouter.get("/:id", async (req, res) => {
       id: true,
       station: true,
       status: true,
+      isFinalStage: true,
       parentOrderId: true,
       quantityPlanned: true,
       // Trazabilidad muestra los lotes de materia prima de Extrusión
@@ -959,6 +961,16 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
     return res.status(400).json({ error: "Primero liberá la OP a planta (Liberar) antes de derivarla a otro proceso" });
   }
 
+  // Derivar = su material sigue a otra estación, así que esta etapa NO es el
+  // producto final. Si Calidad ya la aprobó, su producto ya entró al
+  // inventario: derivarla contaría dos veces el mismo material.
+  const parentCheck = await prisma.qualityCheck.findUnique({ where: { productionOrderId: parent.id }, select: { result: true } });
+  if (parentCheck?.result === "aprobado") {
+    return res.status(400).json({
+      error: "Esta OP ya se aprobó en Calidad y su producto entró al inventario como producto final — para derivarla primero hay que reabrirla",
+    });
+  }
+
   const allowed = DERIVATIONS[parent.station as OpStation];
   if (!allowed.includes(parsed.data.station)) {
     return res.status(400).json({
@@ -1024,22 +1036,33 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
   }
   const defaultQuantityPlanned = alloc.availableKg;
 
-  const order = await prisma.productionOrder.create({
-    data: {
-      orderNumber: parent.orderNumber,
-      station: parsed.data.station,
-      productId: parent.productId,
-      clientId: parent.clientId,
-      quantityPlanned: parsed.data.quantityPlanned ?? defaultQuantityPlanned,
-      measure: parsed.data.measure ?? parent.measure,
-      specs: Object.keys(specs).length ? (specs as Prisma.InputJsonValue) : undefined,
-      notes: parsed.data.notes ?? parent.notes,
-      parentOrderId: parent.id,
-      createdById: req.user!.userId,
-    },
+  const order = await prisma.$transaction(async (tx) => {
+    const child = await tx.productionOrder.create({
+      data: {
+        orderNumber: parent.orderNumber,
+        station: parsed.data.station,
+        productId: parent.productId,
+        clientId: parent.clientId,
+        quantityPlanned: parsed.data.quantityPlanned ?? defaultQuantityPlanned,
+        measure: parsed.data.measure ?? parent.measure,
+        specs: Object.keys(specs).length ? (specs as Prisma.InputJsonValue) : undefined,
+        notes: parsed.data.notes ?? parent.notes,
+        parentOrderId: parent.id,
+        createdById: req.user!.userId,
+      },
+    });
+    // El padre pasa a ser etapa intermedia. Costumbre de planta: "cerrar" cada
+    // etapa al terminarla y recién después pasarla a la siguiente — si al
+    // cerrarla quedó esperando Calidad, sale de esa cola: no es el producto
+    // final (ver POST /:id/close).
+    await tx.productionOrder.update({
+      where: { id: parent.id },
+      data: { isFinalStage: false, ...(parent.status === "pendiente_calidad" ? { status: "finalizada" } : {}) },
+    });
+    return child;
   });
 
-  res.status(201).json(order);
+  res.status(201).json({ ...order, parentLeftQuality: parent.status === "pendiente_calidad" });
 });
 
 
@@ -1350,18 +1373,32 @@ productionOrdersRouter.patch("/:id/material-para", requireOperarios, async (req,
   res.json(updated);
 });
 
+const closeSchema = z.object({
+  /** ¿Esta etapa es el producto final? `true` → va a Calidad; `false` →
+   * "etapa terminada" (su material sigue a otra estación, sin Calidad ni
+   * stock). Sin mandar: final (comportamiento de siempre para la API). La
+   * pantalla siempre lo manda. Se ignora en Extrusión (nunca es final) y si
+   * la OP ya tiene derivadas (es intermedia sí o sí). */
+  finalStage: z.boolean().optional(),
+});
+
 /**
- * Cierra una OP. Extrusión (siempre intermedia) queda "finalizada" directo,
- * su material pasa a la OP derivada sin mover stock. Impresión/Sellado/
- * Precorte (FINAL_STATIONS) pasan a "pendiente_calidad" — recién cuando
- * Calidad aprueba se genera la entrada de inventario con la suma de kg de
- * los rollos. Impresión puede cerrarse así AUNQUE también tenga OPs
- * derivadas (a Sellado/Precorte): cerrar y derivar son decisiones
- * independientes, no una excluye a la otra.
+ * Cierra una etapa de la OP. "Cerrar" no siempre es "producto final" (en
+ * planta se cierra cada etapa al terminarla, aunque después siga a otra
+ * estación):
+ * - Extrusión: siempre etapa terminada ("finalizada", `isFinalStage` false);
+ *   su material pasa a las derivadas sin mover stock. Descuenta materia prima.
+ * - Con OPs derivadas: etapa terminada (su material ya sigue en otra estación).
+ * - Si no: según `finalStage`. Final → "pendiente_calidad" y, cuando Calidad
+ *   aprueba, entra al inventario la suma de kg de sus rollos. Intermedia →
+ *   etapa terminada y se le avisa a Gestión que falta derivarla (o enviarla a
+ *   Calidad si en realidad era final, ver POST /:id/send-to-quality).
  */
 productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
+  const closeParsed = closeSchema.safeParse(req.body ?? {});
+  if (!closeParsed.success) return res.status(400).json({ error: closeParsed.error.flatten() });
 
   const order = await prisma.productionOrder.findUnique({
     where: { id },
@@ -1387,7 +1424,14 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
     if (falta) return res.status(400).json({ error: `No se puede cerrar: ${falta}. Pedile a Gestión que complete la fórmula en la hoja de la OP.` });
   }
 
-  const isFinal = FINAL_STATIONS.includes(order.station as OpStation);
+  const childCount = await prisma.productionOrder.count({ where: { parentOrderId: order.id, status: { not: "cancelada" } } });
+  if (childCount > 0 && closeParsed.data.finalStage === true) {
+    return res.status(400).json({
+      error: "Esta OP ya se derivó a otra estación: su material sigue allá, así que no es el producto final. Cerrala como etapa terminada.",
+    });
+  }
+  const isFinal =
+    FINAL_STATIONS.includes(order.station as OpStation) && childCount === 0 && closeParsed.data.finalStage !== false;
   const newStatus = isFinal ? "pendiente_calidad" : "finalizada";
 
   // Al cerrar una OP de Extrusión se descuenta del stock de materia prima
@@ -1407,7 +1451,7 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
       // materia prima dos veces ni pisar el status del otro).
       const claimed = await tx.productionOrder.updateMany({
         where: { id, status: { in: OPEN_STATUSES } },
-        data: { status: newStatus },
+        data: { status: newStatus, isFinalStage: isFinal },
       });
       if (claimed.count === 0) throw new StatusRaceError();
 
@@ -1461,9 +1505,54 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
       message: `OP #${order.orderNumber} lista para revisión de calidad`,
       link: "/calidad",
     });
+  } else if (order.station !== "extrusion" && childCount === 0) {
+    // Etapa terminada sin derivar todavía: si nadie la pasa a la siguiente
+    // estación (o a Calidad, si en realidad era el producto final) su
+    // producción queda sin entrar al inventario.
+    await notifyRoles(ROLES.PRODUCCION_GESTION, {
+      type: "op_etapa_terminada",
+      message: `OP #${order.orderNumber} (${STATION_LABELS[order.station as OpStation]}): etapa terminada — falta derivarla a la siguiente estación, o enviarla a Calidad si es el producto final`,
+      link: `/produccion/ordenes/${order.id}`,
+    });
   }
 
   res.json({ ...updated, skippedRawMaterialRefs: skippedRefs });
+});
+
+/**
+ * Gestión corrige una etapa que se cerró como intermedia pero en realidad es
+ * el producto final: la manda a Calidad. Solo si no es de Extrusión, está
+ * "etapa terminada" y no tiene OPs derivadas ni control de calidad.
+ */
+productionOrdersRouter.post("/:id/send-to-quality", requireProduccionGestion, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Id inválido" });
+  const order = await prisma.productionOrder.findUnique({
+    where: { id },
+    select: { id: true, orderNumber: true, station: true, status: true, isFinalStage: true, qualityCheck: { select: { id: true } } },
+  });
+  if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  if (order.station === null || order.station === "extrusion") {
+    return res.status(400).json({ error: "Extrusión nunca es producto final: su material sigue a otra estación" });
+  }
+  if (order.status !== "finalizada" || orderIsFinalStage(order) || order.qualityCheck) {
+    return res.status(400).json({ error: "Solo se envía a Calidad una etapa terminada (cerrada como intermedia) que todavía no pasó por Calidad" });
+  }
+  const children = await prisma.productionOrder.count({ where: { parentOrderId: id, status: { not: "cancelada" } } });
+  if (children > 0) {
+    return res.status(400).json({ error: "Esta OP ya se derivó a otra estación: su material sigue allá, no es el producto final" });
+  }
+  const claimed = await prisma.productionOrder.updateMany({
+    where: { id, status: "finalizada" },
+    data: { status: "pendiente_calidad", isFinalStage: true },
+  });
+  if (claimed.count === 0) return res.status(400).json({ error: "Esta OP cambió de estado mientras tanto" });
+  await notifyRoles(ROLES.CALIDAD, {
+    type: "op_pendiente_calidad",
+    message: `OP #${order.orderNumber} lista para revisión de calidad`,
+    link: "/calidad",
+  });
+  res.json(await prisma.productionOrder.findUniqueOrThrow({ where: { id } }));
 });
 
 /** Estados desde los que se puede reabrir una OP para corregir un error. */
@@ -1588,6 +1677,8 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
         where: { id, status: { in: REOPENABLE_STATUSES } },
         data: {
           status: "en_proceso",
+          // Al volver a cerrarla se decide de nuevo si es final o intermedia.
+          isFinalStage: null,
           notes: order.notes
             ? `${order.notes}\n[Reabierta el ${new Date().toLocaleString("es-CO")} por ${req.user!.name}]`
             : `[Reabierta el ${new Date().toLocaleString("es-CO")} por ${req.user!.name}]`,

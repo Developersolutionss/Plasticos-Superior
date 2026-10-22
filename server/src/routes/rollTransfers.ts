@@ -9,6 +9,7 @@ import {
   ROLL_CODE_PREFIX,
   STATION_LABELS,
   WAREHOUSE_LABELS,
+  orderIsFinalStage,
   rollProducedKg,
   transferDestinations,
   warehousePhrase,
@@ -147,6 +148,18 @@ async function resolveScannedRoll(code: string, token: string, userId: number): 
   return { roll } as const;
 }
 
+/** ¿El rollo es producto terminado? Lo es si su OP es la etapa final (ver
+ * orderIsFinalStage) — no depende de la estación: el orden no es fijo, y un
+ * rollo de Sellado de una OP intermedia es material que sigue a otra
+ * estación. */
+async function rollIsFinished(rollId: number): Promise<boolean> {
+  const roll = await prisma.productionRoll.findUniqueOrThrow({
+    where: { id: rollId },
+    select: { productionOrder: { select: { station: true, status: true, isFinalStage: true } } },
+  });
+  return orderIsFinalStage(roll.productionOrder);
+}
+
 /** Un operario solo recibe en la bodega de SU estación; gestión/almacén en cualquiera. */
 function canReceiveAt(role: string, station: string): boolean {
   const allowed = OPERARIO_STATIONS[role as keyof typeof OPERARIO_STATIONS];
@@ -223,25 +236,18 @@ function materialParaStation(specs: unknown): OpStation | null {
  * Impresión, Sellado, Precorte y la bodega principal), con su saldo, desde
  * cuándo están ahí, y cuáles están en camino.
  *
- * - Rollos que alimentan a otra estación (salidos de Extrusión o Impresión,
- *   ver DERIVATIONS): los que todavía tienen saldo.
- * - Rollos terminados (de Sellado y Precorte, y los de Impresión que no
- *   alimentan nada): mientras no hayan salido hacia un cliente. Nacen en la
- *   bodega de su estación y vuelven en camión a la bodega principal
- *   (`finished: true`); de ahí salen los despachos a clientes.
+ * - Material (rollos de una OP intermedia o todavía abierta, ver
+ *   orderIsFinalStage): los que todavía tienen saldo.
+ * - Producto terminado (rollos de una OP que es la etapa final): mientras no
+ *   hayan salido hacia un cliente. Nacen en la bodega de su estación y
+ *   vuelven en camión a la bodega principal (`finished: true`); de ahí salen
+ *   los despachos a clientes.
  */
 rollTransfersRouter.get("/inventory", async (_req, res) => {
-  const feeding = (STATIONS as readonly OpStation[]).filter((s) => DERIVATIONS[s].length > 0);
-  const terminadas = STATIONS.filter((s) => DERIVATIONS[s].length === 0);
   const rolls = await prisma.productionRoll.findMany({
-    where: {
-      OR: [
-        { station: { in: feeding } },
-        // Producto terminado que todavía no salió hacia un cliente (un
-        // despacho cancelado lo libera, igual que en Despachos).
-        { station: { in: [...terminadas] }, dispatchItems: { none: { dispatchItem: { dispatch: { status: { not: "cancelada" } } } } } },
-      ],
-    },
+    // Lo que ya salió hacia un cliente no está en ninguna bodega (un despacho
+    // cancelado lo libera, igual que en Despachos).
+    where: { dispatchItems: { none: { dispatchItem: { dispatch: { status: { not: "cancelada" } } } } } },
     select: {
       id: true,
       station: true,
@@ -253,7 +259,17 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
       productionOrderId: true,
       // Para quién es (la OP guarda el cliente destino): la bodega lo ve en
       // cada rollo y nadie lo toma como material de stock.
-      productionOrder: { select: { id: true, orderNumber: true, product: { select: { name: true, sku: true } }, client: { select: { id: true, name: true } } } },
+      productionOrder: {
+        select: {
+          id: true,
+          orderNumber: true,
+          station: true,
+          status: true,
+          isFinalStage: true,
+          product: { select: { name: true, sku: true } },
+          client: { select: { id: true, name: true } },
+        },
+      },
       transfers: {
         orderBy: { id: "desc" },
         take: 1,
@@ -283,13 +299,14 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
   const stock: Record<string, any[]> = Object.fromEntries((WAREHOUSES as readonly string[]).map((s) => [s, []]));
   const inTransit: any[] = [];
   for (const r of rolls) {
-    const finished = DERIVATIONS[r.station as OpStation].length === 0;
+    const finished = orderIsFinalStage(r.productionOrder);
     // Un rollo terminado no se consume: su "saldo" es lo que produjo.
     const remainingKg = finished
       ? Math.round(rollProducedKg(r.station as OpStation, r) * 100) / 100
       : Math.round((Number(r.weightKg) - (consumedBy.get(r.id) ?? 0) + (adjustedBy.get(r.id) ?? 0)) * 100) / 100;
     if (remainingKg <= 0.005) continue;
     const last = r.transfers[0];
+    const { station: _st, status: _status, isFinalStage: _final, ...orderInfo } = r.productionOrder;
     const base = {
       rollId: r.id,
       code: rollCode(r),
@@ -297,7 +314,7 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
       weightKg: Number(r.weightKg),
       remainingKg,
       finished,
-      productionOrder: r.productionOrder,
+      productionOrder: orderInfo,
       lastCount: lastCountBy.get(r.id) ?? null,
     };
     if (last?.status === "en_transito") {
@@ -375,8 +392,8 @@ rollTransfersRouter.post("/rolls/:rollId/count", requireProduccionGestion, async
 
   const roll = await prisma.productionRoll.findUnique({ where: { id: rollId }, select: { id: true, station: true, stationSequence: true } });
   if (!roll) return res.status(404).json({ error: "Rollo no encontrado" });
-  if (DERIVATIONS[roll.station as OpStation].length === 0) {
-    return res.status(400).json({ error: `Los rollos de ${STATION_LABELS[roll.station as OpStation]} son producto terminado — no se ajustan acá` });
+  if (await rollIsFinished(roll.id)) {
+    return res.status(400).json({ error: `El rollo ${rollCode(roll)} es producto terminado — no se ajusta acá` });
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -451,7 +468,16 @@ rollTransfersRouter.get("/scan/:code", async (req, res) => {
         operatorName: true,
         date: true,
         productionOrder: {
-          select: { id: true, orderNumber: true, specs: true, product: { select: { name: true, sku: true } }, client: { select: { id: true, name: true } } },
+          select: {
+            id: true,
+            orderNumber: true,
+            specs: true,
+            station: true,
+            status: true,
+            isFinalStage: true,
+            product: { select: { name: true, sku: true } },
+            client: { select: { id: true, name: true } },
+          },
         },
       },
     }),
@@ -461,11 +487,12 @@ rollTransfersRouter.get("/scan/:code", async (req, res) => {
   ]);
 
   // Sin la bodega donde ya está (ver el mismo chequeo en POST /).
-  const destinations = transferDestinations(roll.station as OpStation).filter(
+  const finished = orderIsFinalStage(detail.productionOrder);
+  const destinations = transferDestinations(roll.station as OpStation, finished).filter(
     (s) => s !== (lastTransfer?.status === "recibido" ? lastTransfer.toStation : roll.station)
   );
   const expecting = (await expectingStationsByOrder([detail.productionOrder.id])).get(detail.productionOrder.id) ?? [];
-  const { specs, ...orderWithoutSpecs } = detail.productionOrder;
+  const { specs, station: _station, status: _status, isFinalStage: _final, ...orderWithoutSpecs } = detail.productionOrder;
   res.json({
     roll: { ...detail, productionOrder: orderWithoutSpecs, code: rollCode(roll), remainingKg },
     destinations,
@@ -510,7 +537,7 @@ rollTransfersRouter.post("/", async (req, res) => {
   // Solo hacia estaciones que de verdad procesan lo que sale de esta
   // (mismo mapa que la derivación de OPs): un rollo de Extrusión va a
   // Impresión/Sellado/Precorte, uno de Impresión a Sellado/Precorte.
-  const destinations = transferDestinations(roll.station as OpStation);
+  const destinations = transferDestinations(roll.station as OpStation, await rollIsFinished(roll.id));
   if (!destinations.includes(data.toStation)) {
     return res.status(400).json({
       error: destinations.length
@@ -629,7 +656,7 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
     // Un rollo terminado no se consume: su peso es lo que produjo, y es el
     // que va al despacho del cliente. Se registra lo que marcó la balanza (y
     // se avisa la diferencia) pero no se corrige un saldo que no existe.
-    const finishedRoll = DERIVATIONS[result.roll.station as OpStation].length === 0;
+    const finishedRoll = await rollIsFinished(result.roll.id);
     if (data.receivedKg != null && !finishedRoll) {
       const current = await remainingSourceKg(tx, transfer.rollId);
       const reference = transfer.dispatchedKg != null ? Number(transfer.dispatchedKg) : current;
@@ -652,7 +679,7 @@ rollTransfersRouter.post("/:id/receive", async (req, res) => {
 
   const full = await prisma.rollTransfer.findUniqueOrThrow({ where: { id }, include: transferInclude });
   const balanceNotAdjusted =
-    DERIVATIONS[result.roll.station as OpStation].length > 0 &&
+    !(await rollIsFinished(result.roll.id)) &&
     data.receivedKg != null && full.dispatchedKg != null && Math.abs(data.receivedKg - Number(full.dispatchedKg)) > receiveAutoAdjustLimitKg(Number(full.dispatchedKg));
   const response = { ...withRollCode(full), balanceAdjusted: received.balanceAdjusted, balanceNotAdjusted };
 

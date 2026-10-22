@@ -749,6 +749,14 @@ model ProductionOrder {
   alertThresholdKg    Decimal?              @map("alert_threshold_kg") @db.Decimal(12, 2)
   measure             String?
   status              ProductionOrderStatus @default(pendiente)
+  /// Si esta etapa es el producto final (va a Calidad y entra al inventario)
+  /// o una etapa intermedia cuyo material sigue a otra estación ("etapa
+  /// terminada", sin Calidad ni stock). Se decide al cerrar la OP o al
+  /// derivarla (ver POST /:id/close, /:id/derive, /:id/send-to-quality).
+  /// Null = todavía no se decidió (OP abierta) o OP anterior a este campo: ahí
+  /// manda el estado (ver `orderIsFinalStage` en services/opTemplates.ts).
+  /// Extrusión nunca es final.
+  isFinalStage        Boolean?              @map("is_final_stage")
   specs               Json?
   notes               String?
   parentOrderId       Int?                  @map("parent_order_id")

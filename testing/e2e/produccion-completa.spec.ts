@@ -109,8 +109,10 @@ test.describe("flujo completo de producción", () => {
     await registroSellado.anadir();
     await registroSellado.confirmar(2);
     await expect(sellado.page.getByText("Se confirmaron 2 rollos.")).toBeVisible();
+    // Cerrar una etapa pregunta si sigue a otra estación o es el producto final.
     await sellado.page.getByRole("button", { name: "Cerrar OP" }).click();
-    await sellado.page.getByRole("button", { name: "Cerrar OP" }).last().click();
+    await sellado.page.getByRole("radio", { name: /Es el producto final/ }).check();
+    await sellado.page.getByRole("button", { name: "Cerrar etapa" }).click();
     await expect.poll(async () => (await detalleOp(selladoId)).status).toBe("pendiente_calidad");
     expect(await stockProducto("ROL-PL-001")).toBe(productoAntes);
 

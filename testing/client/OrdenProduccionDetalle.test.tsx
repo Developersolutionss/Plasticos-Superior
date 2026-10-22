@@ -23,6 +23,7 @@ vi.mock("../../client/src/api/client", async () => {
       deleteProductionRoll: vi.fn().mockResolvedValue({}),
       closeProductionOrder: vi.fn().mockResolvedValue({}),
       reopenProductionOrder: vi.fn().mockResolvedValue({}),
+      sendProductionOrderToQuality: vi.fn().mockResolvedValue({}),
       releaseProductionOrder: vi.fn().mockResolvedValue({}),
       deriveProductionOrder: vi.fn().mockResolvedValue({}),
       downloadProductionOrderPdf: vi.fn(),
@@ -677,3 +678,66 @@ describe("OrdenProduccionDetalle · liberar a planta", () => {
     await waitFor(() => expect(api.releaseProductionOrder).toHaveBeenCalledWith(8));
   });
 });
+
+describe("OrdenProduccionDetalle · cerrar una etapa: sigue a otra estación o es el producto final", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getClients).mockResolvedValue([]);
+  });
+  const conRollo = (over: Record<string, any> = {}) =>
+    baseSellado({
+      rolls: [{ id: 1, station: "sellado", stationSequence: 1, date: "2026-10-21T00:00:00Z", weightKg: "10", wasteKg: "0", operatorName: "Ana", details: {}, consumptions: [], transfers: [], adjustments: [], consumedAsSource: [], dispatchItems: [] }],
+      ...over,
+    });
+
+  it("pregunta qué pasa con lo que salió; por defecto 'sigue a otra estación' (etapa terminada)", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(conRollo());
+    vi.mocked(api.closeProductionOrder).mockResolvedValue({ status: "finalizada", isFinalStage: false });
+    renderOrden();
+    await screen.findByText("OP-00005");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Cerrar OP/ }));
+    const sigue = screen.getByRole("radio", { name: /Sigue a otra estación/ });
+    expect(sigue).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Es el producto final/ })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Cerrar etapa" }));
+    expect(api.closeProductionOrder).toHaveBeenCalledWith(5, false);
+    expect(await screen.findByText(/Etapa terminada\. Gestión la deriva a la siguiente estación/)).toBeInTheDocument();
+  });
+
+  it("si es el producto final, va a Calidad", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(conRollo());
+    vi.mocked(api.closeProductionOrder).mockResolvedValue({ status: "pendiente_calidad", isFinalStage: true });
+    renderOrden();
+    await screen.findByText("OP-00005");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Cerrar OP/ }));
+    await user.click(screen.getByRole("radio", { name: /Es el producto final/ }));
+    await user.click(screen.getByRole("button", { name: "Cerrar etapa" }));
+    expect(api.closeProductionOrder).toHaveBeenCalledWith(5, true);
+    expect(await screen.findByText(/Enviada a Calidad/)).toBeInTheDocument();
+  });
+
+  it("con OPs derivadas no pregunta: es etapa terminada", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(conRollo({ derivedOrders: [{ id: 9, orderNumber: "OP-00005", station: "precorte", status: "pendiente" }] }));
+    renderOrden();
+    await screen.findByText("OP-00005");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Cerrar OP/ }));
+    expect(screen.queryByRole("radio", { name: /Es el producto final/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/su material sigue en Precorte/)).toBeInTheDocument();
+  });
+
+  it("Gestión ve 'Etapa terminada' y puede enviarla a Calidad si en realidad era el producto final", async () => {
+    vi.mocked(api.getProductionOrder).mockResolvedValue(conRollo({ status: "finalizada", isFinalStage: false }));
+    renderOrden(5, { id: 2, name: "Gestión", role: "gerente_produccion", email: "g@empresa.com" });
+    expect(await screen.findByText("Etapa terminada")).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Enviar a Calidad/ }));
+    // El botón del diálogo de confirmación (el del encabezado se llama igual).
+    const botones = await screen.findAllByRole("button", { name: "Enviar a Calidad" });
+    await user.click(botones[botones.length - 1]);
+    expect(api.sendProductionOrderToQuality).toHaveBeenCalledWith(5);
+  });
+});
+

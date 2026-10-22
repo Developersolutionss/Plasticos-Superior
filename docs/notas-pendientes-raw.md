@@ -32,8 +32,9 @@ bodega principal, debe estar en la otra. Si no está en ninguna, el registro dic
 No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con saber cuánto hay en cada una.
 
 **1. Devolver rollos a la bodega principal.** Hecho el 2026-10-09 (ver
-[08 — Reglas de negocio](08-workflow.md#devolución-a-la-bodega-principal)). Queda abierto el punto 6 del proceso
-(el orden no es fijo: un rollo sellado puede pasar a Impresión, un rollo chico puede volver a ser rollo madre).
+[08 — Reglas de negocio](08-workflow.md#devolución-a-la-bodega-principal)). El punto 6 del proceso (el orden no es fijo)
+se hizo el 2026-10-21, junto con la separación entre "etapa terminada" y "producto final" (ver
+[08 — Reglas de negocio](08-workflow.md#etapa-terminada-y-producto-final)).
 
 - Hoy el despacho a bodegas solo va de Extrusión o Impresión hacia otra estación. Falta el regreso a la
   bodega principal, con quién lo lleva y quién lo recibe.

@@ -9,6 +9,7 @@ import BarcodeScanner from "../components/BarcodeScanner";
 import { splitScannedCode } from "../lib/rollQr";
 import { useConfirm } from "../components/ConfirmDialog";
 import ErrorToast from "../components/ErrorToast";
+import Modal from "../components/Modal";
 import { SkeletonRows } from "../components/Skeleton";
 import { SuggestionSources } from "../components/SuggestionSources";
 import {
@@ -17,6 +18,8 @@ import {
   OPEN_STATUSES,
   REOPENABLE_STATUSES,
   OP_TEMPLATES,
+  opStatusLabel,
+  orderIsFinalStage,
   OpRollColumn,
   OpStation,
   STATION_LABELS,
@@ -280,6 +283,10 @@ export default function OrdenProduccionDetalle() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const confirm = useConfirm();
+  // Diálogo de cierre de una etapa sin derivar: "sigue a otra estación" (por
+  // defecto: equivocarse hacia acá no mueve el stock y Gestión lo corrige) o
+  // "es el producto final" (va a Calidad).
+  const [closeChoice, setCloseChoice] = useState<"sigue" | "final" | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [specsDraft, setSpecsDraft] = useState<Record<string, any>>({});
@@ -1249,13 +1256,31 @@ export default function OrdenProduccionDetalle() {
 
   async function handleClose() {
     setError(null);
-    const isFinal = FINAL_STATIONS.includes(station);
-    const confirmMsg = isFinal
-      ? "Pasará a revisión de Calidad y, si se aprueba, sus kilos entran al inventario."
-      : "Quedará terminada (su material sigue en las OPs derivadas).";
-    if (!(await confirm(confirmMsg, { title: "¿Cerrar la OP?", confirmLabel: "Cerrar OP" }))) return;
+    const liveChildren = (order.derivedOrders ?? []).filter((d: any) => d.status !== "cancelada");
+    // Una etapa que todavía no se derivó: se pregunta si sigue a otra estación
+    // o si es el producto final (ver closeChoice abajo).
+    if (FINAL_STATIONS.includes(station) && liveChildren.length === 0) {
+      setCloseChoice("sigue");
+      return;
+    }
+    const confirmMsg =
+      station === "extrusion"
+        ? "Quedará como etapa terminada: su material sigue a la siguiente estación (no pasa por Calidad ni entra al inventario)."
+        : `Quedará como etapa terminada: su material sigue en ${liveChildren.map((d: any) => STATION_LABELS[d.station as OpStation]).join(", ")}.`;
+    if (!(await confirm(confirmMsg, { title: "¿Cerrar la etapa?", confirmLabel: "Cerrar OP" }))) return;
+    await doClose(undefined);
+  }
+
+  async function doClose(finalStage: boolean | undefined) {
+    setError(null);
+    setMessage(null);
     try {
-      const result = await api.closeProductionOrder(orderId);
+      const result = await api.closeProductionOrder(orderId, finalStage);
+      if (result?.status === "finalizada" && finalStage === false) {
+        setMessage("Etapa terminada. Gestión la deriva a la siguiente estación (si en realidad era el producto final, Gestión la envía a Calidad).");
+      } else if (result?.status === "pendiente_calidad") {
+        setMessage("Enviada a Calidad: si se aprueba, sus kilos entran al inventario.");
+      }
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
       queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
       // El server avisa (sin bloquear el cierre) si alguna ref de materia
@@ -1267,6 +1292,19 @@ export default function OrdenProduccionDetalle() {
       }
     } catch (err: any) {
       setError(err?.message ?? "No se pudo cerrar la OP");
+    }
+  }
+
+  async function handleSendToQuality() {
+    setError(null);
+    if (!(await confirm("Esta etapa es el producto final: pasa a revisión de Calidad y, si se aprueba, sus kilos entran al inventario.", { title: "¿Enviar a Calidad?", confirmLabel: "Enviar a Calidad" }))) return;
+    try {
+      await api.sendProductionOrderToQuality(orderId);
+      queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+      queryClient.invalidateQueries({ queryKey: ["productionOrders"] });
+      setMessage("Enviada a Calidad.");
+    } catch (err: any) {
+      setError(err?.message ?? "No se pudo enviar a Calidad");
     }
   }
 
@@ -1514,7 +1552,18 @@ export default function OrdenProduccionDetalle() {
   // el backend) — se ocultan los botones de las que ya tienen una hija para
   // no ofrecer una acción que el server va a rechazar con 400.
   const derivedStations = new Set((order.derivedOrders ?? []).map((d: any) => d.station));
-  const derivations = DERIVATIONS[station].filter((s) => !derivedStations.has(s));
+  // Una OP ya aprobada en Calidad es producto final y entró al inventario:
+  // el servidor no deja derivarla (contaría dos veces el material).
+  const approvedFinal = order.qualityCheck?.result === "aprobado";
+  const derivations = approvedFinal ? [] : DERIVATIONS[station].filter((s) => !derivedStations.has(s));
+  // Gestión corrige una etapa que se cerró como intermedia pero era el producto final.
+  const canSendToQuality =
+    canGestion &&
+    station !== "extrusion" &&
+    order.status === "finalizada" &&
+    !orderIsFinalStage(order) &&
+    !order.qualityCheck &&
+    !(order.derivedOrders ?? []).some((d: any) => d.status !== "cancelada");
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
@@ -1556,6 +1605,15 @@ export default function OrdenProduccionDetalle() {
               <Lock size={14} aria-hidden="true" /> Cerrar OP
             </button>
           )}
+          {canSendToQuality && (
+            <button
+              type="button"
+              onClick={handleSendToQuality}
+              className="inline-flex items-center gap-1.5 text-sm bg-emerald-700 hover:bg-emerald-600 text-white rounded px-3 py-1.5"
+            >
+              <Send size={14} aria-hidden="true" /> Enviar a Calidad
+            </button>
+          )}
           {canGestion && isReopenable && (
             <button
               type="button"
@@ -1578,6 +1636,45 @@ export default function OrdenProduccionDetalle() {
 
       <ErrorToast message={error} onClose={() => setError(null)} />
       {message && <p className="text-emerald-700 dark:text-emerald-400 text-sm">{message}</p>}
+      {closeChoice && (
+        <Modal title="¿Cerrar la etapa?" onClose={() => setCloseChoice(null)}>
+          <div className="space-y-3 text-sm">
+            <p className="text-slate-700 dark:text-slate-200">¿Qué pasa con lo que salió de esta etapa?</p>
+            <label className="flex items-start gap-2 border rounded-lg px-3 py-2 dark:border-slate-600">
+              <input type="radio" name="closeChoice" checked={closeChoice === "sigue"} onChange={() => setCloseChoice("sigue")} className="mt-1" />
+              <span>
+                <strong>Sigue a otra estación</strong>
+                <span className="block text-xs text-slate-500 dark:text-slate-400">
+                  Queda como etapa terminada. No pasa por Calidad ni entra al inventario: Gestión la deriva a la siguiente estación.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 border rounded-lg px-3 py-2 dark:border-slate-600">
+              <input type="radio" name="closeChoice" checked={closeChoice === "final"} onChange={() => setCloseChoice("final")} className="mt-1" />
+              <span>
+                <strong>Es el producto final</strong>
+                <span className="block text-xs text-slate-500 dark:text-slate-400">Va a Calidad y, si se aprueba, sus kilos entran al inventario.</span>
+              </span>
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setCloseChoice(null)} className="px-4 py-2 rounded border dark:border-slate-600">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const final = closeChoice === "final";
+                  setCloseChoice(null);
+                  doClose(final);
+                }}
+                className="bg-emerald-700 hover:bg-emerald-600 text-white px-4 py-2 rounded"
+              >
+                Cerrar etapa
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Etiquetas de los rollos recién confirmados: el QR con el token de
           posesión solo se puede armar en este momento (ver
@@ -1621,7 +1718,7 @@ export default function OrdenProduccionDetalle() {
           <div className={`${cellBorder} border-t-0 border-r-0 p-2 text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5`}>
             <p className="font-semibold">{template.cod}</p>
             <p>FECHA {new Date(order.createdAt).toLocaleDateString()}</p>
-            <p className="uppercase font-semibold">{STATUS_LABELS[order.status]}</p>
+            <p className="uppercase font-semibold">{opStatusLabel(order, STATUS_LABELS)}</p>
           </div>
         </div>
 

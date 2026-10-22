@@ -304,6 +304,8 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 - Cada fila lleva a `OrdenProduccionDetalle.tsx` (`/produccion/ordenes/:id`) — ahí pasa el resto del trabajo.
 
 ### `OrdenProduccionDetalle.tsx`
+- **Cerrar una etapa** (2026-10-21): en Impresión, Sellado o Precorte sin derivadas, "Cerrar OP" abre un diálogo "¿Qué pasa con lo que salió?" con **Sigue a otra estación** (marcado por defecto, etapa terminada) o **Es el producto final** (va a Calidad); llama `api.closeProductionOrder(id, finalStage)`. Con derivadas o en Extrusión, una confirmación simple (etapa terminada). Gestión ve **Enviar a Calidad** en una etapa terminada sin derivadas (`api.sendProductionOrderToQuality`). Los botones "Derivar a…" ofrecen el orden no fijo (Sellado → Impresión, etc.) y no aparecen si la OP ya se aprobó en Calidad. El estado de una OP intermedia cerrada se muestra como "Etapa terminada" (`opStatusLabel`, también en la lista de OPs, la estación y Trazabilidad).
+
 Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía repartido entre la lista y la pantalla de estación. Desde acá:
 - Se **deriva** la OP al siguiente proceso (`GitBranch`, grafo extrusión→impresión/sellado/precorte, impresión→sellado/precorte), solo gestión de producción.
 - Se edita el encabezado/specs de la plantilla (`OP_TEMPLATES`, por estación) mientras la OP esté abierta, incluido el campo **Destino** (select: "Estantería (stock general)" o el nombre del cliente).

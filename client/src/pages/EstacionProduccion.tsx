@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ScanLine } from "lucide-react";
 import { api } from "../api/client";
 import BarcodeScanner from "../components/BarcodeScanner";
-import { STATION_LABELS, OpStation, OPEN_STATUSES } from "../opTemplates";
+import { STATION_LABELS, OpStation, OPEN_STATUSES, opStatusLabel } from "../opTemplates";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
 
@@ -73,7 +73,7 @@ export default function EstacionProduccion() {
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-medium text-slate-800 dark:text-slate-100">{order.orderNumber}</span>
-          <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{STATUS_LABELS[order.status]}</span>
+          <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{opStatusLabel(order, STATUS_LABELS)}</span>
         </div>
         <p className="text-slate-600 dark:text-slate-300">
           {order.product.name}

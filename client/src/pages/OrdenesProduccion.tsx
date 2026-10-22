@@ -3,7 +3,7 @@ import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ChevronRight, ChevronDown, GitBranch } from "lucide-react";
 import { api } from "../api/client";
-import { STATION_LABELS, OpStation } from "../opTemplates";
+import { STATION_LABELS, OpStation, opStatusLabel } from "../opTemplates";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
 import { SuggestionSources } from "../components/SuggestionSources";
@@ -140,7 +140,7 @@ function FragmentChain({
           <DerivationCell order={head} />
         </td>
         <td className="p-3">
-          <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[head.status]}`}>{STATUS_LABELS[head.status]}</span>
+          <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[head.status]}`}>{opStatusLabel(head, STATUS_LABELS)}</span>
         </td>
       </tr>
       {isExpanded &&
@@ -163,7 +163,7 @@ function FragmentChain({
               <DerivationCell order={c} />
             </td>
             <td className="p-3">
-              <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[c.status]}`}>{STATUS_LABELS[c.status]}</span>
+              <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[c.status]}`}>{opStatusLabel(c, STATUS_LABELS)}</span>
             </td>
           </tr>
         ))}
@@ -520,7 +520,7 @@ export default function OrdenesProduccion() {
                             <span className="text-slate-500 dark:text-slate-400">
                               {kilosProducidos(o)} / {Number(o.quantityPlanned)} {o.product.unit}
                             </span>
-                            <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[o.status]}`}>{STATUS_LABELS[o.status]}</span>
+                            <span className={`text-xs rounded-full px-2 py-1 ${STATUS_COLORS[o.status]}`}>{opStatusLabel(o, STATUS_LABELS)}</span>
                           </div>
                         </Link>
                       </div>

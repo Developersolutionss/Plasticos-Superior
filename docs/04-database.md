@@ -252,7 +252,8 @@ Catálogo, stock desnormalizado (mismo patrón 1:1 que `inventory_stock`) y bit�
 | quantityPlanned | Decimal | `@map("quantity_planned")` |
 | alertThresholdKg | Decimal? | `@map("alert_threshold_kg")`. A cuántos kg (peso+desperdicio) avisarle a Gestión que la OP está por completarse. `NULL` = usa el default (90 % de `quantityPlanned`) |
 | measure | String? | hereda del producto si no se indica |
-| status | `ProductionOrderStatus` | `borrador` / `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada`. Nace en `borrador` (Gestión todavía la arma) y pasa a `pendiente` al liberarla a planta (`POST /:id/release`) |
+| status | `ProductionOrderStatus` | `borrador` / `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada`. Nace en `borrador` (Gestión todavía la arma) y pasa a `pendiente` al liberarla a planta (`POST /:id/release`). `finalizada` de una etapa intermedia se muestra como "Etapa terminada" |
+| isFinalStage | Boolean? | `@map("is_final_stage")`. Si esta etapa es el producto final (va a Calidad y entra al inventario) o una etapa intermedia cuyo material sigue a otra estación. Se decide al cerrar (`POST /:id/close`), al derivar (el padre pasa a `false`) o con `POST /:id/send-to-quality`. `NULL` = sin decidir (OP abierta) u OP anterior: ahí manda el estado (`orderIsFinalStage` en `services/opTemplates.ts`). Extrusión nunca es final. De esto depende si sus rollos son producto terminado o material |
 | specs | Json? | Encabezado de la plantilla de la estación (materia prima con %, medidas, montaje, colores, etc. — ver `services/opTemplates.ts`) |
 | parentOrderId | Int? | `@map("parent_order_id")`. Self-FK → production_orders. OP de la que se derivó (cadena Extrusión → …) |
 | pedidoVersionItemId | Int? | `@unique` `@map("pedido_version_item_id")`. FK → pedido_version_items. Vínculo opcional con el ítem del pedido que originó la OP (módulo Planeación). `NULL` en las OPs manuales |
@@ -579,6 +580,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260929120000_restore_production_rolls_source_roll_idx` | Recrea el índice de `production_rolls.source_roll_id` que borró por error `add_production_order_presets` |
 | `20261002120000_roll_adjustments` | Tabla `roll_adjustments` y enum `RollAdjustmentReason` (ajustes de saldo por recepción y conteo físico) |
 | `20261009120000_dispatch_item_rolls` | Tabla `dispatch_item_rolls` (rollos/bultos que salen hacia un cliente en cada ítem de despacho) |
+| `20261021120000_production_order_final_stage` | `production_orders.is_final_stage` (BOOLEAN, nullable): etapa intermedia vs producto final |
 | `20261009180000_roll_transfers_main_warehouse` | Enum `RollWarehouse` (estaciones + `principal`); `roll_transfers.from_station`/`to_station` pasan de `ProductionStation` a `RollWarehouse` (los valores existentes se conservan) |
 
 Para aplicar cambios nuevos:

@@ -22,7 +22,7 @@ Así se mueve el material en la planta del cliente (reunión del 2026-10-06). El
 3. En esa bodega se cortan en rollos chicos, que se registran en cuanto salen.
 4. **Cubierto (2026-10-09):** otro camión devuelve los rollos chicos a la bodega principal, con su envío y su recepción (Despacho a bodegas, destino "Bodega principal"). Ver [Devolución a la bodega principal](#devolución-a-la-bodega-principal).
 5. **Cubierto:** el despacho al cliente sale de la bodega principal, escaneando los rollos exactos. El módulo Despachos avisa, rollo por rollo, si todavía está en otra bodega o en camino (aviso, no bloqueo).
-6. **No cubierto:** el orden no es fijo. Un rollo sellado puede pasar a Impresión, y un rollo chico puede volver a ser rollo madre. Hoy un rollo terminado solo se despacha a la bodega principal.
+6. **Cubierto (2026-10-21):** el orden no es fijo. Una OP de Sellado puede derivar a Impresión o Precorte, una de Impresión a Sellado o Precorte, una de Precorte a Impresión o Sellado (nunca de vuelta a Extrusión). Ver [Etapa terminada y producto final](#etapa-terminada-y-producto-final).
 
 El control existe porque la mercancía se pierde en el trayecto entre bodegas. Si un rollo no aparece en la bodega principal, tiene que estar en la otra. El registro dice qué usuario lo llevó. No se pide seguimiento en tiempo real ni detalle de las subbodegas: basta con saber cuánto hay en cada una.
 
@@ -124,7 +124,19 @@ Extrusión → Impresión → Sellado → Precorte
 - La meta (`quantityPlanned`) de una OP hija por defecto es lo que el padre **produjo de verdad** (suma real de sus rollos), no lo que el padre tenía planificado — evita que la hija quede esperando kilos que nunca se van a cargar. Si el padre sigue produciendo después de derivar, esa meta se sincroniza sola mientras la hija no tenga rollos propios.
 - `POST /api/production-orders/:id/rolls` agrega una fila al **registro acumulativo de rollos** (fecha, turno, operario, máquina, etiqueta, peso, desperdicio, pruebas en `details`). Si la OP está `pendiente`, pasa a `en_proceso`. La meta se completa con **peso + desperdicio**; un rollo que se pase de la meta se rechaza.
 - Un operario solo carga rollos en OPs de **su** estación (`OPERARIO_STATIONS`). Gestión de producción puede cargar en cualquiera.
-- `POST /api/production-orders/:id/close` cierra la OP (requiere ≥1 rollo): Extrusión siempre queda `finalizada` directo (su material sigue en las OPs derivadas, sin mover stock; el cliente pidió que lo que sale de una OP aparezca en el inventario, y esta regla está por confirmar). **Impresión, Sellado y Precorte** pueden ser procesos finales — quedan `pendiente_calidad` sin mover stock todavía. Cerrar una OP e derivarla son decisiones independientes: Impresión puede cerrarse (ir a Calidad) aunque también tenga OPs derivadas a Sellado o Precorte.
+- `POST /api/production-orders/:id/close` cierra la **etapa** (requiere ≥1 rollo). Ver [Etapa terminada y producto final](#etapa-terminada-y-producto-final): Extrusión siempre queda como etapa terminada; Impresión, Sellado y Precorte, según si su material sigue a otra estación o si son el producto final.
+
+#### Etapa terminada y producto final
+
+Costumbre de planta (2026-10-21): cada etapa se "cierra" al terminarla, aunque después siga a otra estación. Cerrar no es lo mismo que "producto final":
+
+- **Una OP nunca termina en Extrusión.** Al cerrarla queda como **etapa terminada** (`finalizada`, `isFinalStage: false`): su material sigue a las OPs derivadas, no pasa por Calidad ni suma al inventario de producto (se ve en Existencias → Rollos de Extrusión).
+- **Impresión, Sellado y Precorte** pueden ser el producto final o una etapa intermedia. Al cerrar, si la OP ya tiene derivadas es etapa terminada; si no, la pantalla pregunta "¿Qué pasa con lo que salió?": **Sigue a otra estación** (por defecto — equivocarse hacia acá no mueve el stock y Gestión lo corrige) o **Es el producto final** (va a Calidad y, al aprobarse, entra al inventario).
+- **Etapa terminada sin derivar:** se le avisa a Gestión (`op_etapa_terminada`) para que la derive a la siguiente estación, o la envíe a Calidad si en realidad era el producto final (botón **Enviar a Calidad**, `POST /:id/send-to-quality`).
+- **Se cerró como final y después se deriva:** la OP sale sola de la cola de Calidad y queda como etapa terminada. Si Calidad ya la había aprobado, no se puede derivar (su producto ya entró al inventario): hay que reabrirla primero.
+- **Orden no fijo:** las derivaciones entre Impresión, Sellado y Precorte se permiten en cualquier orden. Un rollo es **material** (tiene saldo, se consume en la siguiente OP y puede viajar a cualquier estación o a la bodega principal) mientras su OP no sea la etapa final; es **producto terminado** (solo vuelve a la bodega principal y sale al cliente) cuando su OP es la etapa final. No depende de la estación.
+- **Sin doble conteo:** al inventario de producto solo suma lo que produjo la etapa final, cuando Calidad la aprueba. Ejemplo verificado: Extrusión 30 kg → Sellado 20 kg (intermedia) → Impresión 20 kg (final): el stock sube 20 kg.
+- En las pantallas, una OP intermedia ya cerrada dice **"Etapa terminada"** en vez de "Terminada".
 - Al cerrar una OP de **Extrusión**, el sistema descuenta del stock de materia prima el kg cargado en cada insumo de `specs.materiaPrima` (ver [Materia prima](#materia-prima) más abajo).
 - Estados de OP: `borrador` → `pendiente` → `en_proceso` → (`finalizada` | `pendiente_calidad` → `finalizada`) (o `detenida` / `cancelada`, control manual por `PATCH /status`).
 - Cuando el cierre deja la OP `pendiente_calidad`, el sistema notifica a `ROLES.CALIDAD` (`notifyRoles`, ver más abajo).

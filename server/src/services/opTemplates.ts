@@ -92,13 +92,15 @@ export function warehousePhrase(w: RollWarehouse): string {
 }
 
 /**
- * A qué bodegas puede ir un rollo que sale de la estación `station`: a las
- * estaciones que lo procesan (ver DERIVATIONS) y, desde Impresión, Sellado y
- * Precorte, de vuelta a la bodega principal — los rollos chicos que salen de
- * esas estaciones vuelven en camión a la principal, con su envío y su
- * recepción registrados. Extrusión no: ahí nace el rollo madre.
+ * A qué bodegas puede ir un rollo que sale de la estación `station`:
+ * - Producto terminado (su OP es la etapa final, ver orderIsFinalStage): solo
+ *   de vuelta a la bodega principal, de donde sale al cliente.
+ * - Material (su OP es intermedia o sigue abierta): a las estaciones que lo
+ *   procesan (DERIVATIONS) y, salvo desde Extrusión (ahí nace el rollo madre),
+ *   también a la bodega principal a esperar.
  */
-export function transferDestinations(station: OpStation): RollWarehouse[] {
+export function transferDestinations(station: OpStation, finished = false): RollWarehouse[] {
+  if (finished) return ["principal"];
   return station === "extrusion" ? [...DERIVATIONS[station]] : [...DERIVATIONS[station], "principal"];
 }
 
@@ -387,6 +389,57 @@ const SPEC_INHERITANCE: Partial<Record<string, Record<string, string>>> = {
     ancho: "ancho",
     anchoUnidad: "anchoUnidad",
   },
+  // El orden no es fijo (reunión 2026-10-06): un rollo sellado puede pasar a
+  // Impresión, uno de Precorte a Sellado, etc. Se hereda lo que tienen en
+  // común las dos plantillas.
+  "sellado>impresion": {
+    tipoMaterial: "tipoMaterial",
+    materialDensidad: "materialDensidad",
+    color: "color",
+    caras: "caras",
+    fuelles: "fuelles",
+    calibre: "calibre",
+    ancho: "ancho",
+    anchoUnidad: "anchoUnidad",
+  },
+  "precorte>impresion": {
+    tipoMaterial: "tipoMaterial",
+    materialDensidad: "materialDensidad",
+    color: "color",
+    caras: "caras",
+    fuelles: "fuelles",
+    calibre: "calibre",
+    ancho: "ancho",
+    anchoUnidad: "anchoUnidad",
+  },
+  "sellado>precorte": {
+    tipoMaterial: "tipoMaterial",
+    materialDensidad: "materialDensidad",
+    color: "color",
+    impreso: "impreso",
+    caras: "caras",
+    fuelles: "fuelles",
+    calibre: "calibre",
+    ancho: "ancho",
+    anchoUnidad: "anchoUnidad",
+    medidasUnidad: "medidasUnidad",
+    medAncho: "medAncho",
+    medLargo: "medLargo",
+  },
+  "precorte>sellado": {
+    tipoMaterial: "tipoMaterial",
+    materialDensidad: "materialDensidad",
+    color: "color",
+    impreso: "impreso",
+    caras: "caras",
+    fuelles: "fuelles",
+    calibre: "calibre",
+    ancho: "ancho",
+    anchoUnidad: "anchoUnidad",
+    medidasUnidad: "medidasUnidad",
+    medAncho: "medAncho",
+    medLargo: "medLargo",
+  },
 };
 
 /** Compara sin importar mayúsculas, tildes ni espacios de más: "trasparente",
@@ -522,13 +575,30 @@ export function inheritSpecs(
   return result;
 }
 
-/** Derivaciones válidas entre procesos (Extrusión es el proceso base). */
+/** Derivaciones válidas entre procesos. Extrusión es el proceso base (nunca
+ * es destino). El orden no es fijo (reunión 2026-10-06): un rollo sellado
+ * puede pasar a Impresión, uno de Impresión a Precorte, uno de Precorte a
+ * Sellado, etc. — cualquier estación salvo Extrusión y ella misma. */
 export const DERIVATIONS: Record<OpStation, OpStation[]> = {
   extrusion: ["impresion", "sellado", "precorte"],
   impresion: ["sellado", "precorte"],
-  sellado: [],
-  precorte: [],
+  sellado: ["impresion", "precorte"],
+  precorte: ["impresion", "sellado"],
 };
+
+/**
+ * Si una OP es el producto final (va a Calidad y entra al inventario) o una
+ * etapa intermedia cuyo material sigue a otra estación ("etapa terminada").
+ * Extrusión nunca es final. Lo decide `isFinalStage` (al cerrar o derivar);
+ * si todavía no se decidió (null), manda el estado: una OP que ya fue a
+ * Calidad o se aprobó (de antes de este campo) es final, una abierta todavía
+ * no lo es.
+ */
+export function orderIsFinalStage(order: { station: string | null; status: string; isFinalStage?: boolean | null }): boolean {
+  if (order.station === null || order.station === "extrusion") return false;
+  if (order.isFinalStage != null) return order.isFinalStage;
+  return order.status === "pendiente_calidad" || order.status === "detenida" || order.status === "finalizada";
+}
 
 /** Estaciones cuyo cierre pasa por Calidad y genera entrada de inventario. */
 // Impresión también puede ser un proceso final: el cliente pidió poder

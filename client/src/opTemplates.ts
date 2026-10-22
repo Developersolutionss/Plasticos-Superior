@@ -321,13 +321,30 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
   },
 };
 
-/** Derivaciones válidas entre procesos (Extrusión es el proceso base). */
+/** Derivaciones válidas entre procesos. Extrusión es el proceso base (nunca
+ * es destino). El orden no es fijo (reunión 2026-10-06): un rollo sellado
+ * puede pasar a Impresión, uno de Impresión a Precorte, uno de Precorte a
+ * Sellado, etc. — cualquier estación salvo Extrusión y ella misma. */
 export const DERIVATIONS: Record<OpStation, OpStation[]> = {
   extrusion: ["impresion", "sellado", "precorte"],
   impresion: ["sellado", "precorte"],
-  sellado: [],
-  precorte: [],
+  sellado: ["impresion", "precorte"],
+  precorte: ["impresion", "sellado"],
 };
+
+/**
+ * Si una OP es el producto final (va a Calidad y entra al inventario) o una
+ * etapa intermedia cuyo material sigue a otra estación ("etapa terminada").
+ * Extrusión nunca es final. Lo decide `isFinalStage` (al cerrar o derivar);
+ * si todavía no se decidió (null), manda el estado: una OP que ya fue a
+ * Calidad o se aprobó (de antes de este campo) es final, una abierta todavía
+ * no lo es.
+ */
+export function orderIsFinalStage(order: { station: string | null; status: string; isFinalStage?: boolean | null }): boolean {
+  if (order.station === null || order.station === "extrusion") return false;
+  if (order.isFinalStage != null) return order.isFinalStage;
+  return order.status === "pendiente_calidad" || order.status === "detenida" || order.status === "finalizada";
+}
 
 /** Estaciones cuyo cierre pasa por Calidad y genera entrada de inventario. */
 // Impresión también puede ser un proceso final (cerrar directo a Calidad/
@@ -340,3 +357,14 @@ export const OPEN_STATUSES = ["pendiente", "en_proceso"];
 
 /** Estados desde los que Gestión puede reabrir una OP para corregir un error. */
 export const REOPENABLE_STATUSES = ["finalizada", "pendiente_calidad", "detenida"];
+
+/** Etiqueta del estado de una OP: una etapa intermedia ya cerrada (su
+ * material sigue a otra estación, ver orderIsFinalStage) dice "Etapa
+ * terminada" en vez de "Terminada", que suena a producto final. */
+export function opStatusLabel(
+  order: { station: string | null; status: string; isFinalStage?: boolean | null },
+  labels: Record<string, string>
+): string {
+  if (order.status === "finalizada" && !orderIsFinalStage(order)) return "Etapa terminada";
+  return labels[order.status] ?? order.status;
+}

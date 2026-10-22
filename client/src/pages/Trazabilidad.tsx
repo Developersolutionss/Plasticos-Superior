@@ -6,7 +6,7 @@ import AsyncState from "../components/AsyncState";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { SkeletonCard } from "../components/Skeleton";
 import { splitScannedCode } from "../lib/rollQr";
-import { ROLL_CODE_PREFIX, type OpStation } from "../opTemplates";
+import { ROLL_CODE_PREFIX, opStatusLabel, type OpStation } from "../opTemplates";
 
 /** El código que está impreso en la etiqueta física del rollo (EXT-3,
  * SELL-12...), no el id interno de la base — antes esta pantalla mostraba
@@ -203,7 +203,7 @@ export default function Trazabilidad() {
                         {depth > 0 && <span className="text-slate-400 dark:text-slate-500">↳</span>}
                         <span>{STATION_LABELS[node.station] ?? node.station ?? "Sin proceso"}</span>
                         <span className="text-xs text-slate-500 dark:text-slate-400">
-                          ({STATUS_LABELS[node.status] ?? node.status}, {Math.round(kgOf(node) * 100) / 100} kg)
+                          ({opStatusLabel(node, STATUS_LABELS)}, {Math.round(kgOf(node) * 100) / 100} kg)
                         </span>
                         {node.id === order.id && <span className="text-xs text-sky-600 dark:text-sky-400">← esta</span>}
                       </li>

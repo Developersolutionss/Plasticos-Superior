@@ -1513,7 +1513,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: order.id } });
   });
 
-  it("derivación: extrusión → sellado hereda producto/cantidad; sellado no deriva (400)", async () => {
+  it("derivación: extrusión → sellado hereda producto/cantidad; sellado deriva a Impresión/Precorte pero nunca a Extrusión", async () => {
     const parent = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40 },
     });
@@ -1554,13 +1554,23 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     });
     assert.equal(dupe.status, 400, "ya existe una OP derivada a sellado desde este padre");
 
-    const badFinal = await fetch(`${baseUrl}/api/production-orders/${derived.id}/derive`, {
+    const aExtrusion = await fetch(`${baseUrl}/api/production-orders/${derived.id}/derive`, {
       method: "POST",
       headers: headersFor("produccion"),
-      body: JSON.stringify({ station: "precorte" }),
+      body: JSON.stringify({ station: "extrusion" }),
     });
-    assert.equal(badFinal.status, 400, "una OP de sellado es proceso final, no deriva");
+    assert.equal(aExtrusion.status, 400, "nada vuelve a Extrusión");
+    // El orden no es fijo (reunión 2026-10-06): un rollo sellado puede pasar a Precorte o a Impresión.
+    const aPrecorte = await fetch(`${baseUrl}/api/production-orders/${derived.id}/derive`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ station: "precorte", quantityPlanned: 10 }),
+    });
+    assert.equal(aPrecorte.status, 201, "sellado → precorte");
+    const nieta = (await aPrecorte.json()) as { id: number; station: string };
+    assert.equal(nieta.station, "precorte");
 
+    await prisma.productionOrder.delete({ where: { id: nieta.id } });
     await prisma.productionOrder.delete({ where: { id: derived.id } });
     await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
@@ -2668,7 +2678,7 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: selladoOrder.id } });
   });
 
-  it("Impresión también es proceso final: cerrarla deja pendiente_calidad, y Calidad aprobándola suma al inventario — funciona aunque además tenga una OP derivada a Sellado", async () => {
+  it("Impresión: con una OP derivada a Sellado, cerrarla es etapa terminada (sin Calidad ni stock); sin derivadas puede ser producto final y Calidad la suma", async () => {
     const order = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-${Date.now()}`, station: "impresion", productId, quantityPlanned: 20 },
     });
@@ -2690,16 +2700,34 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       headers: headersFor("operario_impresion"),
     });
     assert.equal(close.status, 200);
-    const closed = (await close.json()) as { status: string };
-    assert.equal(closed.status, "pendiente_calidad", "Impresión ahora es proceso final, no queda 'finalizada' directo");
+    const closed = (await close.json()) as { status: string; isFinalStage: boolean };
+    assert.equal(closed.status, "finalizada", "su material sigue en Sellado: etapa terminada, no va a Calidad");
+    assert.equal(closed.isFinalStage, false);
+    const qcIntermedia = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
+      method: "POST",
+      headers: headersFor("calidad"),
+      body: JSON.stringify({ result: "aprobado" }),
+    });
+    assert.equal(qcIntermedia.status, 400, "Calidad no la ve");
+    assert.equal(Number((await prisma.inventoryStock.findUnique({ where: { productId } }))?.currentQuantity ?? 0), Number(stockAntes?.currentQuantity ?? 0), "no suma: se contaría dos veces");
 
-    const qc = await fetch(`${baseUrl}/api/production-orders/${order.id}/quality-check`, {
+    // Otra Impresión, sin derivar, cerrada como producto final: sí va a Calidad y suma.
+    const sola = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}-IMP`, station: "impresion", productId, quantityPlanned: 20 },
+    });
+    await createTestRoll(sola.id, { weightKg: 20 });
+    const closeSola = await fetch(`${baseUrl}/api/production-orders/${sola.id}/close`, {
+      method: "POST",
+      headers: headersFor("operario_impresion"),
+      body: JSON.stringify({ finalStage: true }),
+    });
+    assert.equal(((await closeSola.json()) as { status: string }).status, "pendiente_calidad");
+    const qc = await fetch(`${baseUrl}/api/production-orders/${sola.id}/quality-check`, {
       method: "POST",
       headers: headersFor("calidad"),
       body: JSON.stringify({ result: "aprobado" }),
     });
     assert.equal(qc.status, 201);
-
     const stockDespues = await prisma.inventoryStock.findUnique({ where: { productId } });
     assert.equal(
       Number(stockDespues?.currentQuantity ?? 0),
@@ -2707,11 +2735,11 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
       "al aprobarse, los 20kg de Impresión entran al inventario, igual que Sellado/Precorte"
     );
 
-    await prisma.inventoryMovement.deleteMany({ where: { referenceType: "manual_adjustment", productId, createdAt: { gte: order.createdAt } } });
-    await prisma.qualityCheck.deleteMany({ where: { productionOrderId: order.id } });
+    await prisma.inventoryMovement.deleteMany({ where: { productId, createdAt: { gte: order.createdAt } } });
+    await prisma.qualityCheck.deleteMany({ where: { productionOrderId: { in: [order.id, sola.id] } } });
     await prisma.productionOrder.delete({ where: { id: derived.id } });
-    await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
-    await prisma.productionOrder.delete({ where: { id: order.id } });
+    await prisma.productionRoll.deleteMany({ where: { productionOrderId: { in: [order.id, sola.id] } } });
+    await prisma.productionOrder.deleteMany({ where: { id: { in: [order.id, sola.id] } } });
     await prisma.inventoryStock.update({ where: { productId }, data: { currentQuantity: stockAntes?.currentQuantity ?? 0 } });
   });
 
@@ -6540,7 +6568,9 @@ describe("inventario de bodegas: existencias por bodega, en camino, antigüedad,
     assert.equal(fila.status, 201);
     const impreso = (await fila.json()) as { id: number };
 
-    const sellado = await prisma.productionOrder.create({ data: { orderNumber: `OP-TEST-INV-S-${stamp}`, station: "sellado", productId, quantityPlanned: 10 } });
+    const sellado = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-INV-S-${stamp}`, station: "sellado", productId, quantityPlanned: 10, status: "pendiente_calidad", isFinalStage: true },
+    });
     orderIds.push(sellado.id);
     const final = await createTestRoll(sellado.id, { weightKg: 10 });
 
@@ -6552,6 +6582,15 @@ describe("inventario de bodegas: existencias por bodega, en camino, antigüedad,
     assert.equal(terminado?.item.finished, true);
     assert.equal(terminado?.item.pendingReturn, true, "y falta devolverlo a la bodega principal");
     assert.equal(terminado?.item.remainingKg, 10, "su 'saldo' es lo que produjo");
+
+    // Una OP de Sellado todavía abierta (no se sabe si es final): su rollo es material con saldo.
+    const abierta = await prisma.productionOrder.create({ data: { orderNumber: `OP-TEST-INV-SA-${stamp}`, station: "sellado", productId, quantityPlanned: 10 } });
+    orderIds.push(abierta.id);
+    const enCurso = await createTestRoll(abierta.id, { weightKg: 7 });
+    const material = whereIs(await inventory(), enCurso.id);
+    assert.equal(material?.station, "sellado");
+    assert.equal(material?.item.finished, false);
+    assert.equal(material?.item.pendingReturn, false);
   });
 
   it("antigüedad: días desde que llegó a la bodega (o desde que se produjo), y se marca parado a partir de 7 días", async () => {
@@ -6647,7 +6686,9 @@ describe("inventario de bodegas: existencias por bodega, en camino, antigüedad,
     assert.equal(whereIs(await inventory(), r.id), null);
 
     // Producto terminado (Sellado) no se ajusta acá.
-    const sellado = await prisma.productionOrder.create({ data: { orderNumber: `OP-TEST-INV-C-${stamp}`, station: "sellado", productId, quantityPlanned: 10 } });
+    const sellado = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-INV-C-${stamp}`, station: "sellado", productId, quantityPlanned: 10, status: "pendiente_calidad", isFinalStage: true },
+    });
     orderIds.push(sellado.id);
     const final = await createTestRoll(sellado.id, { weightKg: 10 });
     assert.equal((await contar("produccion", { countedKg: 9, notes: "pesaje" }, final.id)).status, 400);
@@ -7425,6 +7466,177 @@ describe("rollos de Extrusión en el inventario: cuántos hay y cuántos kilos, 
     assert.equal(inv.currentStock, 0);
     const sin = await fetch(`${baseUrl}/api/inventory/extrusion-rolls`, { headers: headersFor("operario_extrusion") });
     assert.equal(sin.status, 403);
+  });
+});
+
+describe("etapa terminada vs producto final: cerrar una etapa no siempre va a Calidad", () => {
+  const stamp = Date.now();
+  const clock = { clientTimezone: "America/Bogota", clientUtcOffsetMinutes: -300 };
+  let productId = 0;
+  const orderIds: number[] = [];
+
+  before(async () => {
+    productId = (
+      await prisma.product.create({ data: { sku: `TEST-ETAPA-${stamp}`, name: `Producto etapas ${stamp}`, category: "laminado", unit: "kg", minStock: 0 } })
+    ).id;
+  });
+
+  after(async () => {
+    await prisma.notification.deleteMany({ where: { type: { in: ["op_etapa_terminada", "op_pendiente_calidad"] }, message: { contains: `OP-TEST-ETAPA-${stamp}` } } });
+    const ids = [...orderIds].reverse();
+    const rolls = await prisma.productionRoll.findMany({ where: { productionOrderId: { in: ids } }, select: { id: true } });
+    const rollIds = rolls.map((r) => r.id);
+    await prisma.rollConsumption.deleteMany({ where: { rollId: { in: rollIds } } });
+    await prisma.rollTransfer.deleteMany({ where: { rollId: { in: rollIds } } });
+    await prisma.qualityCheck.deleteMany({ where: { productionOrderId: { in: ids } } });
+    for (const id of ids) {
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: id } });
+      await prisma.productionOrder.delete({ where: { id } }).catch(() => {});
+    }
+    await prisma.inventoryMovement.deleteMany({ where: { productId } });
+    await prisma.inventoryStock.deleteMany({ where: { productId } });
+    await prisma.product.delete({ where: { id: productId } });
+  });
+
+  async function op(station: "extrusion" | "impresion" | "sellado" | "precorte", extra: object = {}) {
+    const o = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-ETAPA-${stamp}`, station, productId, quantityPlanned: 100, status: "en_proceso", ...extra },
+    });
+    orderIds.push(o.id);
+    return o;
+  }
+  const post = (role: string, path: string, body?: unknown) =>
+    fetch(`${baseUrl}/api/production-orders${path}`, { method: "POST", headers: headersFor(role), body: body === undefined ? undefined : JSON.stringify(body) });
+  const stock = async () => Number((await prisma.inventoryStock.findUnique({ where: { productId } }))?.currentQuantity ?? 0);
+  const qcAprobar = (id: number) => post("calidad", `/${id}/quality-check`, { result: "aprobado" });
+
+  it("cerrar como 'sigue a otra estación': etapa terminada, sin Calidad ni stock, y se le avisa a Gestión; Gestión la puede enviar a Calidad", async () => {
+    const o = await op("sellado");
+    await createTestRoll(o.id, { weightKg: 12 });
+    const antes = await stock();
+
+    const res = await post("operario_sellado", `/${o.id}/close`, { finalStage: false });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as any;
+    assert.equal(body.status, "finalizada");
+    assert.equal(body.isFinalStage, false);
+    assert.equal((await qcAprobar(o.id)).status, 400, "no está en la cola de Calidad");
+    assert.equal(await stock(), antes);
+    const aviso = await prisma.notification.findFirst({ where: { type: "op_etapa_terminada", message: { contains: o.orderNumber } } });
+    assert.match(aviso!.message, /etapa terminada — falta derivarla/);
+    assert.equal(aviso!.link, `/produccion/ordenes/${o.id}`);
+
+    // Era el producto final: Gestión la corrige.
+    assert.equal((await post("operario_sellado", `/${o.id}/send-to-quality`)).status, 403, "un operario no");
+    const enviar = await post("produccion", `/${o.id}/send-to-quality`);
+    assert.equal(enviar.status, 200);
+    const enviada = (await enviar.json()) as any;
+    assert.equal(enviada.status, "pendiente_calidad");
+    assert.equal(enviada.isFinalStage, true);
+    assert.equal((await post("produccion", `/${o.id}/send-to-quality`)).status, 400, "ya está en Calidad");
+    assert.equal((await qcAprobar(o.id)).status, 201);
+    assert.equal(await stock(), antes + 12);
+  });
+
+  it("costumbre de planta: se 'cerró' como final y después Gestión la deriva — sale de la cola de Calidad; ya aprobada no se puede derivar", async () => {
+    const imp = await op("impresion");
+    await createTestRoll(imp.id, { weightKg: 15 });
+    assert.equal(((await (await post("operario_impresion", `/${imp.id}/close`, { finalStage: true })).json()) as any).status, "pendiente_calidad");
+
+    const deriva = await post("produccion", `/${imp.id}/derive`, { station: "sellado" });
+    assert.equal(deriva.status, 201);
+    const hija = (await deriva.json()) as any;
+    orderIds.push(hija.id);
+    assert.equal(hija.parentLeftQuality, true);
+    const padre = await prisma.productionOrder.findUniqueOrThrow({ where: { id: imp.id } });
+    assert.equal(padre.status, "finalizada");
+    assert.equal(padre.isFinalStage, false);
+    assert.equal((await qcAprobar(imp.id)).status, 400, "ya no está en la cola de Calidad");
+
+    // Con hijas, cerrar otra vez como final no se puede (se reabre para probar).
+    await prisma.productionOrder.update({ where: { id: imp.id }, data: { status: "en_proceso", isFinalStage: null } });
+    const conHijas = await post("operario_impresion", `/${imp.id}/close`, { finalStage: true });
+    assert.equal(conHijas.status, 400);
+    assert.match(((await conHijas.json()) as any).error, /ya se derivó a otra estación/);
+    assert.equal(((await (await post("operario_impresion", `/${imp.id}/close`)).json()) as any).status, "finalizada", "sin elegir: con hijas es etapa terminada");
+
+    // Una aprobada en Calidad ya entró al inventario: derivarla contaría dos veces.
+    const aprobada = await op("precorte");
+    await createTestRoll(aprobada.id, { weightKg: 5 });
+    await post("operario_precorte", `/${aprobada.id}/close`, { finalStage: true });
+    assert.equal((await qcAprobar(aprobada.id)).status, 201);
+    const bloqueada = await post("produccion", `/${aprobada.id}/derive`, { station: "sellado" });
+    assert.equal(bloqueada.status, 400);
+    assert.match(((await bloqueada.json()) as any).error, /ya se aprobó en Calidad/);
+  });
+
+  it("Extrusión nunca es final: su cierre es etapa terminada y no se puede enviar a Calidad", async () => {
+    const ext = await op("extrusion", { specs: { materiaPrima: [] } });
+    await createTestRoll(ext.id, { weightKg: 10 });
+    await prisma.productionOrder.update({ where: { id: ext.id }, data: { status: "finalizada", isFinalStage: false } });
+    const res = await post("produccion", `/${ext.id}/send-to-quality`);
+    assert.equal(res.status, 400);
+    assert.match(((await res.json()) as any).error, /Extrusión nunca es producto final/);
+  });
+
+  it("orden no fijo y sin doble conteo: Extrusión → Sellado (intermedia) → Impresión (final); solo suma lo que produjo la última etapa", async () => {
+    const antes = await stock();
+    const ext = await op("extrusion", { status: "finalizada", isFinalStage: false });
+    const madre = await createTestRoll(ext.id, { weightKg: 30 });
+
+    // Sellado consume 20 kg del rollo madre y se cierra como etapa intermedia.
+    const sel = (await (await post("produccion", `/${ext.id}/derive`, { station: "sellado", quantityPlanned: 20 })).json()) as any;
+    orderIds.push(sel.id);
+    await placeRollAt(madre.id, "sellado");
+    const filaSel = await post("operario_sellado", `/${sel.id}/rolls`, {
+      weightKg: 20,
+      sourceRollIds: [madre.id],
+      sourceRollTokens: { [madre.id]: madre.possessionToken },
+    });
+    assert.equal(filaSel.status, 201);
+    const rolloSel = (await filaSel.json()) as any;
+    const cerrarSel = (await (await post("operario_sellado", `/${sel.id}/close`, { finalStage: false })).json()) as any;
+    assert.equal(cerrarSel.status, "finalizada");
+
+    // El rollo de Sellado es material (su OP es intermedia): puede ir a Impresión.
+    const code = `SELL-${rolloSel.stationSequence}`;
+    const scan = (await (await fetch(`${baseUrl}/api/roll-transfers/scan/${code}?token=${rolloSel.possessionToken}`, { headers: headersFor("operario_impresion") })).json()) as any;
+    assert.ok(scan.destinations.includes("impresion"), `sellado → impresión permitido: ${scan.destinations}`);
+
+    // Gestión deriva Sellado → Impresión, el rollo viaja y se recibe, Impresión lo consume.
+    const imp = (await (await post("produccion", `/${sel.id}/derive`, { station: "impresion" })).json()) as any;
+    orderIds.push(imp.id);
+    assert.equal(Number(imp.quantityPlanned), 20, "la meta es lo que produjo Sellado");
+    const t = (await (
+      await fetch(`${baseUrl}/api/roll-transfers`, {
+        method: "POST",
+        headers: headersFor("operario_impresion"),
+        body: JSON.stringify({ code, token: rolloSel.possessionToken, toStation: "impresion", mode: "retiro", ...clock }),
+      })
+    ).json()) as any;
+    assert.equal(t.toStation, "impresion");
+    await fetch(`${baseUrl}/api/roll-transfers/${t.id}/receive`, {
+      method: "POST",
+      headers: headersFor("operario_impresion"),
+      body: JSON.stringify({ code, token: rolloSel.possessionToken, ...clock }),
+    });
+    const filaImp = await post("operario_impresion", `/${imp.id}/rolls`, {
+      weightKg: 20,
+      sourceRollIds: [rolloSel.id],
+      sourceRollTokens: { [rolloSel.id]: rolloSel.possessionToken },
+    });
+    assert.equal(filaImp.status, 201, await filaImp.clone().text());
+
+    const cerrarImp = (await (await post("operario_impresion", `/${imp.id}/close`, { finalStage: true })).json()) as any;
+    assert.equal(cerrarImp.status, "pendiente_calidad");
+    assert.equal((await qcAprobar(imp.id)).status, 201);
+    assert.equal(await stock(), antes + 20, "solo los 20 kg de Impresión (la etapa final): ni Extrusión ni Sellado suman");
+
+    // Las etiquetas: la intermedia dice "etapa terminada" (isFinalStage false), la final no.
+    const cadena = ((await (await fetch(`${baseUrl}/api/production-orders/${imp.id}`, { headers: headersFor("produccion") })).json()) as any).chain;
+    const porId = new Map(cadena.map((c: any) => [c.id, c]));
+    assert.equal((porId.get(sel.id) as any).isFinalStage, false);
+    assert.equal((porId.get(imp.id) as any).isFinalStage, true);
   });
 });
 
