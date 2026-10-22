@@ -68,7 +68,10 @@ aprobar Calidad. Existencias se organiza así: pestañas "Stock general" y "Por 
 **Por definir con el cliente antes de programar:**
 
 1. **Cuándo entra al inventario lo que sale de una OP.** Hoy entra cuando Calidad aprueba, y Extrusión nunca
-   entra. El cliente pidió que todo lo que sale de una OP aparezca en el inventario. Falta saber si Calidad
+   entra. **Decidido el 2026-10-21:** los rollos de Extrusión sí entran al inventario, pero SOLO cuando la OP no
+   es para un cliente (van al inventario general). Falta implementarlo; antes hay que resolver cómo evitar contar
+   dos veces el mismo material cuando esos rollos se consumen en una OP derivada (el producto terminado también
+   suma al aprobar Calidad). El cliente pidió que todo lo que sale de una OP aparezca en el inventario. Falta saber si Calidad
    debe aprobar antes y si eso cubre también los rollos de Extrusión.
 2. **Dónde quedan los rollos chicos y quién los aprueba.** El cliente dijo que los rollos chicos se guardan en la
    bodega de Sellado, Precorte o Impresión y se registran en cuanto salen. Desde el 2026-10-09 Inventario de
