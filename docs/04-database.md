@@ -581,6 +581,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20261002120000_roll_adjustments` | Tabla `roll_adjustments` y enum `RollAdjustmentReason` (ajustes de saldo por recepción y conteo físico) |
 | `20261009120000_dispatch_item_rolls` | Tabla `dispatch_item_rolls` (rollos/bultos que salen hacia un cliente en cada ítem de despacho) |
 | `20261021120000_production_order_final_stage` | `production_orders.is_final_stage` (BOOLEAN, nullable): etapa intermedia vs producto final |
+| `20261021140000_backfill_final_stage` | Marca `is_final_stage = false` en las OPs existentes de Extrusión y en las que ya tienen derivadas no canceladas |
 | `20261009180000_roll_transfers_main_warehouse` | Enum `RollWarehouse` (estaciones + `principal`); `roll_transfers.from_station`/`to_station` pasan de `ProductionStation` a `RollWarehouse` (los valores existentes se conservan) |
 
 Para aplicar cambios nuevos:

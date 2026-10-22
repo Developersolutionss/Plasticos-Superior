@@ -1244,6 +1244,11 @@ export default function OrdenProduccionDetalle() {
       // invalidar su propia query para que la pantalla deje de mostrar el
       // estado "sin proceso" y muestre ya la plantilla de Extrusión.
       queryClient.invalidateQueries({ queryKey: ["productionOrder", orderId] });
+      // Se había "cerrado" como final y estaba esperando Calidad: al derivarla
+      // deja de ser el producto final y sale de esa cola (ver POST /:id/derive).
+      if (derived.parentLeftQuality) {
+        setMessage("La etapa anterior salió de la cola de Calidad: quedó como etapa terminada, porque su material sigue en esta estación.");
+      }
       if (derived.id !== orderId) navigate(`/produccion/ordenes/${derived.id}`);
     } catch (err: any) {
       // El server manda mensajes específicos (ej. "Esta OP ya fue derivada

@@ -1036,7 +1036,16 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
   }
   const defaultQuantityPlanned = alloc.availableKg;
 
-  const order = await prisma.$transaction(async (tx) => {
+  let order;
+  try {
+  order = await prisma.$transaction(async (tx) => {
+    // Misma fila que bloquea Calidad al aprobar (ver POST /:id/quality-check):
+    // si Calidad aprueba justo ahora, el padre sumaría stock Y quedaría como
+    // etapa intermedia con una hija que también va a sumar. Se re-chequea
+    // con la fila bloqueada.
+    await tx.$queryRaw`SELECT id FROM production_orders WHERE id = ${parent.id} FOR UPDATE`;
+    const checkNow = await tx.qualityCheck.findUnique({ where: { productionOrderId: parent.id }, select: { result: true } });
+    if (checkNow?.result === "aprobado") throw new StatusRaceError();
     const child = await tx.productionOrder.create({
       data: {
         orderNumber: parent.orderNumber,
@@ -1061,6 +1070,14 @@ productionOrdersRouter.post("/:id/derive", requireProduccionGestion, async (req,
     });
     return child;
   });
+  } catch (err) {
+    if (err instanceof StatusRaceError) {
+      return res.status(400).json({
+        error: "Esta OP se acaba de aprobar en Calidad y su producto entró al inventario como producto final — para derivarla primero hay que reabrirla",
+      });
+    }
+    throw err;
+  }
 
   res.status(201).json({ ...order, parentLeftQuality: parent.status === "pendiente_calidad" });
 });
@@ -1662,6 +1679,17 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
       error: `Esta OP ya generó el Despacho #${existingDispatch.id} para su cliente — resolvé o cancelá ese despacho antes de reabrir la OP`,
     });
   }
+  // Rollos de esta OP que ya salieron hacia un cliente en otro despacho
+  // (uno armado a mano, escaneando): reabrirla revertiría stock que ya salió.
+  const rollDispatched = await prisma.dispatchItemRoll.findFirst({
+    where: { roll: { productionOrderId: id }, dispatchItem: { dispatch: { status: { not: "cancelada" } } } },
+    select: { dispatchItem: { select: { dispatchId: true } } },
+  });
+  if (rollDispatched) {
+    return res.status(400).json({
+      error: `Rollos de esta OP ya salieron hacia un cliente en el Despacho #${rollDispatched.dispatchItem.dispatchId} — cancelá ese despacho antes de reabrir la OP`,
+    });
+  }
 
   let reversedProductKg = 0;
   let reversedRawMaterials: { code: string; kg: number }[] = [];
@@ -2172,6 +2200,14 @@ productionOrdersRouter.delete("/:id/rolls/:rollId", requireProduccionGestion, as
       } (OP ${destino.orderNumber}). Borrá primero esas filas.`,
     });
   }
+  // Un rollo que salió en un despacho a un cliente (aunque ese despacho se
+  // haya cancelado) queda en su historial: no se borra.
+  const enDespacho = await prisma.dispatchItemRoll.findFirst({ where: { rollId }, select: { dispatchItem: { select: { dispatchId: true } } } });
+  if (enDespacho) {
+    return res.status(400).json({
+      error: `No se puede borrar: este rollo figura en el Despacho #${enDespacho.dispatchItem.dispatchId} a un cliente (queda en su historial aunque se haya cancelado)`,
+    });
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -2238,6 +2274,14 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
   let check;
   try {
   check = await prisma.$transaction(async (tx) => {
+    // Bloquea la fila de la OP y re-verifica que siga esperando Calidad: si
+    // Gestión la derivó justo ahora, dejó de ser el producto final (ver POST
+    // /:id/derive) y aprobarla contaría su material dos veces.
+    await tx.$queryRaw`SELECT id FROM production_orders WHERE id = ${productionOrderId} FOR UPDATE`;
+    const fresh = await tx.productionOrder.findUniqueOrThrow({ where: { id: productionOrderId }, select: { status: true, isFinalStage: true } });
+    // Una etapa marcada como intermedia nunca suma al inventario, aunque haya
+    // quedado con un estado viejo (ej. OPs de antes del backfill).
+    if (fresh.status !== "pendiente_calidad" || fresh.isFinalStage === false) throw new StatusRaceError();
     // El chequeo de "¿ya tiene control?" de arriba se hizo con una lectura
     // previa a la transacción — dos aprobaciones casi simultáneas (doble
     // click, o dos pestañas) podían pasarlo las dos y la segunda chocaba acá
@@ -2308,7 +2352,7 @@ productionOrdersRouter.post("/:id/quality-check", requireCalidad, async (req, re
   });
   } catch (err) {
     if (err instanceof StatusRaceError) {
-      return res.status(400).json({ error: "Esta OP ya tiene un control de calidad registrado" });
+      return res.status(400).json({ error: "Esta OP ya no está pendiente de Calidad: ya se revisó, o Gestión la derivó a otra estación (dejó de ser el producto final)" });
     }
     throw err;
   }

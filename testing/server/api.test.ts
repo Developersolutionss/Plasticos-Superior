@@ -7570,6 +7570,53 @@ describe("etapa terminada vs producto final: cerrar una etapa no siempre va a Ca
     assert.match(((await bloqueada.json()) as any).error, /ya se aprobó en Calidad/);
   });
 
+  it("QA: lo terminado antes de este cambio y lo rechazado no aparece 'para devolver'; Calidad no aprueba una etapa intermedia", async () => {
+    const vieja = await op("precorte", { status: "finalizada", isFinalStage: true });
+    const rVieja = await createTestRoll(vieja.id, { weightKg: 9 });
+    await prisma.productionRoll.update({ where: { id: rVieja.id }, data: { createdAt: new Date("2026-10-01T12:00:00Z") } });
+    const rechazada = await op("sellado", { status: "detenida", isFinalStage: true });
+    const rRech = await createTestRoll(rechazada.id, { weightKg: 4 });
+    const nueva = await op("precorte", { status: "pendiente_calidad", isFinalStage: true });
+    const rNueva = await createTestRoll(nueva.id, { weightKg: 6 });
+    const inv = (await (await fetch(`${baseUrl}/api/roll-transfers/inventory`, { headers: headersFor("produccion") })).json()) as any;
+    const ids = new Set(inv.warehouses.flatMap((w: any) => w.items.map((i: any) => i.rollId)));
+    assert.ok(!ids.has(rVieja.id), "producto terminado de antes del cambio: no se sigue");
+    assert.ok(!ids.has(rRech.id), "una OP rechazada en Calidad no tiene producto para devolver");
+    assert.ok(ids.has(rNueva.id), "lo terminado desde ahora sí");
+
+    // Una OP marcada intermedia que quedó en pendiente_calidad (dato viejo) no se aprueba.
+    const intermedia = await op("impresion", { status: "pendiente_calidad", isFinalStage: false });
+    await createTestRoll(intermedia.id, { weightKg: 3 });
+    const qc = await qcAprobar(intermedia.id);
+    assert.equal(qc.status, 400);
+    assert.match(((await qc.json()) as any).error, /ya no está pendiente de Calidad/);
+  });
+
+  it("QA: no se reabre una OP con rollos que salieron a un cliente, ni se borra un rollo que figura en un despacho", async () => {
+    const client = await prisma.client.create({ data: { name: `TEST-ETAPA-CLI-${stamp}` } });
+    try {
+      const o = await op("sellado", { status: "finalizada", isFinalStage: true });
+      const r = await createTestRoll(o.id, { weightKg: 8 });
+      const d = await prisma.dispatch.create({ data: { clientId: client.id, items: { create: [{ productId, quantityRequested: 8, quantityDispatched: 8 }] } }, include: { items: true } });
+      await prisma.dispatchItemRoll.create({ data: { dispatchItemId: d.items[0].id, rollId: r.id, weightKg: 8 } });
+      const reabrir = await post("produccion", `/${o.id}/reopen`);
+      assert.equal(reabrir.status, 400);
+      assert.match(((await reabrir.json()) as any).error, new RegExp(`Despacho #${d.id}`));
+
+      // Cancelado: ya se puede reabrir, pero el rollo queda en el historial del despacho.
+      await prisma.dispatch.update({ where: { id: d.id }, data: { status: "cancelada" } });
+      await prisma.productionOrder.update({ where: { id: o.id }, data: { status: "en_proceso" } });
+      const borrar = await fetch(`${baseUrl}/api/production-orders/${o.id}/rolls/${r.id}`, { method: "DELETE", headers: headersFor("produccion") });
+      assert.equal(borrar.status, 400);
+      assert.match(((await borrar.json()) as any).error, /figura en el Despacho/);
+    } finally {
+      await prisma.dispatchItemRoll.deleteMany({ where: { dispatchItem: { dispatch: { clientId: client.id } } } });
+      await prisma.dispatchItem.deleteMany({ where: { dispatch: { clientId: client.id } } });
+      await prisma.dispatch.deleteMany({ where: { clientId: client.id } });
+      await prisma.client.delete({ where: { id: client.id } });
+    }
+  });
+
   it("Extrusión nunca es final: su cierre es etapa terminada y no se puede enviar a Calidad", async () => {
     const ext = await op("extrusion", { specs: { materiaPrima: [] } });
     await createTestRoll(ext.id, { weightKg: 10 });

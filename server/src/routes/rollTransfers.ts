@@ -197,6 +197,13 @@ rollTransfersRouter.get("/", async (req, res) => {
 /** Rollos parados en una bodega por más de estos días se marcan en el
  * inventario (rollo que nadie está usando). */
 const STALE_DAYS = 7;
+/** Desde cuándo se sigue el producto terminado en las bodegas (despliegue de
+ * "etapa terminada vs producto final", 2026-10-21). Lo terminado antes no
+ * tenía el registro de devolución a la principal ni el de los rollos que
+ * salieron a cada cliente: mostrarlo como "falta devolverlo" llenaría las
+ * bodegas de rollos que ya se entregaron. */
+const FINISHED_TRACKING_SINCE = new Date("2026-10-21T05:00:00Z");
+
 /** Un despacho en camino por más de estas horas se marca (nadie lo recibió). */
 const STALE_TRANSIT_HOURS = 24;
 
@@ -300,6 +307,15 @@ rollTransfersRouter.get("/inventory", async (_req, res) => {
   const inTransit: any[] = [];
   for (const r of rolls) {
     const finished = orderIsFinalStage(r.productionOrder);
+    // Producto terminado histórico (ver FINISHED_TRACKING_SINCE) o de una OP
+    // rechazada/cancelada (no entró al inventario): no está para devolver ni
+    // para vender.
+    if (
+      finished &&
+      (r.createdAt < FINISHED_TRACKING_SINCE || r.productionOrder.status === "detenida" || r.productionOrder.status === "cancelada")
+    ) {
+      continue;
+    }
     // Un rollo terminado no se consume: su "saldo" es lo que produjo.
     const remainingKg = finished
       ? Math.round(rollProducedKg(r.station as OpStation, r) * 100) / 100

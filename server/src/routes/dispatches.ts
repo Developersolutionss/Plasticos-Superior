@@ -228,6 +228,10 @@ dispatchesRouter.patch("/:dispatchId/items/:itemId", requireAlmacen, async (req,
 
   try {
     await prisma.$transaction(async (tx) => {
+      // La fila del despacho primero, igual que POST /:id/cancel (que la
+      // bloquea con su update y después toca el stock): con los locks en el
+      // mismo orden, marcar y cancelar a la vez no se bloquean mutuamente.
+      await tx.$queryRaw`SELECT id FROM dispatches WHERE id = ${dispatchId} FOR UPDATE`;
       // Claim atómico y condicional (mismo patrón que /close y /reopen en
       // Órdenes de Producción): si dos requests casi simultáneas (doble
       // clic, reintento de red, el mismo QR escaneado dos veces) llegan acá,
