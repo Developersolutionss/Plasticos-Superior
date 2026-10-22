@@ -11,7 +11,13 @@ type Row = {
   totalQuantity: number;
   dispatchCount: number;
   lastDispatchedDate: string | null;
+  /** Lo que todavía falta despacharle (despachos abiertos). */
+  pendingQuantity: number;
+  /** De lo pendiente, lo que ya está fabricado y reservado para él. */
+  reservedQuantity: number;
 };
+
+const n = (v: number) => Math.round(v * 100) / 100;
 
 /** Histórico de cuánto se le despachó a cada cliente, agrupado por producto
  * (sumar entre productos con unidades distintas no tiene sentido) — el
@@ -33,7 +39,9 @@ export default function DespachosPorCliente() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Despachos por cliente</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Histórico de cuánto se le ha despachado a cada cliente, por producto</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Cuánto se le despachó a cada cliente, por producto, y cuánto falta despacharle (de eso, lo que ya está fabricado y reservado para él)
+        </p>
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4">
@@ -49,7 +57,7 @@ export default function DespachosPorCliente() {
 
       {!isLoading && filtered.length === 0 && (
         <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
-          Todavía no hay despachos completados.
+          Todavía no hay despachos.
         </div>
       )}
 
@@ -62,6 +70,7 @@ export default function DespachosPorCliente() {
                   <th className="p-3">Cliente</th>
                   <th className="p-3">Producto</th>
                   <th className="p-3">Total despachado</th>
+                  <th className="p-3">Por despachar</th>
                   <th className="p-3"># Despachos</th>
                   <th className="p-3">Último despacho</th>
                 </tr>
@@ -74,7 +83,21 @@ export default function DespachosPorCliente() {
                       <td className="p-3 font-medium">{i === 0 ? r.clientName : ""}</td>
                       <td className="p-3">{r.productName}</td>
                       <td className="p-3">
-                        {Math.round(r.totalQuantity * 100) / 100} {r.unit}
+                        {n(r.totalQuantity)} {r.unit}
+                      </td>
+                      <td className="p-3">
+                        {r.pendingQuantity > 0 ? (
+                          <>
+                            {n(r.pendingQuantity)} {r.unit}
+                            {r.reservedQuantity > 0 && (
+                              <span className="block text-xs text-sky-700 dark:text-sky-400">
+                                {n(r.reservedQuantity)} {r.unit} ya fabricados (reservados)
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                       <td className="p-3">{r.dispatchCount}</td>
                       <td className="p-3">{r.lastDispatchedDate ? new Date(r.lastDispatchedDate).toLocaleDateString() : "—"}</td>
@@ -96,8 +119,14 @@ export default function DespachosPorCliente() {
                       <div key={`${r.clientId}-${r.productId}`} className="p-3 space-y-1">
                         <p className="font-medium text-slate-800 dark:text-slate-100">{r.productName}</p>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                          {Math.round(r.totalQuantity * 100) / 100} {r.unit} · {r.dispatchCount} despacho{r.dispatchCount === 1 ? "" : "s"}
+                          {n(r.totalQuantity)} {r.unit} · {r.dispatchCount} despacho{r.dispatchCount === 1 ? "" : "s"}
                         </p>
+                        {r.pendingQuantity > 0 && (
+                          <p className="text-sm text-amber-700 dark:text-amber-400">
+                            Por despachar: {n(r.pendingQuantity)} {r.unit}
+                            {r.reservedQuantity > 0 && ` (${n(r.reservedQuantity)} ya fabricados)`}
+                          </p>
+                        )}
                         <p className="text-xs text-slate-400 dark:text-slate-500">
                           Último: {r.lastDispatchedDate ? new Date(r.lastDispatchedDate).toLocaleDateString() : "—"}
                         </p>

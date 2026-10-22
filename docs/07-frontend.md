@@ -290,7 +290,13 @@ Las consultas mutan con `api.*` directo (patrón imperativo, sin `useMutation`).
 ### `ProductionUpload.tsx`
 - Sube Excel/CSV → `api.previewImport` → preview válidas/inválidas → "Confirmar" → `api.confirmImport` e invalida inventario/alertas.
 
-### `Dispatches.tsx`
+### `Dispatches.tsx` — revisión 2026-10-22
+- Se llama **"Despacho #N"** (antes "Pedido #N", que se confundía con el módulo Pedidos). El estado se muestra con nombre y color (Pendiente, En proceso (parcial), Despachado, Cancelado) y cada tarjeta dice cuándo se creó y cuándo se despachó.
+- **Esperando stock:** un despacho armado a mano solo se lleva lo libre; si no alcanza, la tarjeta lo dice ("hay X libres, Y reservados para clientes") y el botón Despachar queda deshabilitado, en vez de enterarse con el rechazo.
+- **Nuevo despacho:** al elegir el producto la cantidad se precarga con lo libre (editable); avisa si se pide más que lo libre (el despacho se crea igual y queda esperando stock); el mismo producto en dos líneas se une en una al crear; si el servidor rechaza, se ve su motivo.
+- **Escanear rollo o producto:** con el QR de un rollo (código + token) busca su despacho abierto (`api.getDispatchTargetsForRoll`) y abre el modal de despacho con ese rollo ya marcado (`initialScan` de `DispatchItemModal`); si puede ir a varios, pregunta a cuál; si a ninguno, dice por qué. Con el código de un producto (SKU) abre el primer ítem pendiente de ese producto.
+- **Detalle** (`api.getDispatch`): estado, fechas, quién lo registró, OP de la reserva, dirección de entrega, ítems con estante de salida y rollos (quién escaneó cada uno), aviso de WhatsApp, y **Imprimir remisión** (`lib/printRemision.ts`: hoja con cliente, dirección, contacto, productos y rollos despachados con sus kilos y total, lo pendiente, transportador/placa y firmas de Almacén, transportador y cliente). Cancelar usa el diálogo de confirmación de la app.
+- Paginación: trae de a 30 (`limit`) con "Cargar más despachos".
 - Filtros de cliente y estado. Lista despachos, botón "Marcar despachado" por ítem. Formulario "Nuevo despacho" (solo Almacén): al elegir el producto dice cuánto está libre y cuánto más está reservado para clientes.
 - Por defecto muestra los despachos **Abiertos** (pendiente y en proceso): uno parcial pasa a "en proceso" y no tiene que desaparecer de la lista.
 - Un despacho que generó Calidad desde una OP con cliente lleva la etiqueta "Reservado de OP-…" (enlace a la OP). Cancelar una reserva avisa que lo reservado pasa a stock libre. Cada ítem despachado muestra los rollos que salieron ("Rollos: SELL-10 (15 kg), …"). El formulario "Nuevo despacho" avisa, al elegir el cliente, lo que ya está fabricado para él (con sus rollos), que se despacha desde su pedido.
@@ -391,7 +397,7 @@ Es la **hoja de trabajo completa de una OP** — reemplaza lo que antes vivía r
 - El descuento automático (al cerrar una OP de Extrusión) no pasa por acá — es lógica de servidor. Ver [08 — Reglas de negocio](08-workflow.md).
 
 ### `DespachosPorCliente.tsx`
-- Historial de despachos agrupado por cliente y producto: cantidad total despachada, número de despachos y fecha del último, para responder "¿qué le hemos despachado a este cliente?" sin recorrer despacho por despacho.
+- Por cliente y producto: cantidad total despachada, número de despachos y fecha del último, y **Por despachar** (lo pendiente en despachos abiertos, con cuánto ya está fabricado y reservado para él). Responde "¿qué le hemos despachado a este cliente y qué le falta?" sin recorrer despacho por despacho.
 
 ### `Clients.tsx`
 - Layout maestro–detalle en dos columnas: listado (izquierda) y ficha (derecha).

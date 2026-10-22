@@ -158,6 +158,68 @@ export async function resolveDispatchRolls(
   return found.map((r) => ({ id: r.id, weightKg: Math.round(rollProducedKg(r.station as OpStation, r) * 100) / 100 }));
 }
 
+export interface DispatchTarget {
+  dispatchId: number;
+  itemId: number;
+  clientName: string;
+  reserved: boolean;
+  quantityRequested: number;
+}
+
+/**
+ * Escanear el QR de un rollo en Despachos: a qué ítem(s) pendiente(s) puede
+ * ir. Primero la reserva de su propia OP; si no tiene, los despachos a mano
+ * abiertos del mismo producto para su cliente (o para cualquiera si es stock
+ * libre). Verifica el token del QR. `reason` explica por qué no hay ninguno.
+ */
+export async function dispatchTargetsForRoll(code: string, token: string): Promise<{ code: string; targets: DispatchTarget[]; reason: string | null }> {
+  const clean = code.trim().toUpperCase();
+  const where = rollWhereFromCode(clean);
+  if (!where) throw new DispatchRollError(`Código de rollo inválido: ${clean}`);
+  const roll = await prisma.productionRoll.findUnique({ where, select: ROLL_SELECT });
+  if (!roll) throw new DispatchRollError(`No existe el rollo ${clean}`);
+  const rollCode = rollCodeOf(roll);
+  if (!token || !verifyPossessionToken(rollCode, token.trim().toUpperCase(), roll.possessionTokenHash)) {
+    throw new DispatchRollError(`Falta demostrar posesión física del rollo ${rollCode} — escaneá el QR de su etiqueta`);
+  }
+  if ((await alreadyDispatched(prisma, [roll.id])).size > 0) {
+    return { code: rollCode, targets: [], reason: `El rollo ${rollCode} ya salió hacia un cliente en otro despacho` };
+  }
+  const order = roll.productionOrder;
+  const pendingItem = { quantityDispatched: null, productId: order.productId };
+  const open = { status: { in: ["pendiente", "en_proceso"] as ("pendiente" | "en_proceso")[] } };
+  const toTarget = (i: { id: number; quantityRequested: unknown; dispatch: { id: number; productionOrderId: number | null; client: { name: string } } }) => ({
+    dispatchId: i.dispatch.id,
+    itemId: i.id,
+    clientName: i.dispatch.client.name,
+    reserved: i.dispatch.productionOrderId != null,
+    quantityRequested: Number(i.quantityRequested),
+  });
+  const select = { id: true, quantityRequested: true, dispatch: { select: { id: true, productionOrderId: true, client: { select: { name: true } } } } } as const;
+
+  const reservedItems = await prisma.dispatchItem.findMany({
+    where: { ...pendingItem, dispatch: { ...open, productionOrderId: order.id } },
+    select,
+    orderBy: { id: "asc" },
+  });
+  if (reservedItems.length) return { code: rollCode, targets: reservedItems.map(toTarget), reason: null };
+
+  const approved = order.status === "finalizada" && (await prisma.qualityCheck.count({ where: { productionOrderId: order.id, result: "aprobado" } })) > 0;
+  if (!approved) {
+    return { code: rollCode, targets: [], reason: `El rollo ${rollCode} todavía no está aprobado en Calidad (OP ${order.orderNumber})` };
+  }
+  const manualItems = await prisma.dispatchItem.findMany({
+    where: { ...pendingItem, dispatch: { ...open, productionOrderId: null, ...(order.clientId != null ? { clientId: order.clientId } : {}) } },
+    select,
+    orderBy: { id: "asc" },
+  });
+  return {
+    code: rollCode,
+    targets: manualItems.map(toTarget),
+    reason: manualItems.length ? null : `No hay ningún despacho abierto de este producto${order.clientId != null ? " para su cliente" : ""} donde pueda salir el rollo ${rollCode}`,
+  };
+}
+
 async function orderNumberOf(tx: TxClient, orderId: number): Promise<string> {
   return (await tx.productionOrder.findUnique({ where: { id: orderId }, select: { orderNumber: true } }))?.orderNumber ?? `#${orderId}`;
 }

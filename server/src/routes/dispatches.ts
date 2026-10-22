@@ -4,7 +4,7 @@ import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { applyMovement, InsufficientStockError } from "../services/stockService";
 import { reservationHolders, reservedByProduct } from "../services/reservations";
-import { DispatchRollError, candidateRolls, resolveDispatchRolls } from "../services/dispatchRolls";
+import { DispatchRollError, candidateRolls, dispatchTargetsForRoll, resolveDispatchRolls } from "../services/dispatchRolls";
 import { checkRateLimit } from "../services/rateLimiter";
 import { ROLL_CODE_PREFIX, type OpStation } from "../services/opTemplates";
 import { sendWhatsAppMessage } from "../services/whatsapp";
@@ -26,15 +26,24 @@ const DISPATCH_STATUSES = ["pendiente", "en_proceso", "despachado", "cancelada"]
 dispatchesRouter.get("/", async (req, res) => {
   const { clientId } = req.query as { clientId?: string };
   const statusParam = req.query.status as string | undefined;
-  if (statusParam !== undefined && !DISPATCH_STATUSES.includes(statusParam as any)) {
+  // "abiertos" = pendiente + en proceso (un despacho parcial queda en proceso).
+  if (statusParam !== undefined && statusParam !== "abiertos" && !DISPATCH_STATUSES.includes(statusParam as any)) {
     return res.status(400).json({ error: "Status inválido" });
   }
+  // Paginación simple: `limit` (tope 200) — la lista crece sin fin con el
+  // historial. Sin `limit`, trae todo (compatibilidad).
+  const limit = req.query.limit !== undefined ? Number(req.query.limit) : undefined;
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) return res.status(400).json({ error: "limit inválido" });
 
   const dispatches = await prisma.dispatch.findMany({
     where: {
       clientId: clientId ? Number(clientId) : undefined,
-      status: statusParam as (typeof DISPATCH_STATUSES)[number] | undefined,
+      status:
+        statusParam === "abiertos"
+          ? { in: ["pendiente", "en_proceso"] }
+          : (statusParam as (typeof DISPATCH_STATUSES)[number] | undefined),
     },
+    ...(limit !== undefined ? { take: Math.min(limit, 200) } : {}),
     include: {
       client: true,
       items: { include: { product: true, rolls: { include: { roll: { select: { station: true, stationSequence: true } } } } } },
@@ -64,6 +73,24 @@ dispatchesRouter.get("/", async (req, res) => {
  * unidades distintas no tendría sentido); solo cuenta lo que ya salió de
  * verdad (`quantityDispatched` cargado), no lo pendiente.
  */
+/**
+ * Escanear el QR de un rollo en Despachos: a qué despacho(s) abierto(s) puede
+ * ir (ver services/dispatchRolls.ts). La pantalla abre ese despacho con el
+ * rollo ya marcado.
+ */
+dispatchesRouter.get("/by-roll/:code", async (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  if (!checkRateLimit(`dispatch-roll-token:${req.user!.userId}`, 100, 60_000)) {
+    return res.status(429).json({ error: "Demasiados escaneos seguidos — esperá un momento y volvé a intentar" });
+  }
+  try {
+    res.json(await dispatchTargetsForRoll(req.params.code, token));
+  } catch (err) {
+    if (err instanceof DispatchRollError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
 dispatchesRouter.get("/summary-by-client", async (_req, res) => {
   const items = await prisma.dispatchItem.findMany({
     // Un despacho cancelado (ver POST /:id/cancel) NO borra quantityDispatched
@@ -102,8 +129,80 @@ dispatchesRouter.get("/summary-by-client", async (_req, res) => {
     byClientProduct.set(key, acc);
   }
 
-  const result = [...byClientProduct.values()].sort((a, b) => a.clientName.localeCompare(b.clientName) || a.productName.localeCompare(b.productName));
+  // Lo que todavía falta despacharle (despachos abiertos, ítems sin salir),
+  // y cuánto de eso es una reserva (lo fabricado para él).
+  const pending = await prisma.dispatchItem.findMany({
+    where: { quantityDispatched: null, dispatch: { status: { in: ["pendiente", "en_proceso"] } } },
+    select: {
+      quantityRequested: true,
+      dispatch: { select: { clientId: true, productionOrderId: true, client: { select: { name: true } } } },
+      product: { select: { id: true, name: true, unit: true } },
+    },
+  });
+  const rows = new Map<string, any>([...byClientProduct.entries()].map(([k, v]) => [k, { ...v, pendingQuantity: 0, reservedQuantity: 0 }]));
+  for (const item of pending) {
+    const key = `${item.dispatch.clientId}|${item.product.id}`;
+    const acc = rows.get(key) ?? {
+      clientId: item.dispatch.clientId,
+      clientName: item.dispatch.client.name,
+      productId: item.product.id,
+      productName: item.product.name,
+      unit: item.product.unit,
+      totalQuantity: 0,
+      dispatchCount: 0,
+      lastDispatchedDate: null,
+      pendingQuantity: 0,
+      reservedQuantity: 0,
+    };
+    acc.pendingQuantity += Number(item.quantityRequested);
+    if (item.dispatch.productionOrderId != null) acc.reservedQuantity += Number(item.quantityRequested);
+    rows.set(key, acc);
+  }
+  const result = [...rows.values()]
+    .map((r) => ({ ...r, pendingQuantity: Math.round(r.pendingQuantity * 100) / 100, reservedQuantity: Math.round(r.reservedQuantity * 100) / 100 }))
+    .sort((a, b) => a.clientName.localeCompare(b.clientName) || a.productName.localeCompare(b.productName));
   res.json(result);
+});
+
+/**
+ * Detalle de un despacho: lo que la pantalla muestra al abrirlo y lo que va en
+ * la remisión impresa (cliente con su dirección y contacto principal, ítems
+ * con los rollos que salieron, OP de la reserva).
+ */
+dispatchesRouter.get("/:dispatchId", async (req, res) => {
+  const dispatchId = Number(req.params.dispatchId);
+  if (!Number.isInteger(dispatchId)) return res.status(400).json({ error: "Id inválido" });
+  const d = await prisma.dispatch.findUnique({
+    where: { id: dispatchId },
+    include: {
+      client: {
+        select: {
+          id: true,
+          name: true,
+          addresses: { orderBy: [{ isPrimary: "desc" }, { id: "asc" }], take: 1 },
+          contacts: { orderBy: [{ isPrimary: "desc" }, { id: "asc" }], take: 1, select: { name: true, phone: true, email: true } },
+        },
+      },
+      items: {
+        orderBy: { id: "asc" },
+        include: {
+          product: { select: { id: true, sku: true, name: true, unit: true } },
+          location: { select: { code: true } },
+          rolls: { orderBy: { id: "asc" }, include: { roll: { select: { station: true, stationSequence: true } }, scannedBy: { select: { name: true } } } },
+        },
+      },
+      createdBy: { select: { name: true } },
+      productionOrder: { select: { id: true, orderNumber: true } },
+    },
+  });
+  if (!d) return res.status(404).json({ error: "Despacho no encontrado" });
+  res.json({
+    ...d,
+    items: d.items.map((i) => ({
+      ...i,
+      rolls: i.rolls.map(({ roll, ...r }) => ({ ...r, code: `${ROLL_CODE_PREFIX[roll.station as OpStation]}-${roll.stationSequence}` })),
+    })),
+  });
 });
 
 const createDispatchSchema = z.object({

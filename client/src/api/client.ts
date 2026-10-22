@@ -403,15 +403,25 @@ export const api = {
       body: JSON.stringify({ filename, rows }),
     }),
 
-  getDispatches: (params?: { clientId?: number; status?: string }) => {
+  getDispatches: (params?: { clientId?: number; status?: string; limit?: number }) => {
     const qs = new URLSearchParams();
     if (params?.clientId) qs.set("clientId", String(params.clientId));
     if (params?.status) qs.set("status", params.status);
+    if (params?.limit) qs.set("limit", String(params.limit));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<any[]>(`/dispatches${suffix}`);
   },
   /** Histórico de cuánto se le despachó a cada cliente, agrupado por producto. */
   getDispatchSummaryByClient: () => request<any[]>("/dispatches/summary-by-client"),
+  /** Detalle de un despacho (para abrirlo y para la remisión impresa). */
+  getDispatch: (id: number) => request<any>(`/dispatches/${id}`),
+  /** A qué despacho(s) abierto(s) puede ir un rollo escaneado. */
+  getDispatchTargetsForRoll: (code: string, token: string) =>
+    request<{
+      code: string;
+      targets: { dispatchId: number; itemId: number; clientName: string; reserved: boolean; quantityRequested: number }[];
+      reason: string | null;
+    }>(`/dispatches/by-roll/${encodeURIComponent(code)}?token=${encodeURIComponent(token)}`),
   createDispatch: (clientId: number, items: any[]) =>
     request<any>("/dispatches", { method: "POST", body: JSON.stringify({ clientId, items }) }),
   markItemDispatched: (

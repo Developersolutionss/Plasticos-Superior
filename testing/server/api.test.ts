@@ -7197,6 +7197,60 @@ describe("reservas para clientes: lo fabricado para un cliente no se despacha a 
     assert.equal((await marcar(manualA, 3, [qr(rLibre)])).status, 200);
   });
 
+  it("escanear un rollo en Despachos encuentra su despacho: la reserva de su OP, o un despacho a mano si es stock; token falso o ya despachado, no", async () => {
+    const reservada = await aprobada([5], clienteB);
+    const [rRes] = qrOf(reservada.id);
+    const reserva = await prisma.dispatch.findFirstOrThrow({ where: { productionOrderId: reservada.id }, include: { items: true } });
+    const buscar = (code: string, token: string) =>
+      fetch(`${baseUrl}/api/dispatches/by-roll/${code}?token=${encodeURIComponent(token)}`, { headers: headersFor("almacen") });
+
+    const a = (await (await buscar(rRes.code.toLowerCase(), rRes.token)).json()) as any;
+    assert.equal(a.code, rRes.code);
+    assert.deepEqual(a.targets.map((t: any) => [t.dispatchId, t.itemId, t.reserved]), [[reserva.id, reserva.items[0].id, true]]);
+    assert.equal((await buscar(rRes.code, "XXXXXXXXXXXXXXXX")).status, 400, "token falso");
+
+    // Stock libre (OP sin cliente): va a un despacho a mano abierto del producto.
+    const libre = await aprobada([3]);
+    const [rLibre] = qrOf(libre.id);
+    const manual = await despachoManual(clienteA, 3);
+    const b = (await (await buscar(rLibre.code, rLibre.token)).json()) as any;
+    assert.ok(b.targets.some((t: any) => t.dispatchId === manual.id && !t.reserved), "el despacho a mano del producto");
+
+    // Ya salió: no tiene a dónde ir y lo dice.
+    assert.equal((await marcar(manual, 3, [qr(rLibre)])).status, 200);
+    const c = (await (await buscar(rLibre.code, rLibre.token)).json()) as any;
+    assert.equal(c.targets.length, 0);
+    assert.match(c.reason, /ya salió hacia un cliente/);
+  });
+
+  it("detalle de un despacho (para la remisión), lista paginada y lo que falta despachar por cliente", async () => {
+    await prisma.clientAddress.create({ data: { clientId: clienteA, label: "Bodega", addressLine: "Calle 1 # 2-3", city: "Cali", isPrimary: true } });
+    await prisma.clientContact.create({ data: { clientId: clienteA, name: "Rosa", phone: "3001112233", isPrimary: true } });
+    const op = await aprobada([4, 2], clienteA);
+    const reserva = (await prisma.dispatch.findFirstOrThrow({ where: { productionOrderId: op.id }, include: { items: true } })) as any;
+    const [r1] = qrOf(op.id);
+    assert.equal((await marcar(reserva, 4, [qr(r1)])).status, 200);
+
+    const d = (await (await fetch(`${baseUrl}/api/dispatches/${reserva.id}`, { headers: headersFor("ventas") })).json()) as any;
+    assert.equal(d.client.addresses[0].addressLine, "Calle 1 # 2-3");
+    assert.equal(d.client.contacts[0].name, "Rosa");
+    assert.equal(d.productionOrder.id, op.id);
+    assert.equal(d.items[0].rolls[0].code, r1.code);
+    assert.equal(d.status, "en_proceso");
+    assert.equal((await fetch(`${baseUrl}/api/dispatches/999999999`, { headers: headersFor("ventas") })).status, 404);
+
+    const abiertos = (await (await fetch(`${baseUrl}/api/dispatches?clientId=${clienteA}&status=abiertos&limit=1`, { headers: headersFor("almacen") })).json()) as any[];
+    assert.equal(abiertos.length, 1, "limit");
+    assert.ok(["pendiente", "en_proceso"].includes(abiertos[0].status));
+
+    const resumen = (await (await fetch(`${baseUrl}/api/dispatches/summary-by-client`, { headers: headersFor("ventas") })).json()) as any[];
+    const fila = resumen.find((r) => r.clientId === clienteA && r.productId === productId);
+    assert.ok(fila.pendingQuantity >= 2, "lo que falta despacharle");
+    assert.ok(fila.reservedQuantity >= 2, "de eso, lo reservado");
+    await prisma.clientAddress.deleteMany({ where: { clientId: clienteA } });
+    await prisma.clientContact.deleteMany({ where: { clientId: clienteA } });
+  });
+
   it("al escanear un rollo en Despacho a bodegas y en Inventario de bodegas se ve para qué cliente es", async () => {
     const op = await prisma.productionOrder.create({
       data: { orderNumber: `OP-TEST-RES-${stamp}-EXT`, station: "extrusion", productId, clientId: clienteA, quantityPlanned: 50 },

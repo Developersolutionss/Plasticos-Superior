@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Circle, ScanLine } from "lucide-react";
 import { api } from "../api/client";
 import BarcodeScanner from "./BarcodeScanner";
@@ -13,6 +13,9 @@ interface Props {
   locations: { locationId: number; code: string; quantity: number }[];
   onClose: () => void;
   onDone: (message: string) => void;
+  /** Rollo ya escaneado afuera (botón "Escanear" de Despachos): se marca solo
+   * apenas cargan los rollos disponibles. */
+  initialScan?: { code: string; token: string };
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -24,7 +27,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * menos de lo pedido (lo que falta queda pendiente). En la reserva de un
  * cliente escanear es obligatorio; en un despacho a mano, opcional.
  */
-export default function DispatchItemModal({ dispatch, item, locations, onClose, onDone }: Props) {
+export default function DispatchItemModal({ dispatch, item, locations, onClose, onDone, initialScan }: Props) {
   const queryClient = useQueryClient();
   const reservedDispatch = !!dispatch.productionOrder;
   const kg = item.product.unit === "kg";
@@ -73,6 +76,15 @@ export default function DispatchItemModal({ dispatch, item, locations, onClose, 
     setScanned((prev) => ({ ...prev, [roll.id]: token }));
     setManualQty(null);
   }
+
+  // El rollo que se escaneó para llegar acá ya cuenta como escaneado.
+  const initialApplied = useRef(false);
+  useEffect(() => {
+    if (!initialScan || initialApplied.current || isLoading) return;
+    initialApplied.current = true;
+    handleScan(`${initialScan.code}-${initialScan.token}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialScan, isLoading]);
 
   async function confirm() {
     setError(null);
