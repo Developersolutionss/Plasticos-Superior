@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -23,6 +23,43 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   cancelado: [],
 };
 
+/** El estado del pedido como botones (no un desplegable): se ven de una
+ * todas las opciones a las que puede pasar, con la actual marcada. */
+function StatusButtons({ current, value, onChange }: { current: string; value: string; onChange: (status: string) => void }) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Estado</p>
+      <div role="radiogroup" aria-label="Estado del pedido" className="flex flex-wrap gap-2">
+        {(VALID_TRANSITIONS[current] ?? []).map((status) => {
+          const selected = value === status;
+          const danger = status === "cancelado";
+          return (
+            <button
+              key={status}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => onChange(status)}
+              className={`px-4 py-2 rounded-lg border text-sm font-medium ${
+                selected
+                  ? danger
+                    ? "bg-red-600 border-red-600 text-white"
+                    : "bg-slate-800 border-slate-800 text-white dark:bg-slate-100 dark:border-slate-100 dark:text-slate-900"
+                  : danger
+                    ? "border-red-300 text-red-700 dark:border-red-800 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
+                    : "border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+              }`}
+            >
+              {STATUS_LABELS[status]}
+              {status === current && <span className="ml-1 text-xs font-normal opacity-75">(actual)</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 interface ItemDraft {
   productId: string;
   quantity: string;
@@ -45,6 +82,9 @@ export default function Pedidos() {
   const [items, setItems] = useState<ItemDraft[]>([{ ...emptyItem }]);
 
   const [editStatus, setEditStatus] = useState("borrador");
+  // Estado elegido con los botones sin entrar a Editar; se confirma con Aceptar.
+  const [quickStatus, setQuickStatus] = useState<string | null>(null);
+  const [changingStatus, setChangingStatus] = useState(false);
   const [editNotes, setEditNotes] = useState("");
   const [editItems, setEditItems] = useState<ItemDraft[]>([{ ...emptyItem }]);
   const [editing, setEditing] = useState(false);
@@ -228,11 +268,18 @@ export default function Pedidos() {
    * de la versión actual tal cual están, sin tocar nada, solo cambia el
    * estado. Si hace falta modificar los items, se sigue usando Editar. */
   async function handleAprobar(pedidoId: number, version: any) {
+    return handleChangeStatus(pedidoId, version, "aprobado");
+  }
+
+  /** Cambia solo el estado: guarda una versión nueva con los mismos ítems y
+   * notas de la actual (mismo criterio que "Aprobar y enviar a Planeación"). */
+  async function handleChangeStatus(pedidoId: number, version: any, status: string) {
     setError(null);
     setMessage(null);
+    setChangingStatus(true);
     try {
       await api.updatePedido(pedidoId, {
-        status: "aprobado",
+        status,
         notes: version.notes ?? undefined,
         items: version.items.map((it: any) => ({
           productId: it.productId,
@@ -243,11 +290,21 @@ export default function Pedidos() {
       });
       queryClient.invalidateQueries({ queryKey: ["pedidos"] });
       queryClient.invalidateQueries({ queryKey: ["pedidoVersions", pedidoId] });
-      setMessage("Pedido aprobado — ya aparece en la cola de Planeación.");
+      setQuickStatus(null);
+      setMessage(
+        status === "aprobado"
+          ? "Pedido aprobado — ya aparece en la cola de Planeación."
+          : `Estado cambiado a ${STATUS_LABELS[status]} (se guardó como v${version.versionNumber + 1}).`
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo aprobar el pedido");
+      setError(err instanceof Error ? err.message : "No se pudo cambiar el estado del pedido");
+    } finally {
+      setChangingStatus(false);
     }
   }
+
+  // Al cambiar de pedido, se descarta un estado elegido y no aceptado.
+  useEffect(() => setQuickStatus(null), [selectedPedidoId]);
 
   async function handleFacturar(pedidoId: number) {
     setMessage(null);
@@ -427,6 +484,32 @@ export default function Pedidos() {
                   Versión <strong>v{latestVersion.versionNumber}</strong> · Estado:{" "}
                   <strong>{STATUS_LABELS[latestVersion.status]}</strong>
                 </p>
+                {(VALID_TRANSITIONS[latestVersion.status] ?? []).length > 1 && (
+                  <div className="space-y-2">
+                    <StatusButtons
+                      current={latestVersion.status}
+                      value={quickStatus ?? latestVersion.status}
+                      onChange={(s) => setQuickStatus(s === latestVersion.status ? null : s)}
+                    />
+                    {quickStatus && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={changingStatus}
+                          onClick={() => handleChangeStatus(selectedPedidoId!, latestVersion, quickStatus)}
+                          className={`text-sm px-4 py-2 rounded text-white disabled:opacity-50 ${
+                            quickStatus === "cancelado" ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+                          }`}
+                        >
+                          {changingStatus ? "Guardando..." : quickStatus === "cancelado" ? "Aceptar: cancelar el pedido" : `Aceptar: pasar a ${STATUS_LABELS[quickStatus]}`}
+                        </button>
+                        <button type="button" onClick={() => setQuickStatus(null)} className="text-sm px-3 py-2 rounded border dark:border-slate-600">
+                          Descartar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <table className="hidden sm:table w-full text-sm">
                   <thead className="bg-slate-100 dark:bg-slate-800 text-left">
                     <tr>
@@ -481,38 +564,7 @@ export default function Pedidos() {
 
             {tab === "actual" && editing && (
               <form onSubmit={handleSaveVersion} className="space-y-2">
-                {/* Estado como botones (no un desplegable): se ven de una todas
-                    las opciones a las que puede pasar el pedido. */}
-                <div>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Estado</p>
-                  <div role="radiogroup" aria-label="Estado del pedido" className="flex flex-wrap gap-2">
-                    {(VALID_TRANSITIONS[latestVersion?.status ?? "borrador"] ?? []).map((value) => {
-                      const selected = editStatus === value;
-                      const danger = value === "cancelado";
-                      return (
-                        <button
-                          key={value}
-                          type="button"
-                          role="radio"
-                          aria-checked={selected}
-                          onClick={() => setEditStatus(value)}
-                          className={`px-4 py-2 rounded-lg border text-sm font-medium ${
-                            selected
-                              ? danger
-                                ? "bg-red-600 border-red-600 text-white"
-                                : "bg-slate-800 border-slate-800 text-white dark:bg-slate-100 dark:border-slate-100 dark:text-slate-900"
-                              : danger
-                                ? "border-red-300 text-red-700 dark:border-red-800 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
-                                : "border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                          }`}
-                        >
-                          {STATUS_LABELS[value]}
-                          {value === latestVersion?.status && <span className="ml-1 text-xs font-normal opacity-75">(actual)</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                <StatusButtons current={latestVersion?.status ?? "borrador"} value={editStatus} onChange={setEditStatus} />
                 {itemRows(editItems, setEditItems)}
                 <input
                   className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
