@@ -40,7 +40,10 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 const fecha = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString("es-CO", { dateStyle: "medium" }) : "—");
-const ROLL_CODE = /^(EXT|IMP|SELL|PRE)-\d+$/;
+// Código de rollo (EXT-12, SELL-3, o el viejo RL-40). Una etiqueta de bulto
+// tiene la forma EXT- + 5 cifras (EXT-00001): no es un rollo.
+const ROLL_CODE = /^((EXT|IMP|SELL|PRE)-\d+|RL-\d+)$/;
+const BULTO_LABEL = /^EXT-\d{5}$/;
 
 type RollTarget = { dispatchId: number; itemId: number; clientName: string; reserved: boolean; quantityRequested: number };
 
@@ -140,6 +143,10 @@ export default function Dispatches() {
     setDoneMessage(null);
     const { code, token } = splitScannedCode(raw.trim());
 
+    if (BULTO_LABEL.test(code) && !token) {
+      setScanMessage(`${code} es una etiqueta de bulto, no el QR de un rollo — escaneá la etiqueta del rollo (código y token)`);
+      return;
+    }
     // QR de un rollo: se busca a qué despacho abierto puede ir.
     if (ROLL_CODE.test(code)) {
       if (!token) {
@@ -412,8 +419,11 @@ export default function Dispatches() {
                 const pendingItem = item.quantityDispatched == null && d.status !== "cancelada";
                 const stock = stockOf(item.product.id);
                 // Un despacho armado a mano solo se lleva lo libre: si no
-                // alcanza, se avisa acá en vez de recién al pulsar Despachar.
-                const short = pendingItem && !d.productionOrder && stock && Number(stock.availableStock) < Number(item.quantityRequested) - 0.005;
+                // alcanza para todo, se avisa acá (puede salir parcial con lo
+                // libre); solo se bloquea si no hay nada libre.
+                const free = stock ? Number(stock.availableStock) : null;
+                const short = pendingItem && !d.productionOrder && free != null && free < Number(item.quantityRequested) - 0.005;
+                const nothingFree = short && free! <= 0.005;
                 return (
                   <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-2">
                     <span>
@@ -427,8 +437,9 @@ export default function Dispatches() {
                       {short && (
                         <span className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
                           <AlertTriangle size={12} aria-hidden="true" />
-                          Esperando stock: hay {Math.max(0, Number(stock.availableStock))} {item.product.unit} libres
+                          {nothingFree ? "Esperando stock" : "Stock libre no alcanza para todo"}: hay {Math.max(0, free!)} {item.product.unit} libres
                           {Number(stock.reservedStock) > 0 && ` (${stock.reservedStock} ${item.product.unit} están reservados para clientes)`}
+                          {!nothingFree && " — se puede despachar parcial"}
                         </span>
                       )}
                     </span>
@@ -436,8 +447,8 @@ export default function Dispatches() {
                       <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                         <button
                           className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded disabled:opacity-50"
-                          disabled={!!short}
-                          title={short ? "No hay stock libre suficiente" : undefined}
+                          disabled={!!nothingFree}
+                          title={nothingFree ? "No hay stock libre de este producto" : undefined}
                           onClick={() => setDispatchTarget({ dispatch: d, item })}
                         >
                           Despachar

@@ -30,7 +30,7 @@ dispatchesRouter.get("/", async (req, res) => {
   if (statusParam !== undefined && statusParam !== "abiertos" && !DISPATCH_STATUSES.includes(statusParam as any)) {
     return res.status(400).json({ error: "Status inválido" });
   }
-  // Paginación simple: `limit` (tope 200) — la lista crece sin fin con el
+  // Paginación simple: `limit` (tope 2000) — la lista crece sin fin con el
   // historial. Sin `limit`, trae todo (compatibilidad).
   const limit = req.query.limit !== undefined ? Number(req.query.limit) : undefined;
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) return res.status(400).json({ error: "limit inválido" });
@@ -43,7 +43,7 @@ dispatchesRouter.get("/", async (req, res) => {
           ? { in: ["pendiente", "en_proceso"] }
           : (statusParam as (typeof DISPATCH_STATUSES)[number] | undefined),
     },
-    ...(limit !== undefined ? { take: Math.min(limit, 200) } : {}),
+    ...(limit !== undefined ? { take: Math.min(limit, 2000) } : {}),
     include: {
       client: true,
       items: { include: { product: true, rolls: { include: { roll: { select: { station: true, stationSequence: true } } } } } },
@@ -52,7 +52,9 @@ dispatchesRouter.get("/", async (req, res) => {
       // la pantalla lo marca y no exige estante (ver PATCH de abajo).
       productionOrder: { select: { id: true, orderNumber: true } },
     },
-    orderBy: { requestedDate: "desc" },
+    // `id` desempata despachos con la misma fecha: sin esto "Cargar más"
+    // podía repetir o saltarse alguno.
+    orderBy: [{ requestedDate: "desc" }, { id: "desc" }],
   });
   // Los rollos que salieron en cada ítem, con su código legible.
   res.json(
@@ -66,13 +68,6 @@ dispatchesRouter.get("/", async (req, res) => {
   );
 });
 
-/**
- * Histórico de cuánto se le ha despachado a cada cliente — el cliente pidió
- * poder ver esto de un vistazo en vez de sumarlo a mano revisando despacho
- * por despacho. Se agrupa por cliente + producto (sumar entre productos con
- * unidades distintas no tendría sentido); solo cuenta lo que ya salió de
- * verdad (`quantityDispatched` cargado), no lo pendiente.
- */
 /**
  * Escanear el QR de un rollo en Despachos: a qué despacho(s) abierto(s) puede
  * ir (ver services/dispatchRolls.ts). La pantalla abre ese despacho con el
@@ -91,6 +86,14 @@ dispatchesRouter.get("/by-roll/:code", async (req, res) => {
   }
 });
 
+/**
+ * Histórico de cuánto se le ha despachado a cada cliente — el cliente pidió
+ * poder ver esto de un vistazo en vez de sumarlo a mano revisando despacho
+ * por despacho. Se agrupa por cliente + producto (sumar entre productos con
+ * unidades distintas no tendría sentido); solo cuenta lo que ya salió de
+ * verdad (`quantityDispatched` cargado), no lo pendiente. Además suma lo que falta despacharle (ítems sin salir de
+ * despachos abiertos) y cuánto de eso está reservado.
+ */
 dispatchesRouter.get("/summary-by-client", async (_req, res) => {
   const items = await prisma.dispatchItem.findMany({
     // Un despacho cancelado (ver POST /:id/cancel) NO borra quantityDispatched

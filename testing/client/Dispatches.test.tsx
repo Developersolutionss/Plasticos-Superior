@@ -110,6 +110,25 @@ describe("Despachos", () => {
     expect(api.getDispatches).toHaveBeenCalledWith({ clientId: undefined, status: "abiertos", limit: 30 });
   });
 
+  it("si hay algo libre pero no todo, avisa y deja despachar parcial (solo se bloquea sin nada libre)", async () => {
+    vi.mocked(api.getDispatches).mockResolvedValue([{ ...manual, items: [{ ...manual.items[0], product: { id: 5, sku: "ROL", name: "Rollo precintado", unit: "kg" }, quantityRequested: "100" }] }]);
+    renderPage();
+    const card = (await screen.findByText(/Despacho #2 — Antonio meza/)).closest("div.cursor-pointer") as HTMLElement;
+    expect(within(card).getByText(/Stock libre no alcanza para todo: hay 50 kg libres.*se puede despachar parcial/)).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Despachar" })).toBeEnabled();
+  });
+
+  it("una etiqueta de bulto escaneada no se confunde con un rollo", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByText(/Despacho #3/);
+    await user.click(screen.getByRole("button", { name: /Escanear rollo o producto/ }));
+    await user.type(screen.getByPlaceholderText("código escaneado"), "EXT-00001");
+    await user.click(screen.getByRole("button", { name: "Usar código" }));
+    expect(await screen.findByText(/es una etiqueta de bulto, no el QR de un rollo/)).toBeInTheDocument();
+    expect(api.getDispatchTargetsForRoll).not.toHaveBeenCalled();
+  });
+
   it("nuevo despacho: precarga lo libre, avisa si se pide más, une el mismo producto repetido y muestra el error real del servidor", async () => {
     vi.mocked(api.createDispatch).mockRejectedValueOnce(new Error("Rollo precintado está desactivado, no se puede despachar"));
     renderPage();
