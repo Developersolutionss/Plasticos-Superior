@@ -481,13 +481,38 @@ export default function Pedidos() {
 
             {tab === "actual" && editing && (
               <form onSubmit={handleSaveVersion} className="space-y-2">
-                <select className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
-                  {(VALID_TRANSITIONS[latestVersion?.status ?? "borrador"] ?? []).map((value) => (
-                    <option key={value} value={value}>
-                      {STATUS_LABELS[value]}
-                    </option>
-                  ))}
-                </select>
+                {/* Estado como botones (no un desplegable): se ven de una todas
+                    las opciones a las que puede pasar el pedido. */}
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Estado</p>
+                  <div role="radiogroup" aria-label="Estado del pedido" className="flex flex-wrap gap-2">
+                    {(VALID_TRANSITIONS[latestVersion?.status ?? "borrador"] ?? []).map((value) => {
+                      const selected = editStatus === value;
+                      const danger = value === "cancelado";
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => setEditStatus(value)}
+                          className={`px-4 py-2 rounded-lg border text-sm font-medium ${
+                            selected
+                              ? danger
+                                ? "bg-red-600 border-red-600 text-white"
+                                : "bg-slate-800 border-slate-800 text-white dark:bg-slate-100 dark:border-slate-100 dark:text-slate-900"
+                              : danger
+                                ? "border-red-300 text-red-700 dark:border-red-800 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
+                                : "border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                          }`}
+                        >
+                          {STATUS_LABELS[value]}
+                          {value === latestVersion?.status && <span className="ml-1 text-xs font-normal opacity-75">(actual)</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 {itemRows(editItems, setEditItems)}
                 <input
                   className="border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
