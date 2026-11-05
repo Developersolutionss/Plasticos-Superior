@@ -4470,6 +4470,31 @@ describe("productos", () => {
     }
   });
 
+  it("el producto se crea sin precio (queda en 0) y editarlo sin precio no pisa el que ya tenía", async () => {
+    const res = await fetch(`${baseUrl}/api/products`, {
+      method: "POST",
+      headers: headersFor("planeacion"),
+      body: JSON.stringify({ name: "Test sin precio", category: "bultos", unit: "kg", minStock: 0, measure: "20x30", measureUnit: "Cms." }),
+    });
+    assert.equal(res.status, 201);
+    const product = (await res.json()) as { id: number; unitPrice: string };
+    try {
+      assert.equal(Number(product.unitPrice), 0);
+      await prisma.product.update({ where: { id: product.id }, data: { unitPrice: 500 } });
+      const edit = await fetch(`${baseUrl}/api/products/${product.id}`, {
+        method: "PATCH",
+        headers: headersFor("planeacion"),
+        body: JSON.stringify({ name: "Test sin precio editado", category: "bultos", unit: "kg", minStock: 5 }),
+      });
+      assert.equal(edit.status, 200);
+      const after = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+      assert.equal(after.name, "Test sin precio editado");
+      assert.equal(Number(after.unitPrice), 500, "el precio guardado se conserva");
+    } finally {
+      await prisma.product.delete({ where: { id: product.id } }).catch(() => {});
+    }
+  });
+
   it("rechaza un color/densidad fuera de la lista fija", async () => {
     const res = await fetch(`${baseUrl}/api/products`, {
       method: "POST",

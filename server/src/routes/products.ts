@@ -106,7 +106,9 @@ const productSchema = z.object({
   calibre: z.string().optional(),
   unit: z.enum(["kg", "unidad"]),
   minStock: z.number().min(0),
-  unitPrice: z.number().min(0),
+  // Opcional: el catálogo ya no pide precio (se pone en la cotización/pedido);
+  // si no viene, queda el default 0 de la base.
+  unitPrice: z.number().min(0).optional(),
 });
 
 productsRouter.post("/", requireCatalogoGestion, async (req, res) => {

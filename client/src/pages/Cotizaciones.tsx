@@ -51,8 +51,11 @@ export default function Cotizaciones() {
     enabled: !!clientId,
   });
 
+  // El precio ya no se carga en el catálogo (se pone en la cotización/pedido):
+  // si el producto no tiene precio, la casilla queda vacía en vez de en 0.
   function productPrice(productId: string) {
-    return products?.find((p: any) => p.id === Number(productId))?.unitPrice ?? "";
+    const price = Number(products?.find((p: any) => p.id === Number(productId))?.unitPrice ?? 0);
+    return price > 0 ? price : "";
   }
 
   function updateItem(index: number, patch: Partial<ItemDraft>) {

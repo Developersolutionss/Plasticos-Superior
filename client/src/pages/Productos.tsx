@@ -102,10 +102,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   laminado: "Laminado",
 };
 
-function formatCOP(n: number) {
-  return `$${Math.round(n).toLocaleString("es-CO")}`;
-}
-
 export default function Productos() {
   const [creating, setCreating] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
@@ -229,7 +225,6 @@ export default function Productos() {
                   <th className="p-3">Categoría</th>
                   <th className="p-3">Unidad</th>
                   <th className="p-3">Stock mínimo</th>
-                  <th className="p-3">Precio</th>
                   <th className="p-3">Estado</th>
                   <th className="p-3"></th>
                 </tr>
@@ -249,7 +244,6 @@ export default function Productos() {
                     <td className="p-3 text-slate-600 dark:text-slate-300">{CATEGORY_LABELS[p.category] ?? p.category}</td>
                     <td className="p-3 text-slate-600 dark:text-slate-300">{p.unit}</td>
                     <td className="p-3 text-slate-600 dark:text-slate-300">{p.minStock}</td>
-                    <td className="p-3 text-slate-600 dark:text-slate-300">{formatCOP(Number(p.unitPrice))}</td>
                     <td className="p-3">
                       {p.active ? (
                         <span className="text-xs text-green-700 dark:text-emerald-400 bg-green-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full">Activo</span>
@@ -317,12 +311,9 @@ export default function Productos() {
                     {CATEGORY_LABELS[p.category] ?? p.category}
                     {productMeasure(p) && ` · ${productMeasure(p)}`}
                   </p>
-                  <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-300">
-                    <span>
-                      Mín: {p.minStock} {p.unit}
-                    </span>
-                    <span>{formatCOP(Number(p.unitPrice))}</span>
-                  </div>
+                  <p className="text-sm text-slate-600 dark:text-slate-300">
+                    Mín: {p.minStock} {p.unit}
+                  </p>
                   {p.active ? (
                     <div className="flex items-center gap-3 pt-1">
                       <button className="text-slate-600 dark:text-slate-300 text-xs hover:underline inline-flex items-center gap-1" onClick={() => setEditingProduct(p)}>

@@ -50,7 +50,6 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
   const [calibre, setCalibre] = useState(product?.calibre ?? "");
   const [unit, setUnit] = useState(product?.unit ?? UNITS[0].value);
   const [minStock, setMinStock] = useState(product?.minStock != null ? String(product.minStock) : "0");
-  const [unitPrice, setUnitPrice] = useState(product?.unitPrice != null ? String(product.unitPrice) : "0");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -74,7 +73,8 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
         calibre: calibre.trim() || undefined,
         unit,
         minStock: Number(minStock),
-        unitPrice: Number(unitPrice),
+        // Sin precio: se pone en la cotización/pedido, no en el catálogo de producción.
+        // Al editar no se manda, así que no se pisa el precio que ya tuviera guardado.
       };
 
       const saved = isEdit ? await api.updateProduct(product.id, payload) : await api.createProduct(payload);
@@ -91,7 +91,7 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
   }
 
   // Avisos mientras se carga (no bloquean el guardado).
-  const issues = catalogIssues({ name, color, densidad, measure, measureUnit, unitPrice });
+  const issues = catalogIssues({ name, color, densidad, measure, measureUnit });
 
   const inputClass =
     "w-full border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:text-slate-100";
@@ -194,11 +194,6 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
           <label className={labelClass}>Stock mínimo</label>
           <input className={inputClass} type="number" min={0} value={minStock} onChange={(e) => setMinStock(e.target.value)} />
         </div>
-      </div>
-
-      <div>
-        <label className={labelClass}>Precio unitario (COP)</label>
-        <input className={inputClass} type="number" min={0} value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
       </div>
 
       {issues.length > 0 && (

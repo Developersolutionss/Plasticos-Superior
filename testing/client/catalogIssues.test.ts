@@ -30,8 +30,8 @@ describe("catalogIssues", () => {
     expect(catalogIssues({ ...ok, name: "Bolsa", measure: "12+3+3x26", measureUnit: "Pulgadas" })).toEqual([]);
   });
 
-  it("precio en cero", () => {
-    expect(catalogIssues({ name: "Bolsa", unitPrice: "0" })).toEqual(["El precio está en 0: saldría en cero en cotizaciones y facturas."]);
+  it("el precio no se revisa: ya no se carga en el catálogo", () => {
+    expect(catalogIssues({ name: "Bolsa" })).toEqual([]);
   });
 });
 

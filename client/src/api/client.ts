@@ -264,7 +264,7 @@ export const api = {
     calibre?: string;
     unit: string;
     minStock: number;
-    unitPrice: number;
+    unitPrice?: number;
   }) => request<any>("/products", { method: "POST", body: JSON.stringify(data) }),
   updateProduct: (
     productId: number,

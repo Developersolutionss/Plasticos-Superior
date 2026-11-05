@@ -11,7 +11,6 @@ export interface CatalogProductLike {
   densidad?: string | null;
   measure?: string | null;
   measureUnit?: string | null;
-  unitPrice?: number | string | null;
   active?: boolean;
 }
 
@@ -72,10 +71,6 @@ export function catalogIssues(p: CatalogProductLike): string[] {
     if (!p.measureUnit) issues.push("Hay medida pero falta la Unidad de medida (pulgadas o cms).");
     else if (/\bcms?\b|\d\s*cms?\b/.test(m) && p.measureUnit === "Pulgadas") issues.push("La medida dice cm pero la Unidad de medida es Pulgadas.");
     else if (/("|\bpulg)/.test(m) && p.measureUnit === "Cms.") issues.push("La medida dice pulgadas pero la Unidad de medida es Cms.");
-  }
-
-  if (p.unitPrice != null && Number(p.unitPrice) === 0) {
-    issues.push("El precio está en 0: saldría en cero en cotizaciones y facturas.");
   }
   return issues;
 }
