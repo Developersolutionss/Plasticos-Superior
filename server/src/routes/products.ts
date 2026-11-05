@@ -43,16 +43,20 @@ const SKU_PREFIX: Record<(typeof CATEGORIES)[number], string> = {
   laminado: "LAM",
 };
 
-/** Asume que nunca se hace hard delete de un producto (el sistema solo
- * desactiva con `active: false`) -- si algún día se borra uno del medio de
- * la secuencia a mano en la base, el próximo `count()+1` de esa categoría
- * puede volver a proponer un SKU que ya existe, y quedaría reintentando sin
- * poder resolverlo solo (a diferencia de COT-/PED-/FAC-, acá el reintento no
- * ayuda porque el conteo no cambia entre intentos). */
+/** El siguiente número es el MAYOR de la categoría + 1, no `count()+1`: si
+ * falta uno del medio (ej. se borraron productos de prueba y quedó solo
+ * BUL-002), contar volvía a proponer un SKU que ya existe y el alta fallaba
+ * en todos los reintentos. Solo cuenta SKUs con la forma exacta PREFIJO-NNN
+ * (ej. "ROL-" no se confunde con "ROL-F-001"). */
 async function nextSku(category: (typeof CATEGORIES)[number]) {
   const prefix = SKU_PREFIX[category];
-  const count = await prisma.product.count({ where: { sku: { startsWith: `${prefix}-` } } });
-  return `${prefix}-${String(count + 1).padStart(3, "0")}`;
+  const pattern = new RegExp(String.raw`^${prefix}-(\d+)$`);
+  const existing = await prisma.product.findMany({ where: { sku: { startsWith: `${prefix}-` } }, select: { sku: true } });
+  const max = existing.reduce((acc, p) => {
+    const m = pattern.exec(p.sku);
+    return m ? Math.max(acc, Number(m[1])) : acc;
+  }, 0);
+  return `${prefix}-${String(max + 1).padStart(3, "0")}`;
 }
 
 /** Lista todos los productos (incluye inactivos) para la pantalla de gestión.

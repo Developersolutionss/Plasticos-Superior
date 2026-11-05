@@ -4434,6 +4434,31 @@ describe("productos", () => {
     await prisma.product.delete({ where: { id: secondProduct.id } }).catch(() => {});
   });
 
+  it("regresión: si falta un número del medio (ej. quedó solo BUL-002), el SKU nuevo sigue al mayor y no choca", async () => {
+    const existing = await prisma.product.findMany({ where: { sku: { startsWith: "LAM-" } }, select: { sku: true } });
+    const max = existing.reduce((acc, p) => Math.max(acc, Number(/^LAM-(\d+)$/.exec(p.sku)?.[1] ?? 0)), 0);
+    // Un hueco: el mayor queda muy por encima de la cantidad de productos.
+    const gap = await prisma.product.create({
+      data: { sku: `LAM-${String(max + 5).padStart(3, "0")}`, name: "Test hueco", category: "laminado", unit: "kg", minStock: 0, unitPrice: 0 },
+    });
+    let createdId = 0;
+    try {
+      const res = await fetch(`${baseUrl}/api/products`, {
+        method: "POST",
+        headers: headersFor("planeacion"),
+        body: JSON.stringify({ name: "Test después del hueco", category: "laminado", unit: "kg", minStock: 0, unitPrice: 0, measure: "12+3+3x26" }),
+      });
+      assert.equal(res.status, 201);
+      const product = (await res.json()) as { id: number; sku: string; measure: string };
+      createdId = product.id;
+      assert.equal(product.sku, `LAM-${String(max + 6).padStart(3, "0")}`);
+      assert.equal(product.measure, "12+3+3x26", "la medida con fuelles se guarda tal cual");
+    } finally {
+      if (createdId) await prisma.product.delete({ where: { id: createdId } }).catch(() => {});
+      await prisma.product.delete({ where: { id: gap.id } }).catch(() => {});
+    }
+  });
+
   it("rechaza un color/densidad fuera de la lista fija", async () => {
     const res = await fetch(`${baseUrl}/api/products`, {
       method: "POST",
