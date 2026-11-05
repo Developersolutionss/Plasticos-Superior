@@ -24,6 +24,7 @@ import { publicLocationRouter } from "./routes/publicLocation";
 import { dashboardRouter } from "./routes/dashboard";
 import { exportRouter } from "./routes/export";
 import { scheduleFrecuentesReset } from "./services/frecuentesReset";
+import { scheduleStalledAlerts } from "./services/stalledAlerts";
 
 const app = express();
 
@@ -68,3 +69,5 @@ app.listen(port, () => {
 
 // Reset semanal del contador de visitas de clientes ("Frecuentes").
 scheduleFrecuentesReset();
+// Avisos a Gestión: OPs estancadas y rollos en tránsito hace mucho.
+scheduleStalledAlerts();

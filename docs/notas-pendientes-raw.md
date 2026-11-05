@@ -135,12 +135,16 @@ Pendientes del QA previo al despliegue (2026-10-02), no bloqueantes:
 
 Quedaron fuera de esa ronda (no se decidió todavía):
 
-- Ajuste manual de stock de producto terminado tras un conteo físico (la materia prima sí lo tiene).
-- Exportaciones del área de producción (OPs, rollos, movimientos, materia prima, despachos a bodegas) y
-  filtro por fecha en las existentes. Hoy se exporta inventario, pedidos, facturas y clientes.
-- Preferencias y vencimiento de avisos (hoy le llegan a todos los usuarios del rol y no vencen), y avisos
-  de OPs estancadas o rollos en tránsito hace mucho.
-- Datos del catálogo contradictorios (ej. producto con "ALTA DENSIDAD" en el nombre y densidad BAJA).
+- Ajuste manual de stock de producto terminado tras un conteo físico: **hecho en el servidor**
+  (`POST /inventory/:productId/count`, 2026-11-04); falta el botón en Existencias.
+- ~~Exportaciones del área de producción y filtro por fecha~~ — hecho 2026-11-04 (OPs, rollos, despachos a
+  bodegas, materia prima, movimientos; `?desde&hasta` también en pedidos y facturas).
+- Preferencias y vencimiento de avisos (hoy le llegan a todos los usuarios del rol y no vencen): pendiente.
+  ~~Avisos de OPs estancadas o rollos en tránsito hace mucho~~ — hecho 2026-11-04 (`services/stalledAlerts.ts`:
+  OP abierta sin rollos hace 3 días, recordatorio cada 3 días; traslado sin recibir hace 24 h, una vez).
+- ~~Datos del catálogo contradictorios~~ — hecho 2026-11-04 como avisos que no bloquean
+  (`client/src/lib/catalogIssues.ts`): densidad o color del nombre contra el campo, medida sin unidad o con
+  unidad contraria, precio en 0 y nombres repetidos. Se ven al cargar el producto y en la lista.
 
 ## Token de posesión del rollo (2026-09-24)
 

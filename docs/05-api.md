@@ -50,7 +50,8 @@ Además de `requireAuth`, varios routers aplican el rol **a nivel de router** (p
 - **Almacén / WMS** — todo el módulo: rol de almacén.
 - **Productos** — lectura y CRUD (crear/editar/desactivar/reactivar) exigen `ROLES.CATALOGO_GESTION` (`super_admin`, `admin`, `planeacion` — **no** `gerente_produccion`, a pedido del cliente: sigue pudiendo *elegir* un producto ya cargado con `ROLES.INVENTARIO`, pero no gestionar el catálogo).
 - **Usuarios** — todo el módulo: solo `super_admin`/`admin` (`ROLES.ADMIN`).
-- **Dashboard** y **Exportaciones** — todo el módulo: solo `ROLES.ADMIN`, excepto `GET /export/pedidos` y `GET /export/facturas` que además exigen rol de ventas.
+- **Dashboard** — solo `ROLES.ADMIN`.
+- **Exportaciones** — la pantalla es solo de Admin; cada export tiene su guard: inventario y movimientos `ROLES.EXISTENCIAS`, pedidos/facturas/clientes rol de ventas, OPs/rollos/despachos a bodegas/materia prima `ROLES.PRODUCCION_GESTION`.
 - **Notificaciones** — solo `requireAuth`; cada usuario ve y marca únicamente las suyas.
 
 > Los grupos de roles crecieron respecto de la versión inicial: además de `ADMIN`, `VENTAS`, `ALMACEN`, `PRODUCCION_GESTION`, `OPERARIOS`, `CALIDAD` y `AUDITORIA`, hoy existen `CIERRE_OP`, `INVENTARIO`, `EXISTENCIAS`, `CATALOGO_GESTION` y `DESPACHOS_LECTURA` (`server/src/middleware/auth.ts`, objeto `ROLES`). Cada uno separa un permiso que antes estaba mezclado con otro, a pedido del cliente (p. ej. "puede elegir un producto para una OP" ya no implica "puede ver cuánto stock hay" ni "puede editar el catálogo").
@@ -337,6 +338,13 @@ curl -X POST http://localhost:4000/api/dispatches/1/cancel -H "Authorization: Be
 | GET | `/api/export/pedidos` | Descarga `.xlsx` de pedidos (rol de ventas) |
 | GET | `/api/export/facturas` | Descarga `.xlsx` de facturas (rol de ventas) |
 | GET | `/api/export/clientes` | Descarga `.xlsx` del listado de clientes |
+| GET | `/api/export/ordenes-produccion` | `.xlsx` de OPs: estación, estado, cliente, kilos producidos, merma, rollos, OP padre (Gestión de Producción) |
+| GET | `/api/export/rollos` | `.xlsx` de rollos: código, OP, operario, turno, máquina, peso, merma, rollo de origen (Gestión de Producción) |
+| GET | `/api/export/despachos-bodegas` | `.xlsx` de traslados entre bodegas: desde, hacia, kilos enviados/recibidos, quién registró/recibió (Gestión de Producción) |
+| GET | `/api/export/materia-prima` | `.xlsx` de movimientos de materia prima (Gestión de Producción) |
+| GET | `/api/export/movimientos` | `.xlsx` de movimientos de inventario de producto terminado, con el motivo de los ajustes (`ROLES.EXISTENCIAS`) |
+
+Todas las exportaciones con fecha (todas menos inventario y clientes) aceptan `?desde=AAAA-MM-DD&hasta=AAAA-MM-DD`, en hora de Colombia y con "hasta" incluido; sin fechas exportan todo. Una fecha mal escrita o un rango al revés devuelve 400.
 
 ### Notificaciones
 

@@ -4,6 +4,7 @@ import { Pencil, Plus, Tag } from "lucide-react";
 import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ProductoForm from "../components/ProductoForm";
+import { catalogIssues, duplicateNameIds } from "../lib/catalogIssues";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
 
@@ -115,6 +116,24 @@ export default function Productos() {
   const productsQuery = useQuery({ queryKey: ["allProducts"], queryFn: api.getAllProducts });
   const { data: products } = productsQuery;
 
+  // Datos que no cuadran, por producto activo (ver lib/catalogIssues.ts).
+  const duplicates = duplicateNameIds(products ?? []);
+  const issuesFor = (p: any): string[] =>
+    p.active ? [...catalogIssues(p), ...(duplicates.has(p.id) ? ["Hay otro producto activo con el mismo nombre."] : [])] : [];
+  const withIssues = (products ?? []).filter((p: any) => issuesFor(p).length > 0).length;
+  const IssuesBadge = ({ p }: { p: any }) => {
+    const list = issuesFor(p);
+    if (!list.length) return null;
+    return (
+      <span
+        title={list.join(" · ")}
+        className="ml-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-2 py-0.5 rounded-full whitespace-nowrap"
+      >
+        Revisar ({list.length})
+      </span>
+    );
+  };
+
   async function handleDeactivate(id: number) {
     await api.deactivateProduct(id);
     queryClient.invalidateQueries({ queryKey: ["allProducts"] });
@@ -177,6 +196,13 @@ export default function Productos() {
         </div>
       </div>
 
+      {withIssues > 0 && (
+        <p role="status" className="rounded border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 px-4 py-2 text-sm text-amber-900 dark:text-amber-200">
+          {withIssues === 1 ? "1 producto tiene" : `${withIssues} productos tienen`} datos que no cuadran (marcados con "Revisar"; pasá el mouse o
+          abrí Editar para ver qué).
+        </p>
+      )}
+
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         <AsyncState
           query={productsQuery}
@@ -213,7 +239,10 @@ export default function Productos() {
                       <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelected(p.id)} />
                     </td>
                     <td className="p-3 text-slate-500 dark:text-slate-400">{p.sku}</td>
-                    <td className="p-3 font-medium text-slate-800 dark:text-slate-100">{p.name}</td>
+                    <td className="p-3 font-medium text-slate-800 dark:text-slate-100">
+                      {p.name}
+                      <IssuesBadge p={p} />
+                    </td>
                     <td className="p-3 text-slate-600 dark:text-slate-300">{CATEGORY_LABELS[p.category] ?? p.category}</td>
                     <td className="p-3 text-slate-600 dark:text-slate-300">{p.unit}</td>
                     <td className="p-3 text-slate-600 dark:text-slate-300">{p.minStock}</td>
@@ -272,6 +301,7 @@ export default function Productos() {
                       <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelected(p.id)} />
                       <p className="font-medium text-slate-800 dark:text-slate-100">
                         {p.name} <span className="text-slate-400 dark:text-slate-400 font-normal">({p.sku})</span>
+                        <IssuesBadge p={p} />
                       </p>
                     </label>
                     {p.active ? (

@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
+import { catalogIssues } from "../lib/catalogIssues";
 
 interface ProductoFormProps {
   /** Producto a editar. Si viene `null`/`undefined`, el formulario crea uno nuevo. */
@@ -78,12 +79,19 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
 
       const saved = isEdit ? await api.updateProduct(product.id, payload) : await api.createProduct(payload);
       onSaved(saved);
-    } catch {
-      setError("No se pudo guardar el producto. Revisá los datos e intentá de nuevo.");
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.message
+          ? `No se pudo guardar el producto: ${err.message}`
+          : "No se pudo guardar el producto. Revisá los datos e intentá de nuevo."
+      );
     } finally {
       setSaving(false);
     }
   }
+
+  // Avisos mientras se carga (no bloquean el guardado).
+  const issues = catalogIssues({ name, color, densidad, measure, measureUnit, unitPrice });
 
   const inputClass =
     "w-full border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:text-slate-100";
@@ -192,6 +200,17 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
         <label className={labelClass}>Precio unitario (COP)</label>
         <input className={inputClass} type="number" min={0} value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
       </div>
+
+      {issues.length > 0 && (
+        <div role="status" className="rounded border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 p-3 text-sm text-amber-900 dark:text-amber-200">
+          <p className="font-medium mb-1">Revisá antes de guardar (se puede guardar igual):</p>
+          <ul className="list-disc pl-5 space-y-0.5">
+            {issues.map((i) => (
+              <li key={i}>{i}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="flex gap-2 pt-1">
         <button

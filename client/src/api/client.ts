@@ -5,6 +5,17 @@ const API_BASE = "/api";
  * existe") de otro código (401/500) sin depender del texto del mensaje.
  * Hace falta, por ejemplo, para probar un código escaneado contra más de
  * un endpoint e ir al siguiente solo si el anterior dio 404. */
+export type ExportResource =
+  | "inventario"
+  | "pedidos"
+  | "facturas"
+  | "clientes"
+  | "ordenes-produccion"
+  | "rollos"
+  | "despachos-bodegas"
+  | "materia-prima"
+  | "movimientos";
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -833,12 +844,19 @@ export const api = {
 
   /** Mismo patrón crudo que downloadPedidoAttachment (fetch + blob + <a
    * download>) — el .xlsx generado no es JSON, no pasa por request(). */
-  downloadExport: async (resource: "inventario" | "pedidos" | "facturas" | "clientes") => {
+  downloadExport: async (resource: ExportResource, dates: { desde?: string; hasta?: string } = {}) => {
     const token = getToken();
-    const res = await fetch(`${API_BASE}/export/${resource}`, {
+    const params = new URLSearchParams();
+    if (dates.desde) params.set("desde", dates.desde);
+    if (dates.hasta) params.set("hasta", dates.hasta);
+    const query = params.toString() ? `?${params}` : "";
+    const res = await fetch(`${API_BASE}/export/${resource}${query}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-    if (!res.ok) throw new Error(`Error ${res.status}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(formatApiError(body?.error) ?? `Error ${res.status}`, res.status);
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

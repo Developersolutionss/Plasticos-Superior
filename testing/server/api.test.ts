@@ -35,6 +35,8 @@ import { generatePossessionToken, hashPossessionToken } from "../../server/src/s
 import { ROLL_CODE_PREFIX, inheritSpecs } from "../../server/src/services/opTemplates";
 import { applyMovement, InsufficientStockError } from "../../server/src/services/stockService";
 import { applyRawMaterialMovement } from "../../server/src/services/rawMaterialStockService";
+import { runStalledAlerts } from "../../server/src/services/stalledAlerts";
+import ExcelJS from "exceljs";
 
 let server: Server;
 let baseUrl = "";
@@ -7808,3 +7810,132 @@ describe("etapa terminada vs producto final: cerrar una etapa no siempre va a Ca
   });
 });
 
+describe("exportaciones de producción y filtro por fecha", () => {
+  const cleanup: (() => Promise<unknown>)[] = [];
+  after(async () => {
+    for (const fn of cleanup.reverse()) await fn().catch(() => {});
+  });
+
+  async function sheetRows(res: Response): Promise<string[][]> {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(await res.arrayBuffer()) as never);
+    const rows: string[][] = [];
+    wb.worksheets[0].eachRow((row) => rows.push((row.values as unknown[]).slice(1).map((v) => String(v ?? ""))));
+    return rows;
+  }
+
+  it("cada exportación de producción devuelve .xlsx a Gestión y 403 a ventas/operarios", async () => {
+    for (const resource of ["ordenes-produccion", "rollos", "despachos-bodegas", "materia-prima"]) {
+      const ok = await fetch(`${baseUrl}/api/export/${resource}`, { headers: headersFor("produccion") });
+      assert.equal(ok.status, 200, resource);
+      assert.match(ok.headers.get("content-disposition") ?? "", new RegExp(`${resource}\\.xlsx`));
+      for (const role of ["ventas", "operario_extrusion"]) {
+        const denied = await fetch(`${baseUrl}/api/export/${resource}`, { headers: headersFor(role) });
+        assert.equal(denied.status, 403, `${resource} debería rechazar a ${role}`);
+      }
+    }
+    const movimientos = await fetch(`${baseUrl}/api/export/movimientos`, { headers: headersFor("almacen") });
+    assert.equal(movimientos.status, 200);
+    const deniedMov = await fetch(`${baseUrl}/api/export/movimientos`, { headers: headersFor("operario_extrusion") });
+    assert.equal(deniedMov.status, 403);
+  });
+
+  it("fechas inválidas o al revés dan 400", async () => {
+    const bad = await fetch(`${baseUrl}/api/export/rollos?desde=01/11/2026`, { headers: headersFor("produccion") });
+    assert.equal(bad.status, 400);
+    const reversed = await fetch(`${baseUrl}/api/export/pedidos?desde=2026-11-30&hasta=2026-11-01`, { headers: headersFor("ventas") });
+    assert.equal(reversed.status, 400);
+  });
+
+  it("el rango filtra por fecha de creación: la OP de hoy sale con 'hasta' = hoy y no con un rango del pasado", async () => {
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const created = await fetch(`${baseUrl}/api/production-orders`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ productId: product.id, quantityPlanned: 7 }),
+    });
+    assert.equal(created.status, 201);
+    const op = (await created.json()) as { id: number; orderNumber: string };
+    cleanup.push(() => prisma.productionOrder.delete({ where: { id: op.id } }));
+
+    // "Hoy" en hora de Colombia, igual que el filtro.
+    const today = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const inRange = await fetch(`${baseUrl}/api/export/ordenes-produccion?desde=${today}&hasta=${today}`, { headers: headersFor("produccion") });
+    assert.equal(inRange.status, 200);
+    const rows = await sheetRows(inRange);
+    assert.match(rows[0][0], /Órdenes de producción \(.+\)/, "el título dice el rango");
+    assert.ok(rows.some((r) => r[0] === op.orderNumber), "la OP creada hoy está en el export");
+
+    const past = await fetch(`${baseUrl}/api/export/ordenes-produccion?desde=2020-01-01&hasta=2020-01-31`, { headers: headersFor("produccion") });
+    const pastRows = await sheetRows(past);
+    assert.ok(!pastRows.some((r) => r[0] === op.orderNumber), "fuera del rango no aparece");
+  });
+});
+
+describe("avisos: OPs estancadas y rollos en tránsito hace mucho", () => {
+  const startedAt = new Date();
+  const cleanup: (() => Promise<unknown>)[] = [];
+  after(async () => {
+    for (const fn of cleanup.reverse()) await fn().catch(() => {});
+    await prisma.notification.deleteMany({ where: { type: { in: ["op_estancada", "rollo_en_transito"] }, createdAt: { gte: startedAt } } });
+  });
+
+  it("avisa a Gestión una OP sin rollos hace días y un rollo en tránsito hace más de 24 h, sin repetir el aviso", async () => {
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const gestion = await prisma.user.findFirstOrThrow({ where: { role: "gerente_produccion", active: true } });
+    const now = new Date();
+    const daysAgo = (d: number) => new Date(now.getTime() - d * 24 * 60 * 60 * 1000);
+
+    const stalled = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-T${Date.now()}`, station: "extrusion", status: "en_proceso", productId: product.id, quantityPlanned: 10, createdAt: daysAgo(5) },
+    });
+    cleanup.push(() => prisma.productionOrder.delete({ where: { id: stalled.id } }));
+    const fresh = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-F${Date.now()}`, station: "extrusion", status: "en_proceso", productId: product.id, quantityPlanned: 10 },
+    });
+    cleanup.push(() => prisma.productionOrder.delete({ where: { id: fresh.id } }));
+
+    const lastSeq = await prisma.productionRoll.aggregate({ where: { station: "extrusion" }, _max: { stationSequence: true } });
+    const roll = await prisma.productionRoll.create({
+      data: {
+        productionOrderId: fresh.id,
+        station: "extrusion",
+        stationSequence: (lastSeq._max.stationSequence ?? 0) + 1000,
+        operatorName: "Test",
+        weightKg: 10,
+        possessionTokenHash: hashPossessionToken(generatePossessionToken()),
+      },
+    });
+    cleanup.push(() => prisma.productionRoll.delete({ where: { id: roll.id } }));
+    const transfer = await prisma.rollTransfer.create({
+      data: {
+        rollId: roll.id,
+        fromStation: "extrusion",
+        toStation: "sellado",
+        mode: "entrega",
+        carrierName: "Juan",
+        registeredById: gestion.id,
+        clientTimezone: "America/Bogota",
+        clientUtcOffsetMinutes: -300,
+        createdAt: daysAgo(1.5),
+      },
+    });
+
+    const first = await runStalledAlerts(now);
+    assert.ok(first.ops >= 1 && first.transits >= 1);
+
+    const opNotices = await prisma.notification.findMany({ where: { type: "op_estancada", link: `/produccion/ordenes/${stalled.id}`, userId: gestion.id } });
+    assert.equal(opNotices.length, 1);
+    assert.match(opNotices[0].message, /lleva 5 días abierta sin ningún rollo/);
+    const freshNotices = await prisma.notification.count({ where: { type: "op_estancada", link: `/produccion/ordenes/${fresh.id}` } });
+    assert.equal(freshNotices, 0, "la OP con actividad reciente no se avisa");
+    const transitNotices = await prisma.notification.findMany({ where: { type: "rollo_en_transito", link: { endsWith: `#traslado-${transfer.id}` }, userId: gestion.id } });
+    assert.equal(transitNotices.length, 1);
+    assert.match(transitNotices[0].message, /hace 36 horas y nadie lo ha recibido \(lo llevó Juan\)/);
+
+    // Una segunda revisión (ej. a la hora siguiente) no repite los avisos.
+    await runStalledAlerts(new Date(now.getTime() + 60 * 60 * 1000));
+    assert.equal(await prisma.notification.count({ where: { type: "op_estancada", link: `/produccion/ordenes/${stalled.id}`, userId: gestion.id } }), 1);
+    assert.equal(await prisma.notification.count({ where: { type: "rollo_en_transito", link: { endsWith: `#traslado-${transfer.id}` }, userId: gestion.id } }), 1);
+  });
+});
