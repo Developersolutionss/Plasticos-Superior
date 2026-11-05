@@ -4109,8 +4109,17 @@ describe("clientes · productos cargados a mano", () => {
       body: JSON.stringify({ productId: productA, quantity: 15, notes: "Lo pedía antes del sistema" }),
     });
     assert.equal(res.status, 201);
-    const created = (await res.json()) as { id: number; quantity: string; notes: string; product: { id: number } };
+    const created = (await res.json()) as {
+      id: number;
+      quantity: string;
+      notes: string;
+      product: { id: number; measure: string | null; measureUnit: string | null };
+    };
     assert.equal(created.product.id, productA);
+    // La medida viene con el producto: varias bolsas comparten nombre y se distinguen por ella.
+    const dbProduct = await prisma.product.findUniqueOrThrow({ where: { id: productA } });
+    assert.equal(created.product.measure, dbProduct.measure);
+    assert.equal(created.product.measureUnit, dbProduct.measureUnit);
     assert.equal(Number(created.quantity), 15);
     assert.equal(created.notes, "Lo pedía antes del sistema");
 

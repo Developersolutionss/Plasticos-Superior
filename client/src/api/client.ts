@@ -380,13 +380,18 @@ export const api = {
     request<{ creditLimit: number; saldoPendiente: number; facturasPendientes: any[] }>(`/clients/${clientId}/cartera`),
   getClientTopProducts: (clientId: number, limit?: number) =>
     request<
-      { product: { id: number; sku: string; name: string; unit: string }; measure: string | null; frequency: number; totalQuantity: number }[]
+      {
+        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null };
+        measure: string | null;
+        frequency: number;
+        totalQuantity: number;
+      }[]
     >(`/clients/${clientId}/top-products${limit ? `?limit=${limit}` : ""}`),
   getClientManualProducts: (clientId: number) =>
     request<
       {
         id: number;
-        product: { id: number; sku: string; name: string; unit: string };
+        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null };
         quantity: number | null;
         notes: string | null;
         createdBy: { name: string } | null;

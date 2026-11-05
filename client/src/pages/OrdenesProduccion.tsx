@@ -7,6 +7,7 @@ import { STATION_LABELS, OpStation, opStatusLabel } from "../opTemplates";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
 import { SuggestionSources } from "../components/SuggestionSources";
+import { nameWithMeasure } from "../lib/productMeasure";
 
 const STATUS_LABELS: Record<string, string> = {
   borrador: "Borrador",
@@ -388,7 +389,7 @@ export default function OrdenesProduccion() {
             <option value="">Producto (referencia)...</option>
             {products?.map((p: any) => (
               <option key={p.id} value={p.id}>
-                {p.name} ({p.sku})
+                {nameWithMeasure(p)} ({p.sku})
               </option>
             ))}
           </select>

@@ -291,6 +291,10 @@ clientsRouter.get("/:id/cartera", async (req, res) => {
  * que se repite en muchos pedidos chicos es más "lo que más pide" que uno
  * pedido una sola vez en cantidad grande.
  */
+/** Datos del producto en las listas del cliente: con la medida, porque varias
+ * bolsas comparten nombre y solo se distinguen por ella. */
+const CLIENT_PRODUCT_SELECT = { id: true, sku: true, name: true, unit: true, measure: true, measureUnit: true } as const;
+
 clientsRouter.get("/:id/top-products", async (req, res) => {
   const clientId = Number(req.params.id);
   if (!Number.isInteger(clientId)) return res.status(400).json({ error: "Id inválido" });
@@ -308,13 +312,21 @@ clientsRouter.get("/:id/top-products", async (req, res) => {
       versions: {
         select: {
           versionNumber: true,
-          items: { select: { productId: true, quantity: true, measure: true, product: { select: { id: true, sku: true, name: true, unit: true } } } },
+          items: { select: { productId: true, quantity: true, measure: true, product: { select: CLIENT_PRODUCT_SELECT } } },
         },
       },
     },
   });
 
-  const stats = new Map<number, { product: { id: number; sku: string; name: string; unit: string }; measure: string | null; frequency: number; totalQuantity: number }>();
+  const stats = new Map<
+    number,
+    {
+      product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null };
+      measure: string | null;
+      frequency: number;
+      totalQuantity: number;
+    }
+  >();
   for (const pedido of pedidos) {
     const vigente = pedido.versions.find((v) => v.versionNumber === pedido.currentVersion);
     if (!vigente) continue;
@@ -349,7 +361,7 @@ clientsRouter.get("/:id/manual-products", async (req, res) => {
 
   const manualProducts = await prisma.clientManualProduct.findMany({
     where: { clientId },
-    include: { product: { select: { id: true, sku: true, name: true, unit: true } }, createdBy: { select: { name: true } } },
+    include: { product: { select: CLIENT_PRODUCT_SELECT }, createdBy: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });
   res.json(manualProducts);
@@ -391,7 +403,7 @@ clientsRouter.post("/:id/manual-products", async (req, res) => {
       notes: parsed.data.notes,
       createdById: req.user!.userId,
     },
-    include: { product: { select: { id: true, sku: true, name: true, unit: true } }, createdBy: { select: { name: true } } },
+    include: { product: { select: CLIENT_PRODUCT_SELECT }, createdBy: { select: { name: true } } },
   });
   res.status(201).json(manualProduct);
 });

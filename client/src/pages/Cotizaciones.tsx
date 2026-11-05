@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { api } from "../api/client";
+import { nameWithMeasure } from "../lib/productMeasure";
 import ClientePicker from "../components/ClientePicker";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -203,7 +204,7 @@ export default function Cotizaciones() {
                 <option value="">Producto...</option>
                 {products?.map((p: any) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}
+                    {nameWithMeasure(p)}
                   </option>
                 ))}
               </select>

@@ -11,6 +11,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ALMACEN } from "../components/navConfig";
 import { splitScannedCode } from "../lib/rollQr";
 import { printRemision } from "../lib/printRemision";
+import { nameWithMeasure } from "../lib/productMeasure";
 
 interface ItemDraft {
   productId: string;
@@ -269,7 +270,7 @@ export default function Dispatches() {
                     <option value="">Producto...</option>
                     {products?.map((p: any) => (
                       <option key={p.id} value={p.id}>
-                        {p.name}
+                        {nameWithMeasure(p)}
                       </option>
                     ))}
                   </select>

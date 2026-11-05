@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 import { api } from "../api/client";
+import { nameWithMeasure } from "../lib/productMeasure";
 
 const STATUS_LABELS: Record<string, string> = {
   emitida: "Emitida",
@@ -151,7 +152,7 @@ export default function Facturas() {
                   <option value="">Producto...</option>
                   {products?.map((p: any) => (
                     <option key={p.id} value={p.id}>
-                      {p.name}
+                      {nameWithMeasure(p)}
                     </option>
                   ))}
                 </select>

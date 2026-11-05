@@ -8,6 +8,7 @@ import ClienteAvatar from "../components/ClienteAvatar";
 import ClienteForm from "../components/ClienteForm";
 import ContactoForm from "../components/ContactoForm";
 import { byFrequency, nextInteraction } from "../lib/frequency";
+import { nameWithMeasure } from "../lib/productMeasure";
 
 type Tab = "contactos" | "direcciones" | "historial" | "productos" | "cartera" | "editar";
 type Filter = "abc" | "antiguedad" | "frecuentes";
@@ -638,7 +639,7 @@ export default function Clients() {
                         <li key={tp.product.id} className="py-3 flex items-center justify-between text-sm">
                           <div>
                             <p className="font-medium text-slate-800 dark:text-slate-100">
-                              {tp.product.name} <span className="text-slate-400 dark:text-slate-500 font-normal">({tp.product.sku})</span>
+                              {nameWithMeasure(tp.product)} <span className="text-slate-400 dark:text-slate-500 font-normal">({tp.product.sku})</span>
                             </p>
                             <p className="text-slate-500 dark:text-slate-400 text-xs">
                               En {tp.frequency} pedido{tp.frequency === 1 ? "" : "s"} · {tp.totalQuantity} {tp.measure ?? tp.product.unit} en total
@@ -662,7 +663,7 @@ export default function Clients() {
                         <li key={mp.id} className="py-3 flex items-center justify-between text-sm gap-2">
                           <div className="min-w-0">
                             <p className="font-medium text-slate-800 dark:text-slate-100">
-                              {mp.product.name} <span className="text-slate-400 dark:text-slate-500 font-normal">({mp.product.sku})</span>
+                              {nameWithMeasure(mp.product)} <span className="text-slate-400 dark:text-slate-500 font-normal">({mp.product.sku})</span>
                             </p>
                             <p className="text-slate-500 dark:text-slate-400 text-xs">
                               {mp.quantity != null && `${mp.quantity} ${mp.product.unit} · `}
@@ -695,7 +696,7 @@ export default function Clients() {
                         <option value="">Producto...</option>
                         {products?.map((p: any) => (
                           <option key={p.id} value={p.id}>
-                            {p.name} ({p.sku})
+                            {nameWithMeasure(p)} ({p.sku})
                           </option>
                         ))}
                       </select>
