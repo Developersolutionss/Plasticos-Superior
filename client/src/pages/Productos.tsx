@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ProductoForm from "../components/ProductoForm";
 import { catalogIssues, duplicateNameIds } from "../lib/catalogIssues";
+import { productMeasure } from "../lib/productMeasure";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
 
@@ -119,7 +120,7 @@ export default function Productos() {
   // Datos que no cuadran, por producto activo (ver lib/catalogIssues.ts).
   const duplicates = duplicateNameIds(products ?? []);
   const issuesFor = (p: any): string[] =>
-    p.active ? [...catalogIssues(p), ...(duplicates.has(p.id) ? ["Hay otro producto activo con el mismo nombre."] : [])] : [];
+    p.active ? [...catalogIssues(p), ...(duplicates.has(p.id) ? ["Hay otro producto activo con el mismo nombre y la misma medida."] : [])] : [];
   const withIssues = (products ?? []).filter((p: any) => issuesFor(p).length > 0).length;
   const IssuesBadge = ({ p }: { p: any }) => {
     const list = issuesFor(p);
@@ -224,6 +225,7 @@ export default function Productos() {
                   </th>
                   <th className="p-3">SKU</th>
                   <th className="p-3">Nombre</th>
+                  <th className="p-3">Medida</th>
                   <th className="p-3">Categoría</th>
                   <th className="p-3">Unidad</th>
                   <th className="p-3">Stock mínimo</th>
@@ -243,6 +245,7 @@ export default function Productos() {
                       {p.name}
                       <IssuesBadge p={p} />
                     </td>
+                    <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{productMeasure(p) || "—"}</td>
                     <td className="p-3 text-slate-600 dark:text-slate-300">{CATEGORY_LABELS[p.category] ?? p.category}</td>
                     <td className="p-3 text-slate-600 dark:text-slate-300">{p.unit}</td>
                     <td className="p-3 text-slate-600 dark:text-slate-300">{p.minStock}</td>
@@ -310,7 +313,10 @@ export default function Productos() {
                       <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full shrink-0">Inactivo</span>
                     )}
                   </div>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">{CATEGORY_LABELS[p.category] ?? p.category}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {CATEGORY_LABELS[p.category] ?? p.category}
+                    {productMeasure(p) && ` · ${productMeasure(p)}`}
+                  </p>
                   <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-300">
                     <span>
                       Mín: {p.minStock} {p.unit}

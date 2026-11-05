@@ -45,4 +45,13 @@ describe("duplicateNameIds", () => {
     ]);
     expect([...ids].sort()).toEqual([1, 2]);
   });
+
+  it("mismo nombre con distinta medida no es repetido; misma medida sí", () => {
+    const ids = duplicateNameIds([
+      { id: 1, name: "Rollo precorte", measure: "9x14", measureUnit: "Pulgadas", active: true },
+      { id: 2, name: "Rollo precorte", measure: "20x30", measureUnit: "Pulgadas", active: true },
+      { id: 3, name: "Rollo precorte", measure: "20 x 30", measureUnit: "Pulgadas", active: true },
+    ]);
+    expect([...ids].sort()).toEqual([2, 3]);
+  });
 });
