@@ -368,14 +368,46 @@ describe("inventario", () => {
     }
   });
 
-  it("gerente de producción no ve Existencias/alertas (a pedido del cliente), pero sí puede elegir productos del catálogo", async () => {
-    const denied = ["/api/inventory", "/api/inventory/alerts"];
-    for (const route of denied) {
+  it("gerente de producción ve Existencias y alertas (desde 2026-10-22); los operarios no", async () => {
+    for (const route of ["/api/inventory", "/api/inventory/alerts"]) {
       const res = await fetch(`${baseUrl}${route}`, { headers: headersFor("produccion") });
-      assert.equal(res.status, 403, `${route} debería rechazar a gerente_produccion`);
+      assert.equal(res.status, 200, `${route} debería dejar pasar a gerente_produccion`);
+      const denied = await fetch(`${baseUrl}${route}`, { headers: headersFor("operario_extrusion") });
+      assert.equal(denied.status, 403, `${route} debería rechazar a un operario`);
     }
     const products = await fetch(`${baseUrl}/api/inventory/products`, { headers: headersFor("produccion") });
     assert.equal(products.status, 200, "gerente_produccion sigue necesitando el catálogo para armar OPs");
+  });
+
+  it("POST /:productId/count ajusta el stock al conteo, deja el motivo y solo lo hace Almacén", async () => {
+    const product = await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } });
+    const before = Number((await prisma.inventoryStock.findUnique({ where: { productId: product.id } }))?.currentQuantity ?? 0);
+    const url = `${baseUrl}/api/inventory/${product.id}/count`;
+    const post = (role: string, body: unknown) => fetch(url, { method: "POST", headers: headersFor(role), body: JSON.stringify(body) });
+
+    assert.equal((await post("produccion", { countedQuantity: before + 5, notes: "Conteo mensual" })).status, 403);
+    assert.equal((await post("almacen", { countedQuantity: before + 5, notes: "x" })).status, 400, "el motivo es obligatorio");
+    assert.equal((await post("almacen", { countedQuantity: -1, notes: "Conteo mensual" })).status, 400);
+
+    try {
+      const ok = await post("almacen", { countedQuantity: before + 5, notes: "Conteo mensual" });
+      assert.equal(ok.status, 201);
+      const body = (await ok.json()) as { previousQuantity: number; newQuantity: number; delta: number };
+      assert.equal(body.previousQuantity, before);
+      assert.equal(body.newQuantity, before + 5);
+      assert.equal(body.delta, 5);
+
+      const movement = await prisma.inventoryMovement.findFirstOrThrow({
+        where: { productId: product.id, referenceType: "manual_adjustment" },
+        orderBy: { id: "desc" },
+      });
+      assert.equal(movement.movementType, "ajuste");
+      assert.match(movement.notes ?? "", /Conteo mensual/);
+    } finally {
+      await post("almacen", { countedQuantity: before, notes: "Se devuelve el stock de la prueba" });
+    }
+    const after = Number((await prisma.inventoryStock.findUnique({ where: { productId: product.id } }))?.currentQuantity ?? 0);
+    assert.equal(after, before);
   });
 
   it("GET /movements exige rol de almacén y devuelve paginado", async () => {
@@ -4730,7 +4762,7 @@ describe("dashboard", () => {
 });
 
 describe("exportaciones", () => {
-  it("GET /inventario devuelve un .xlsx no vacío para roles con acceso a Existencias, y 403 para Gerente de Producción/operarios", async () => {
+  it("GET /inventario devuelve un .xlsx no vacío para roles con acceso a Existencias (incluido Gerente de Producción), y 403 para operarios", async () => {
     const res = await fetch(`${baseUrl}/api/export/inventario`, { headers: headersFor("almacen") });
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type") ?? "", /spreadsheetml/);
@@ -4738,11 +4770,10 @@ describe("exportaciones", () => {
     const buf = await res.arrayBuffer();
     assert.ok(buf.byteLength > 0);
 
-    // Mismo guard que GET /inventory (ROLES.EXISTENCIAS) -- a pedido del
-    // cliente, Gerente de Producción no ve cuánto stock hay, y menos un
-    // operario de planta. El export se había quedado sin este guard.
-    const denied = await fetch(`${baseUrl}/api/export/inventario`, { headers: headersFor("produccion") });
-    assert.equal(denied.status, 403);
+    // Mismo guard que GET /inventory (ROLES.EXISTENCIAS): Gerente de
+    // Producción también entra (desde 2026-10-22); un operario de planta no.
+    const gerente = await fetch(`${baseUrl}/api/export/inventario`, { headers: headersFor("produccion") });
+    assert.equal(gerente.status, 200);
     const deniedOperario = await fetch(`${baseUrl}/api/export/inventario`, { headers: headersFor("operario_extrusion") });
     assert.equal(deniedOperario.status, 403);
   });
@@ -6126,7 +6157,7 @@ describe("órdenes de producción · sugerencias (manual + por frecuencia)", () 
         clientId,
         productId,
         station: "extrusion",
-        specs: { color: "Negro", materiaPrima: [{ ref: "BAJA", pct: 60 }] },
+        specs: { color: "Negro", materiaPrima: [{ ref: "BAJA", pct: 60 }, { ref: "ALTA", pct: 40 }] },
       }),
     });
     assert.equal(manual.status, 201);
@@ -6143,7 +6174,7 @@ describe("órdenes de producción · sugerencias (manual + por frecuencia)", () 
       const derive = await fetch(`${baseUrl}/api/production-orders/${root.id}/derive`, {
         method: "POST",
         headers: headersFor("produccion"),
-        body: JSON.stringify({ station: "extrusion", specs: { color: "Blanco", materiaPrima: [{ ref: "BAJA", pct: 40 }] } }),
+        body: JSON.stringify({ station: "extrusion", specs: { color: "Blanco", materiaPrima: [{ ref: "BAJA", pct: 40 }, { ref: "ALTA", pct: 60 }] } }),
       });
       // Root -> Extrusión es la PRIMERA derivación (station todavía null):
       // actualiza la misma fila en vez de crear una hija, por eso 200 y no
@@ -6169,6 +6200,17 @@ describe("órdenes de producción · sugerencias (manual + por frecuencia)", () 
     const freqBaja = suggestions.frequent.specs.materiaPrima.find((r) => r.ref === "BAJA");
     assert.ok(freqBaja, "Materia Prima entra en la frecuencia igual que un campo simple");
     assert.equal(Number(freqBaja!.pct), 40, "el % más repetido del historial (no el de la manual)");
+    const total = suggestions.frequent.specs.materiaPrima.reduce((acc, r) => acc + Number(r.pct), 0);
+    assert.equal(total, 100, "la fórmula sugerida es una fórmula completa que suma 100%");
+  });
+
+  it("una sugerencia manual con materia prima que no suma 100% se rechaza", async () => {
+    const res = await fetch(`${baseUrl}/api/production-orders/presets`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ clientId, productId, station: "extrusion", specs: { materiaPrima: [{ ref: "BAJA", pct: 60 }] } }),
+    });
+    assert.equal(res.status, 400);
   });
 
   it("regresión: derivar de la 2da estación en adelante conserva las notas del padre si no se mandan explícitas", async () => {

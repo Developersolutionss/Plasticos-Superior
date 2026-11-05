@@ -30,6 +30,7 @@ import {
 import {
   Allocation,
   InsufficientSourceRollError,
+  adjustRollBalance,
   SourceRollExhaustedError,
   allocateFromSourceRolls,
   allocateWholeSourceRolls,
@@ -449,22 +450,21 @@ productionOrdersRouter.get("/suggestions", requireProduccionGestion, async (req,
   });
   const specsByKey = new Map<string, (string | number)[]>();
   // Materia Prima es una lista de filas ({ref, pct, lote}), no un valor
-  // simple -- se agrega aparte, por ref, y solo el % (lote es de un lote
-  // físico puntual, no algo reutilizable como sugerencia).
-  const materiaPrimaByRef = new Map<string, (string | number)[]>();
+  // simple: se sugiere la FÓRMULA COMPLETA más usada (solo las que suman
+  // 100%), no el % más frecuente de cada insumo por separado — eso podía
+  // armar una fórmula que no sumaba 100% y la OP no se liberaba. El lote es
+  // de un lote físico puntual, no se sugiere.
+  const formulas: string[] = [];
   for (const order of stationOrders) {
     const specs = order.specs as Record<string, unknown> | null;
     if (!specs || typeof specs !== "object") continue;
     for (const [key, value] of Object.entries(specs)) {
       if (key === "materiaPrima") {
-        if (!Array.isArray(value)) continue;
-        for (const row of value) {
-          if (!row || typeof row !== "object") continue;
-          const { ref, pct } = row as { ref?: unknown; pct?: unknown };
-          if (typeof ref !== "string" || (typeof pct !== "string" && typeof pct !== "number")) continue;
-          if (!materiaPrimaByRef.has(ref)) materiaPrimaByRef.set(ref, []);
-          materiaPrimaByRef.get(ref)!.push(pct);
-        }
+        const rows = materiaPrimaRows({ materiaPrima: value })
+          .filter((r) => r.pct > 0)
+          .sort((a, b) => a.ref.localeCompare(b.ref));
+        const total = Math.round(rows.reduce((acc, r) => acc + r.pct, 0) * 100) / 100;
+        if (rows.length && Math.abs(total - 100) <= 0.01) formulas.push(JSON.stringify(rows.map((r) => ({ ref: r.ref, pct: r.pct }))));
         continue;
       }
       if (typeof value !== "string" && typeof value !== "number") continue;
@@ -477,12 +477,8 @@ productionOrdersRouter.get("/suggestions", requireProduccionGestion, async (req,
     const value = mostFrequent(values);
     if (value !== null) frequentSpecs[key] = value;
   }
-  const frequentMateriaPrima: { ref: string; pct: string | number }[] = [];
-  for (const [ref, values] of materiaPrimaByRef) {
-    const pct = mostFrequent(values);
-    if (pct !== null) frequentMateriaPrima.push({ ref, pct });
-  }
-  if (frequentMateriaPrima.length) frequentSpecs.materiaPrima = frequentMateriaPrima;
+  const formula = mostFrequent(formulas);
+  if (formula) frequentSpecs.materiaPrima = JSON.parse(formula);
   res.json({ manual, frequent: { sampleSize: stationOrders.length, specs: frequentSpecs } });
 });
 
@@ -1113,7 +1109,21 @@ productionOrdersRouter.post("/presets", requireProduccionGestion, async (req, re
     const normalized = normalizeSpecOptions(station as OpStation, specs);
     if (normalized.issues.length) return res.status(400).json({ error: specOptionIssuesMessage(station as OpStation, normalized.issues) });
     specs = normalized.specs;
+    // Una sugerencia con fórmula de materia prima tiene que sumar 100%: si
+    // no, al aplicarla la OP no se puede liberar.
+    if (materiaPrimaRows(specs).length) {
+      const falta = materiaPrimaIncompleta(specs);
+      if (falta) return res.status(400).json({ error: falta.replace("antes de seguir", "para guardarla como sugerencia") });
+    }
   }
+  // Cada guardado reemplaza la sugerencia entera: lo que llega vacío se
+  // limpia (antes una medida o cantidad borrada en la pantalla quedaba con
+  // el valor viejo). La de "root" es medida + cantidad; la de una estación,
+  // sus specs.
+  const content =
+    station === "root"
+      ? { measure: parsed.data.measure?.trim() || null, quantityPlanned: parsed.data.quantityPlanned ?? null }
+      : { specs: specs && Object.keys(specs).length ? (specs as Prisma.InputJsonValue) : Prisma.DbNull };
 
   const preset = await prisma.productionOrderPreset.upsert({
     where: { clientId_productId_station: { clientId, productId, station } },
@@ -1121,17 +1131,13 @@ productionOrdersRouter.post("/presets", requireProduccionGestion, async (req, re
       clientId,
       productId,
       station,
-      measure: parsed.data.measure,
-      quantityPlanned: parsed.data.quantityPlanned,
-      specs: specs as Prisma.InputJsonValue | undefined,
-      notes: parsed.data.notes,
+      ...content,
+      notes: parsed.data.notes?.trim() || null,
       createdById: req.user!.userId,
     },
     update: {
-      measure: parsed.data.measure,
-      quantityPlanned: parsed.data.quantityPlanned,
-      specs: specs as Prisma.InputJsonValue | undefined,
-      notes: parsed.data.notes,
+      ...content,
+      notes: parsed.data.notes?.trim() || null,
       createdById: req.user!.userId,
     },
   });
@@ -2218,9 +2224,32 @@ productionOrdersRouter.delete("/:id/rolls/:rollId", requireProduccionGestion, as
       const consumidoEnCarrera = await tx.rollConsumption.findFirst({ where: { sourceRollId: rollId } });
       if (consumidoEnCarrera) throw new RollAlreadyConsumedError();
 
+      // Conteo como ancla: si un rollo madre se contó (o se pesó al recibirlo)
+      // DESPUÉS de que esta fila le sacara material, ese conteo ya refleja lo
+      // que físicamente queda. Borrar la fila le devolvería esos kilos y el
+      // saldo quedaría por encima de lo contado — así que se compensa con un
+      // ajuste para que el saldo siga siendo el contado.
+      const consumos = await tx.rollConsumption.findMany({ where: { rollId }, select: { sourceRollId: true, quantityKg: true, createdAt: true } });
+      const anclas: { sourceRollId: number; kg: number }[] = [];
+      for (const c of consumos) {
+        const posterior = await tx.rollAdjustment.findFirst({ where: { rollId: c.sourceRollId, createdAt: { gt: c.createdAt } }, select: { id: true } });
+        if (posterior) anclas.push({ sourceRollId: c.sourceRollId, kg: Number(c.quantityKg) });
+      }
+      for (const a of anclas) await tx.$queryRaw`SELECT id FROM production_rolls WHERE id = ${a.sourceRollId} FOR UPDATE`;
+
       // Los consumos DE este rollo (lo que él le sacó a sus madres) se borran
       // en cascada, así que el saldo de los madres se libera solo.
       await tx.productionRoll.delete({ where: { id: rollId } });
+      for (const a of anclas) {
+        const liberado = await remainingSourceKg(tx, a.sourceRollId);
+        await adjustRollBalance(tx, {
+          rollId: a.sourceRollId,
+          newKg: liberado - a.kg,
+          reason: "conteo",
+          createdById: req.user!.userId,
+          notes: `Se borró la fila ${sourceRollCode(roll)} que le había sacado ${a.kg} kg antes del último conteo: el saldo sigue siendo el contado`,
+        });
+      }
       await syncQuantityPlannedToChildren(tx, productionOrderId);
     });
   } catch (err) {

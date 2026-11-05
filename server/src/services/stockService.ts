@@ -32,6 +32,8 @@ export async function applyMovement(
     referenceId?: number;
     productionEntryId?: number;
     createdById?: number;
+    /** Motivo (ajustes manuales, ej. conteo físico). */
+    notes?: string;
     /** Ubicación física de la que sale (o a la que entra) el stock — ver
      * `decrementLocationStock`/`incrementLocationStock`. Opcional: si no se
      * manda, el movimiento solo toca el total agregado, igual que antes. */
@@ -93,6 +95,7 @@ export async function applyMovement(
       referenceId: params.referenceId,
       productionEntryId: params.productionEntryId,
       createdById: params.createdById,
+      notes: params.notes,
     },
   });
 }

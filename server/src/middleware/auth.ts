@@ -85,7 +85,9 @@ export const ROLES = {
   // menú): a diferencia de INVENTARIO de arriba, Gerente de Producción
   // queda afuera a pedido del cliente — sigue pudiendo elegir productos
   // (INVENTARIO) para armar OPs, pero no ver cuánto stock hay.
-  EXISTENCIAS: ["super_admin", "admin", "almacen_despachos", "planeacion", "ventas_pedidos"] as UserRole[],
+  // Gerente de Producción también (2026-10-22): necesita ver cuánto hay de
+  // cada producto, los rollos de Extrusión y lo fabricado por cliente.
+  EXISTENCIAS: ["super_admin", "admin", "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"] as UserRole[],
   // Gestión del CATÁLOGO (Productos/Materia prima: crear, editar,
   // desactivar, ver la lista completa) — a diferencia de INVENTARIO de
   // arriba, Gerente de Producción queda afuera a pedido del cliente: sigue

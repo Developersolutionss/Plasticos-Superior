@@ -3,6 +3,7 @@ import { Fragment, FormEvent, ReactNode, useEffect, useRef, useState } from "rea
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, Check, FileDown, GitBranch, Lock, Paperclip, Pencil, Printer, RotateCcw, ScanLine, Send, Trash2, X } from "lucide-react";
 import { api, ApiError } from "../api/client";
+import { deriveSpecsFromMeasure } from "../lib/measureSpecs";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, OP_PRECORTE, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
@@ -68,33 +69,6 @@ const sheetInput =
  * de verdad (fondo sólido, borde visible), no una celda de hoja de cálculo. */
 const draftInput =
   "w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-sm text-slate-800 dark:text-slate-100 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500";
-
-/** El dueño pidió que "Medidas" (ej. "12x18") precargue Ancho (primer
- * número, casilla ANCHO de Especificaciones/Material) y, cuando el formato
- * es "AxB", el segundo número se reparte según pinta: si es chico/decimal
- * (< 1, ej. "0.00045") es un CALIBRE, no un largo — se guarda en `calibre`
- * (existe en las 4 estaciones). Si es un número "de tamaño normal" (ej.
- * "18"), se interpreta como el Largo del par Ancho/Largo de "Medidas
- * finales" (medAncho/medLargo) — esas dos claves solo existen en Sellado/
- * Precorte, en Extrusión/Impresión simplemente no aplican y no se setean. */
-function deriveSpecsFromMeasure(measure: string): Record<string, string> {
-  const value = measure.trim();
-  const result: Record<string, string> = {};
-  const anchoMatch = /^(\d+(?:[.,]\d+)?)/.exec(value);
-  if (anchoMatch) result.ancho = anchoMatch[1];
-
-  const parMatch = /^(\d+(?:[.,]\d+)?)\s*[xX]\s*(\d+(?:[.,]\d+)?)/.exec(value);
-  if (parMatch) {
-    const second = Number(parMatch[2].replace(",", "."));
-    if (second > 0 && second < 1) {
-      result.calibre = parMatch[2];
-    } else {
-      result.medAncho = parMatch[1];
-      result.medLargo = parMatch[2];
-    }
-  }
-  return result;
-}
 
 function SheetBand({ children }: { children: React.ReactNode }) {
   return (

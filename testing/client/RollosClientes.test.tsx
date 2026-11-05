@@ -94,7 +94,7 @@ describe("Existencias: total, reservado y disponible", () => {
     // Tocar lo que está para clientes lleva a la pestaña Por cliente.
     vi.mocked(api.getClientReservations).mockResolvedValue([reserva({})] as any);
     await userEvent.setup().click(within(fila).getByRole("button", { name: "27 kg" }));
-    expect(screen.getByRole("tab", { name: "Por cliente" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /^Por cliente/ })).toHaveAttribute("aria-selected", "true");
     const acme = (await screen.findByText("Cliente ACME", { selector: "p" })).closest("section") as HTMLElement;
     expect(within(acme).getByText("SELL-10").closest("li")).toHaveTextContent("SELL-10 · 15 kg");
     await userEvent.setup().click(screen.getByRole("tab", { name: "Stock general" }));
@@ -119,7 +119,7 @@ describe("Existencias: pestaña Rollos de Extrusión", () => {
       },
     ]);
     renderWith(<InventoryDashboard />);
-    await userEvent.setup().click(await screen.findByRole("tab", { name: "Rollos de Extrusión" }));
+    await userEvent.setup().click(await screen.findByRole("tab", { name: /^Rollos de Extrusión/ }));
     expect(await screen.findByText("En total: 3 rollos · 105 kg")).toBeInTheDocument();
     const fila = screen.getByText("ROL-PL-001", { exact: false }).closest("tr") as HTMLElement;
     expect(within(fila).getByText("2 rollos · 55 kg")).toBeInTheDocument();

@@ -34,23 +34,39 @@ export default function InventoryDashboard() {
   // no tiene sentido bloquear toda la pantalla de existencias por eso, así
   // que se dejan sin AsyncState y simplemente no se muestran.
   const { data: alerts } = useQuery({ queryKey: ["alerts"], queryFn: api.getAlerts });
+  // Los números de las pestañas: que se note de entrada que ahí hay algo.
+  const { data: extrusionRolls } = useQuery({ queryKey: ["extrusionRolls"], queryFn: api.getExtrusionRolls });
+  const { data: reservations } = useQuery({ queryKey: ["clientReservations"], queryFn: api.getClientReservations });
+  const extrusionCount = (extrusionRolls ?? []).reduce((acc, p) => acc + p.rollCount, 0);
+  const clientCount = new Set((reservations ?? []).map((r) => r.client.id)).size;
 
   const tabClass = (active: boolean) =>
-    `px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-      active ? "border-slate-800 dark:border-slate-200 text-slate-900 dark:text-slate-100" : "border-transparent text-slate-500 dark:text-slate-400"
+    `inline-flex items-center gap-2 px-5 py-2.5 text-base font-semibold rounded-t-lg border-b-4 -mb-px ${
+      active
+        ? "border-slate-800 dark:border-slate-200 text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900"
+        : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
     }`;
+  const countBadge = (n: number, active: boolean) => (
+    <span
+      className={`text-xs rounded-full px-2 py-0.5 ${
+        active ? "bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900" : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+      }`}
+    >
+      {n}
+    </span>
+  );
 
   return (
     <div className="space-y-4">
-      <div role="tablist" className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+      <div role="tablist" className="flex flex-wrap gap-1 border-b-2 border-slate-200 dark:border-slate-700">
         <button type="button" role="tab" aria-selected={view === "general"} className={tabClass(view === "general")} onClick={() => setView("general")}>
           Stock general
         </button>
         <button type="button" role="tab" aria-selected={view === "extrusion"} className={tabClass(view === "extrusion")} onClick={() => setView("extrusion")}>
-          Rollos de Extrusión
+          Rollos de Extrusión {extrusionRolls && countBadge(extrusionCount, view === "extrusion")}
         </button>
         <button type="button" role="tab" aria-selected={view === "clientes"} className={tabClass(view === "clientes")} onClick={() => setView("clientes")}>
-          Por cliente
+          Por cliente {reservations && countBadge(clientCount, view === "clientes")}
         </button>
       </div>
 

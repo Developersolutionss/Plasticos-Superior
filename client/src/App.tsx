@@ -78,9 +78,8 @@ const DEFAULT_ROUTE_FOR_ROLE: Partial<Record<UserRole, string>> = {
   operario_precorte: "/produccion/estacion/precorte",
   calidad: "/calidad",
   auditor: "/auditoria",
-  // No ve Existencias (a pedido del cliente) aunque sigue en INVENTARIO
-  // para poder elegir productos al armar OPs — su pantalla habitual es la
-  // cola de órdenes de producción.
+  // Ve Existencias (desde 2026-10-22), pero su pantalla habitual sigue
+  // siendo la cola de órdenes de producción.
   gerente_produccion: "/produccion/ordenes",
 };
 
@@ -92,10 +91,10 @@ function IndexRoute() {
   if (user && (ADMIN as UserRole[]).includes(user.role)) {
     return <Navigate to="/dashboard-ejecutivo" replace />;
   }
-  if (user && !(EXISTENCIAS as UserRole[]).includes(user.role)) {
-    const to = DEFAULT_ROUTE_FOR_ROLE[user.role];
-    if (to) return <Navigate to={to} replace />;
-  }
+  // Un rol con pantalla habitual entra ahí aunque también pueda ver
+  // Existencias (ej. Gerente de Producción → órdenes de producción).
+  const to = user ? DEFAULT_ROUTE_FOR_ROLE[user.role] : undefined;
+  if (to) return <Navigate to={to} replace />;
   return <InventoryDashboard />;
 }
 

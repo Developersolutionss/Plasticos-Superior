@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
-import { getLowStockAlerts, getStockByCategory } from "../services/stockService";
+import { z } from "zod";
+import { applyMovement, getLowStockAlerts, getStockByCategory, InsufficientStockError } from "../services/stockService";
+import { reservedByProduct } from "../services/reservations";
 import { clientReservations } from "../services/reservations";
 import { extrusionRollsInventory } from "../services/extrusionRolls";
 
@@ -114,8 +116,68 @@ inventoryRouter.get("/movements", requireRole(...ROLES.ALMACEN), async (req, res
       return d ? { label: `Despacho #${d.dispatchId} · ${d.dispatch.client.name}`, link: "/despachos" } : { label: "Despacho" };
     }
     if (m.referenceType === "production_entry") return { label: "Carga de producción", link: "/produccion" };
-    return { label: "Ajuste manual" };
+    return { label: m.notes ? `Ajuste manual · ${m.notes}` : "Ajuste manual" };
   };
 
   res.json({ items: items.map((m) => ({ ...m, origin: originOf(m) })), total, page, pageSize });
 });
+
+const countSchema = z.object({
+  /** Lo que se contó/pesó físicamente del producto (en su unidad). */
+  countedQuantity: z.number().min(0).max(10_000_000),
+  notes: z.string().trim().min(3, "Escribí el motivo del ajuste (ej. conteo físico mensual)").max(500),
+});
+
+/**
+ * Ajuste por conteo físico de un producto terminado (Almacén): el stock pasa
+ * a ser lo contado, con un movimiento "ajuste" por la diferencia y el motivo
+ * (se ve en Movimientos). Si el producto tiene stock ubicado en estantes y
+ * el conteo queda por debajo de lo ubicado, hay que corregir primero los
+ * estantes en Almacén/WMS. Avisa si lo contado queda por debajo de lo
+ * reservado para clientes.
+ */
+inventoryRouter.post("/:productId/count", requireRole(...ROLES.ALMACEN), async (req, res) => {
+  const productId = Number(req.params.productId);
+  if (!Number.isInteger(productId)) return res.status(400).json({ error: "Id inválido" });
+  const parsed = countSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const product = await prisma.product.findUnique({ where: { id: productId }, select: { id: true, name: true, unit: true } });
+  if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // Misma fila que bloquean los despachos: nadie mueve el stock entre la
+      // lectura y el ajuste.
+      await tx.$queryRaw`SELECT product_id FROM inventory_stock WHERE product_id = ${productId} FOR UPDATE`;
+      const stock = await tx.inventoryStock.findUnique({ where: { productId }, select: { currentQuantity: true } });
+      const previous = Number(stock?.currentQuantity ?? 0);
+      const counted = Math.round(parsed.data.countedQuantity * 100) / 100;
+      const delta = Math.round((counted - previous) * 100) / 100;
+      if (delta !== 0) {
+        await applyMovement(tx, {
+          productId,
+          quantity: delta,
+          movementType: "ajuste",
+          referenceType: "manual_adjustment",
+          createdById: req.user!.userId,
+          notes: `Conteo físico: ${parsed.data.notes}`,
+        });
+      }
+      const reserved = (await reservedByProduct(tx, { productIds: [productId] })).get(productId) ?? 0;
+      return { previous, counted, delta, reserved };
+    });
+    res.status(201).json({
+      productId,
+      previousQuantity: result.previous,
+      newQuantity: result.counted,
+      delta: result.delta,
+      unit: product.unit,
+      // Lo contado no alcanza para lo que está reservado para clientes.
+      belowReserved: result.counted < result.reserved - 0.005 ? result.reserved : null,
+    });
+  } catch (err) {
+    if (err instanceof InsufficientStockError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+

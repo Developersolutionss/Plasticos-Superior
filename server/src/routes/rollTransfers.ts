@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import type { Prisma, ProductionRoll } from "../generated/prisma/client";
+import { Prisma, type ProductionRoll } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES, OPERARIO_STATIONS } from "../middleware/auth";
 import {
@@ -251,10 +251,32 @@ function materialParaStation(specs: unknown): OpStation | null {
  *   los despachos a clientes.
  */
 rollTransfersRouter.get("/inventory", async (_req, res) => {
+  // La base devuelve solo los rollos que hoy están en alguna bodega, en vez
+  // de traer todos (con el tiempo serían miles) y filtrar acá: material con
+  // saldo, o producto terminado que todavía no salió hacia un cliente. Es el
+  // mismo criterio que orderIsFinalStage y FINISHED_TRACKING_SINCE de abajo.
+  const inStock = await prisma.$queryRaw<{ id: number }[]>(Prisma.sql`
+    SELECT r.id
+    FROM production_rolls r
+    JOIN production_orders o ON o.id = r.production_order_id
+    LEFT JOIN (SELECT source_roll_id, SUM(quantity_kg) AS kg FROM roll_consumptions GROUP BY source_roll_id) c ON c.source_roll_id = r.id
+    LEFT JOIN (SELECT roll_id, SUM(delta_kg) AS kg FROM roll_adjustments GROUP BY roll_id) a ON a.roll_id = r.id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM dispatch_item_rolls dr
+      JOIN dispatch_items di ON di.id = dr.dispatch_item_id
+      JOIN dispatches d ON d.id = di.dispatch_id
+      WHERE dr.roll_id = r.id AND d.status <> 'cancelada'
+    )
+    AND (
+      CASE WHEN o.station::text <> 'extrusion'
+             AND (o.is_final_stage = true OR (o.is_final_stage IS NULL AND o.status::text IN ('pendiente_calidad', 'detenida', 'finalizada')))
+        THEN r.created_at >= ${FINISHED_TRACKING_SINCE} AND o.status::text NOT IN ('detenida', 'cancelada')
+        ELSE r.weight_kg - COALESCE(c.kg, 0) + COALESCE(a.kg, 0) > 0.005
+      END
+    )
+  `);
   const rolls = await prisma.productionRoll.findMany({
-    // Lo que ya salió hacia un cliente no está en ninguna bodega (un despacho
-    // cancelado lo libera, igual que en Despachos).
-    where: { dispatchItems: { none: { dispatchItem: { dispatch: { status: { not: "cancelada" } } } } } },
+    where: { id: { in: inStock.map((r) => r.id) } },
     select: {
       id: true,
       station: true,

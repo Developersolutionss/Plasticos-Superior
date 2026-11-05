@@ -489,6 +489,9 @@ model InventoryMovement {
   referenceId   Int?           @map("reference_id")
   productionEntryId Int?       @map("production_entry_id")
   productionEntry   ProductionEntry? @relation(fields: [productionEntryId], references: [id])
+  /// Motivo de un ajuste manual (ej. el conteo físico de POST
+  /// /inventory/:productId/count). Null en los demás movimientos.
+  notes         String?
   createdById   Int?           @map("created_by")
   createdBy     User?          @relation(fields: [createdById], references: [id])
   createdAt     DateTime       @default(now()) @map("created_at")

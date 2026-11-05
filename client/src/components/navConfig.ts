@@ -42,7 +42,7 @@ export const INVENTARIO: UserRole[] = [...ADMIN, "almacen_despachos", "gerente_p
 // A diferencia de INVENTARIO (quién puede elegir productos del catálogo,
 // reusado en Cotizaciones/Pedidos/OPs), Gerente de Producción no ve stock
 // real de Existencias — a pedido del cliente.
-export const EXISTENCIAS: UserRole[] = [...ADMIN, "almacen_despachos", "planeacion", "ventas_pedidos"];
+export const EXISTENCIAS: UserRole[] = [...ADMIN, "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"];
 // Gestión del catálogo (Productos/Materia prima): a diferencia de
 // INVENTARIO de arriba, Gerente de Producción queda afuera a pedido del
 // cliente -- sigue pudiendo ELEGIR un producto al armar una OP (INVENTARIO),
