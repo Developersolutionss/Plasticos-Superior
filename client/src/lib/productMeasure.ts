@@ -1,12 +1,14 @@
 /**
- * Medida de un producto para mostrar al lado del nombre (ej. "8+2.5+5.5x16 pulg",
- * "20x30 cm"). Varias bolsas comparten nombre y solo se distinguen por la medida,
- * así que los selectores y listas de producto la muestran.
+ * Medida y calibre de un producto para mostrar al lado del nombre (ej.
+ * "8+2.5+5.5x16 pulg · cal 0.6"). Varias bolsas comparten nombre y solo se
+ * distinguen por la medida y el calibre, así que los selectores y listas de
+ * producto los muestran.
  */
 export interface MeasuredProduct {
   name: string;
   measure?: string | null;
   measureUnit?: string | null;
+  calibre?: string | null;
 }
 
 const UNIT_SHORT: Record<string, string> = { Pulgadas: "pulg", "Cms.": "cm" };
@@ -19,8 +21,20 @@ export function productMeasure(p: Pick<MeasuredProduct, "measure" | "measureUnit
   return unit && !/[a-zA-Z"]\s*$/.test(m) ? `${m} ${unit}` : m;
 }
 
-/** "Bolsa manigueta · 8+2.5+5.5x16 pulg" (o solo el nombre si no tiene medida). */
+/** "cal 0.7", o "" si no tiene calibre (no se repite "cal" si ya lo escribieron). */
+export function productCalibre(p: Pick<MeasuredProduct, "calibre">): string {
+  const c = p.calibre?.trim() ?? "";
+  if (!c) return "";
+  return /^cal/i.test(c) ? c : `cal ${c}`;
+}
+
+/** "5x10 pulg · cal 0.7" — medida y calibre juntos, lo que tenga. */
+export function productSpecs(p: Omit<MeasuredProduct, "name">): string {
+  return [productMeasure(p), productCalibre(p)].filter(Boolean).join(" · ");
+}
+
+/** "Bolsa baja densidad · 5x10 pulg · cal 0.7" (o solo el nombre si no tiene medida ni calibre). */
 export function nameWithMeasure(p: MeasuredProduct): string {
-  const m = productMeasure(p);
-  return m ? `${p.name} · ${m}` : p.name;
+  const specs = productSpecs(p);
+  return specs ? `${p.name} · ${specs}` : p.name;
 }

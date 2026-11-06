@@ -4120,6 +4120,7 @@ describe("clientes · productos cargados a mano", () => {
     const dbProduct = await prisma.product.findUniqueOrThrow({ where: { id: productA } });
     assert.equal(created.product.measure, dbProduct.measure);
     assert.equal(created.product.measureUnit, dbProduct.measureUnit);
+    assert.equal((created.product as { calibre?: string | null }).calibre, dbProduct.calibre);
     assert.equal(Number(created.quantity), 15);
     assert.equal(created.notes, "Lo pedía antes del sistema");
 

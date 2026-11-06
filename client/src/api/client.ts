@@ -381,7 +381,7 @@ export const api = {
   getClientTopProducts: (clientId: number, limit?: number) =>
     request<
       {
-        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null };
+        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null; calibre: string | null };
         measure: string | null;
         frequency: number;
         totalQuantity: number;
@@ -391,7 +391,7 @@ export const api = {
     request<
       {
         id: number;
-        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null };
+        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null; calibre: string | null };
         quantity: number | null;
         notes: string | null;
         createdBy: { name: string } | null;

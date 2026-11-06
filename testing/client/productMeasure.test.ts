@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nameWithMeasure, productMeasure } from "../../client/src/lib/productMeasure";
+import { nameWithMeasure, productCalibre, productMeasure } from "../../client/src/lib/productMeasure";
 
 describe("medida del producto en selectores y listas", () => {
   it("agrega la unidad corta a la medida", () => {
@@ -16,5 +16,14 @@ describe("medida del producto en selectores y listas", () => {
     expect(nameWithMeasure({ name: "Bolsa manigueta", measure: "12+3+3x26", measureUnit: "Pulgadas" })).toBe("Bolsa manigueta · 12+3+3x26 pulg");
     expect(nameWithMeasure({ name: "Bolsa manigueta", measure: "  ", measureUnit: "Pulgadas" })).toBe("Bolsa manigueta");
     expect(nameWithMeasure({ name: "Bolsa manigueta" })).toBe("Bolsa manigueta");
+  });
+
+  it("incluye el calibre para distinguir la misma medida en 0.7, 2, etc.", () => {
+    expect(nameWithMeasure({ name: "Bolsa baja densidad", measure: "5x10", measureUnit: "Pulgadas", calibre: "0.7" })).toBe(
+      "Bolsa baja densidad · 5x10 pulg · cal 0.7"
+    );
+    expect(nameWithMeasure({ name: "Bolsa baja densidad", calibre: "2" })).toBe("Bolsa baja densidad · cal 2");
+    expect(productCalibre({ calibre: "cal 0.6" })).toBe("cal 0.6");
+    expect(productCalibre({ calibre: " " })).toBe("");
   });
 });

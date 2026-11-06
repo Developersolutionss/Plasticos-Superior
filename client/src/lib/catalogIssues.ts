@@ -11,6 +11,7 @@ export interface CatalogProductLike {
   densidad?: string | null;
   measure?: string | null;
   measureUnit?: string | null;
+  calibre?: string | null;
   active?: boolean;
 }
 
@@ -75,7 +76,7 @@ export function catalogIssues(p: CatalogProductLike): string[] {
   return issues;
 }
 
-/** Productos activos con el mismo nombre y la misma medida (sin importar mayúsculas,
+/** Productos activos con el mismo nombre, la misma medida y el mismo calibre (sin importar mayúsculas,
  * tildes ni espacios). Mismo nombre con distinta medida es normal (ej. rollos
  * precorte 9x14 y 20x30), no se marca. */
 export function duplicateNameIds(products: CatalogProductLike[]): Set<number> {
@@ -83,7 +84,7 @@ export function duplicateNameIds(products: CatalogProductLike[]): Set<number> {
   const byName = new Map<string, number[]>();
   for (const p of products) {
     if (p.active === false || p.id == null || !p.name) continue;
-    const key = `${fold(p.name).replace(/\s+/g, " ").trim()}|${norm(p.measure)}|${norm(p.measureUnit)}`;
+    const key = `${fold(p.name).replace(/\s+/g, " ").trim()}|${norm(p.measure)}|${norm(p.measureUnit)}|${norm(p.calibre)}`;
     byName.set(key, [...(byName.get(key) ?? []), p.id]);
   }
   const ids = new Set<number>();
