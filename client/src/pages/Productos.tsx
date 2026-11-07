@@ -8,6 +8,7 @@ import { catalogIssues, duplicateNameIds } from "../lib/catalogIssues";
 import { productMeasure, productSpecs } from "../lib/productMeasure";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
+import IssuesBadge from "../components/IssuesBadge";
 
 /** El nombre/SKU del producto se interpolan en un HTML servido por
  * `document.write` en una ventana con el mismo origen — sin escapar, un
@@ -118,19 +119,6 @@ export default function Productos() {
   const issuesFor = (p: any): string[] =>
     p.active ? [...catalogIssues(p), ...(duplicates.has(p.id) ? ["Hay otro producto activo con el mismo nombre, medida, calibre, color y densidad."] : [])] : [];
   const withIssues = (products ?? []).filter((p: any) => issuesFor(p).length > 0).length;
-  const IssuesBadge = ({ p }: { p: any }) => {
-    const list = issuesFor(p);
-    if (!list.length) return null;
-    return (
-      <span
-        title={list.join(" · ")}
-        className="ml-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-2 py-0.5 rounded-full whitespace-nowrap"
-      >
-        Revisar ({list.length})
-      </span>
-    );
-  };
-
   async function handleDeactivate(id: number) {
     await api.deactivateProduct(id);
     queryClient.invalidateQueries({ queryKey: ["allProducts"] });
@@ -195,8 +183,8 @@ export default function Productos() {
 
       {withIssues > 0 && (
         <p role="status" className="rounded border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 px-4 py-2 text-sm text-amber-900 dark:text-amber-200">
-          {withIssues === 1 ? "1 producto tiene" : `${withIssues} productos tienen`} datos que no cuadran (marcados con "Revisar"; pasá el mouse o
-          abrí Editar para ver qué).
+          {withIssues === 1 ? "1 producto tiene" : `${withIssues} productos tienen`} datos que no cuadran (marcados con "Revisar"; pasá el mouse o tocá
+          "Revisar" para ver qué).
         </p>
       )}
 
@@ -240,7 +228,7 @@ export default function Productos() {
                     <td className="p-3 text-slate-500 dark:text-slate-400">{p.sku}</td>
                     <td className="p-3 font-medium text-slate-800 dark:text-slate-100">
                       {p.name}
-                      <IssuesBadge p={p} />
+                      <IssuesBadge issues={issuesFor(p)} />
                     </td>
                     <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{productMeasure(p) || "—"}</td>
                     <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{p.calibre?.trim() || "—"}</td>
@@ -302,7 +290,7 @@ export default function Productos() {
                       <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelected(p.id)} />
                       <p className="font-medium text-slate-800 dark:text-slate-100">
                         {p.name} <span className="text-slate-400 dark:text-slate-400 font-normal">({p.sku})</span>
-                        <IssuesBadge p={p} />
+                        <IssuesBadge issues={issuesFor(p)} />
                       </p>
                     </label>
                     {p.active ? (
