@@ -9,6 +9,7 @@ export interface MeasuredProduct {
   measure?: string | null;
   measureUnit?: string | null;
   calibre?: string | null;
+  color?: string | null;
 }
 
 const UNIT_SHORT: Record<string, string> = { Pulgadas: "pulg", "Cms.": "cm" };
@@ -28,9 +29,10 @@ export function productCalibre(p: Pick<MeasuredProduct, "calibre">): string {
   return /^cal/i.test(c) ? c : `cal ${c}`;
 }
 
-/** "5x10 pulg · cal 0.7" — medida y calibre juntos, lo que tenga. */
+/** "5x10 pulg · cal 0.7 · Blanco" — medida, calibre y color, lo que tenga. El color
+ * distingue la misma referencia en distinto color. */
 export function productSpecs(p: Omit<MeasuredProduct, "name">): string {
-  return [productMeasure(p), productCalibre(p)].filter(Boolean).join(" · ");
+  return [productMeasure(p), productCalibre(p), p.color?.trim() ?? ""].filter(Boolean).join(" · ");
 }
 
 /** "Bolsa baja densidad · 5x10 pulg · cal 0.7" (o solo el nombre si no tiene medida ni calibre). */

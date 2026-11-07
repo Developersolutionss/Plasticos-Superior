@@ -22,6 +22,8 @@ import { pedidosRouter } from "../../server/src/routes/pedidos";
 import { facturasRouter } from "../../server/src/routes/facturas";
 import { auditLogRouter } from "../../server/src/routes/auditLog";
 import { productsRouter } from "../../server/src/routes/products";
+import { COLORES } from "../../server/src/services/colorList";
+import { normalizeSpecOptions } from "../../server/src/services/opTemplates";
 import { usersRouter } from "../../server/src/routes/users";
 import { warehouseRouter } from "../../server/src/routes/warehouse";
 import { publicLocationRouter } from "../../server/src/routes/publicLocation";
@@ -4510,6 +4512,51 @@ describe("productos", () => {
       body: JSON.stringify({ name: "Test", category: "bultos", unit: "kg", minStock: 0, unitPrice: 1, densidad: "MEDIA" }),
     });
     assert.equal(res2.status, 400);
+  });
+
+  it("se pueden agregar colores: quedan en la lista, valen en productos y en OPs, sin duplicarse", async () => {
+    const before = await prisma.appMeta.findUnique({ where: { key: "product_colors" } });
+    const lengthBefore = COLORES.length;
+    const name = `ocre prueba ${Date.now()}`;
+    const created: number[] = [];
+    try {
+      const denied = await fetch(`${baseUrl}/api/products/colors`, { method: "POST", headers: headersFor("ventas"), body: JSON.stringify({ name }) });
+      assert.equal(denied.status, 403, "solo quien gestiona el catálogo agrega colores");
+
+      const add = await fetch(`${baseUrl}/api/products/colors`, { method: "POST", headers: headersFor("planeacion"), body: JSON.stringify({ name }) });
+      assert.equal(add.status, 201);
+      const added = (await add.json()) as { color: string; colors: string[] };
+      assert.equal(added.color, `O${name.slice(1)}`, "se guarda con mayúscula inicial");
+      assert.ok(added.colors.includes(added.color));
+
+      const again = await fetch(`${baseUrl}/api/products/colors`, { method: "POST", headers: headersFor("planeacion"), body: JSON.stringify({ name: name.toUpperCase() }) });
+      assert.equal(again.status, 200, "el mismo color con otras mayúsculas no se duplica");
+      const list = (await (await fetch(`${baseUrl}/api/products/colors`, { headers: headersFor("produccion") })).json()) as string[];
+      assert.equal(list.filter((c) => c === added.color).length, 1);
+      assert.ok(list.includes("Negro"), "la lista base sigue");
+
+      const product = await fetch(`${baseUrl}/api/products`, {
+        method: "POST",
+        headers: headersFor("planeacion"),
+        body: JSON.stringify({ name: "Test color nuevo", category: "bultos", unit: "kg", minStock: 0, color: name }),
+      });
+      assert.equal(product.status, 201);
+      const p = (await product.json()) as { id: number; color: string };
+      created.push(p.id);
+      assert.equal(p.color, added.color, "el color queda escrito como en la lista");
+
+      const unknown = await fetch(`${baseUrl}/api/products/${p.id}`, { method: "PATCH", headers: headersFor("planeacion"), body: JSON.stringify({ color: "Color que no existe" }) });
+      assert.equal(unknown.status, 400);
+
+      const op = normalizeSpecOptions("extrusion", { color: name.toUpperCase() });
+      assert.deepEqual(op.issues, [], "la OP acepta el color agregado");
+      assert.equal(op.specs.color, added.color);
+    } finally {
+      for (const id of created) await prisma.product.delete({ where: { id } }).catch(() => {});
+      if (before) await prisma.appMeta.update({ where: { key: "product_colors" }, data: { value: before.value } });
+      else await prisma.appMeta.deleteMany({ where: { key: "product_colors" } });
+      COLORES.splice(lengthBefore);
+    }
   });
 
   it("GET /:id/label devuelve un QR en data URL", async () => {

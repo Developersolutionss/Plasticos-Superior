@@ -1,6 +1,8 @@
 import { FormEvent, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { catalogIssues } from "../lib/catalogIssues";
+import { PRODUCT_COLORS_KEY, useProductColors } from "../lib/useProductColors";
 
 interface ProductoFormProps {
   /** Producto a editar. Si viene `null`/`undefined`, el formulario crea uno nuevo. */
@@ -28,7 +30,6 @@ const UNITS: { value: string; label: string }[] = [
 
 const MEDIDA_UNIDADES = ["Pulgadas", "Cms."];
 const DENSIDADES = ["ALTA", "BAJA"];
-const COLORES = ["Negro", "Transparente", "Blanco", "Rojo", "Verde", "Verde claro"];
 
 /** Formulario único para crear y editar productos. Se usa como modal desde
  * la pantalla de gestión de Inventario → Productos.
@@ -52,6 +53,33 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
   const [minStock, setMinStock] = useState(product?.minStock != null ? String(product.minStock) : "0");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const colores = useProductColors();
+  const queryClient = useQueryClient();
+  // "+ Agregar color": el color nuevo queda en la lista para todos (productos y OPs).
+  const [addingColor, setAddingColor] = useState(false);
+  const [newColor, setNewColor] = useState("");
+  const [colorError, setColorError] = useState<string | null>(null);
+  const [savingColor, setSavingColor] = useState(false);
+
+  async function handleAddColor() {
+    setColorError(null);
+    if (newColor.trim().length < 2) {
+      setColorError("Escribí el nombre del color.");
+      return;
+    }
+    setSavingColor(true);
+    try {
+      const res = await api.addProductColor(newColor.trim());
+      queryClient.setQueryData(PRODUCT_COLORS_KEY, res.colors);
+      setColor(res.color);
+      setAddingColor(false);
+      setNewColor("");
+    } catch (err) {
+      setColorError(err instanceof ApiError && err.message ? err.message : "No se pudo agregar el color.");
+    } finally {
+      setSavingColor(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -132,14 +160,68 @@ export default function ProductoForm({ product, onSaved, onCancel }: ProductoFor
         </div>
         <div>
           <label className={labelClass}>Color</label>
-          <select className={inputClass} value={color} onChange={(e) => setColor(e.target.value)}>
+          <select
+            className={inputClass}
+            value={addingColor ? "__nuevo__" : color}
+            onChange={(e) => {
+              if (e.target.value === "__nuevo__") {
+                setAddingColor(true);
+                setColorError(null);
+              } else {
+                setAddingColor(false);
+                setColor(e.target.value);
+              }
+            }}
+          >
             <option value="">—</option>
-            {COLORES.map((c) => (
+            {color && !colores.includes(color) && <option value={color}>{color}</option>}
+            {colores.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
             ))}
+            <option value="__nuevo__">+ Agregar color…</option>
           </select>
+          {addingColor && (
+            <div className="mt-2 space-y-1">
+              <div className="flex gap-2">
+                <input
+                  className={inputClass}
+                  aria-label="Nombre del color nuevo"
+                  placeholder="Ej. Azul, Amarillo"
+                  value={newColor}
+                  autoFocus
+                  onChange={(e) => setNewColor(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddColor();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="shrink-0 bg-slate-800 text-white text-sm px-3 rounded disabled:opacity-50"
+                  disabled={savingColor}
+                  onClick={handleAddColor}
+                >
+                  {savingColor ? "..." : "Agregar"}
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 text-sm px-2 text-slate-500 dark:text-slate-400"
+                  onClick={() => {
+                    setAddingColor(false);
+                    setNewColor("");
+                    setColorError(null);
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+              {colorError && <p className="text-xs text-red-600 dark:text-red-400">{colorError}</p>}
+            </div>
+          )}
         </div>
       </div>
 

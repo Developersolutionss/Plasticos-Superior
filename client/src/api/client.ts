@@ -252,6 +252,10 @@ export const api = {
    * Productos — distinto de getProducts(), que es el selector filtrado a
    * activos usado como dropdown en Cotizaciones/Facturas/OPs/Pedidos. */
   getAllProducts: () => request<any[]>("/products"),
+  /** Colores de la lista (base + los agregados desde el catálogo). */
+  getProductColors: () => request<string[]>("/products/colors"),
+  addProductColor: (name: string) =>
+    request<{ color: string; colors: string[] }>("/products/colors", { method: "POST", body: JSON.stringify({ name }) }),
   createProduct: (data: {
     name: string;
     category: string;
@@ -381,7 +385,7 @@ export const api = {
   getClientTopProducts: (clientId: number, limit?: number) =>
     request<
       {
-        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null; calibre: string | null };
+        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null; calibre: string | null; color: string | null };
         measure: string | null;
         frequency: number;
         totalQuantity: number;
@@ -391,7 +395,7 @@ export const api = {
     request<
       {
         id: number;
-        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null; calibre: string | null };
+        product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null; calibre: string | null; color: string | null };
         quantity: number | null;
         notes: string | null;
         createdBy: { name: string } | null;

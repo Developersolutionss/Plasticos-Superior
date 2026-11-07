@@ -55,6 +55,16 @@ describe("duplicateNameIds", () => {
     expect([...ids].sort()).toEqual([2, 3]);
   });
 
+  it("misma referencia en distinto color no es repetido", () => {
+    const base = { name: "Bolsa tratada", measure: "13x21", measureUnit: "Pulgadas", calibre: "1.8", densidad: "BAJA", active: true };
+    const ids = duplicateNameIds([
+      { ...base, id: 1, color: "Blanco" },
+      { ...base, id: 2, color: "Negro" },
+      { ...base, id: 3, color: "negro" },
+    ]);
+    expect([...ids].sort()).toEqual([2, 3]);
+  });
+
   it("misma medida con distinto calibre no es repetido", () => {
     const ids = duplicateNameIds([
       { id: 1, name: "Bolsa baja densidad", measure: "5x10", measureUnit: "Pulgadas", calibre: "0.7", active: true },

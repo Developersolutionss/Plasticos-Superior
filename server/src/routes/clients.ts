@@ -293,7 +293,7 @@ clientsRouter.get("/:id/cartera", async (req, res) => {
  */
 /** Datos del producto en las listas del cliente: con la medida, porque varias
  * bolsas comparten nombre y solo se distinguen por ella. */
-const CLIENT_PRODUCT_SELECT = { id: true, sku: true, name: true, unit: true, measure: true, measureUnit: true, calibre: true } as const;
+const CLIENT_PRODUCT_SELECT = { id: true, sku: true, name: true, unit: true, measure: true, measureUnit: true, calibre: true, color: true } as const;
 
 clientsRouter.get("/:id/top-products", async (req, res) => {
   const clientId = Number(req.params.id);
@@ -321,7 +321,7 @@ clientsRouter.get("/:id/top-products", async (req, res) => {
   const stats = new Map<
     number,
     {
-      product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null; calibre: string | null };
+      product: { id: number; sku: string; name: string; unit: string; measure: string | null; measureUnit: string | null; calibre: string | null; color: string | null };
       measure: string | null;
       frequency: number;
       totalQuantity: number;

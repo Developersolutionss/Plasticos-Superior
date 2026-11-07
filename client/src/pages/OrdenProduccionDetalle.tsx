@@ -26,6 +26,7 @@ import {
   STATION_LABELS,
   ROLL_CODE_PREFIX,
 } from "../opTemplates";
+import { useProductColors } from "../lib/useProductColors";
 
 const STATUS_LABELS: Record<string, string> = {
   borrador: "Borrador",
@@ -254,6 +255,7 @@ export default function OrdenProduccionDetalle() {
   const { id } = useParams<{ id: string }>();
   const orderId = Number(id);
   const { user } = useAuth();
+  const productColors = useProductColors();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const confirm = useConfirm();
@@ -1966,7 +1968,9 @@ export default function OrdenProduccionDetalle() {
                         // muestra tal cual, marcado, para que Gestión elija la
                         // opción correcta — el servidor ya no deja guardarlo así.
                         const current = specsDraft[field.key];
-                        const invalid = current != null && current !== "" && !field.options!.includes(String(current));
+                        // Color: lista viva (base + agregados desde el catálogo).
+                        const options = field.key === "color" ? productColors : field.options!;
+                        const invalid = current != null && current !== "" && !options.includes(String(current));
                         return (
                           <select
                             className={`${sheetInput} ${invalid ? "text-red-600 dark:text-red-400 ring-1 ring-red-400" : ""}`}
@@ -1981,7 +1985,7 @@ export default function OrdenProduccionDetalle() {
                                 {String(current)} (no válido)
                               </option>
                             )}
-                            {field.options!.map((opt) => (
+                            {options.map((opt) => (
                               <option key={opt} value={opt}>
                                 {opt}
                               </option>

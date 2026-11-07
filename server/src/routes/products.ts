@@ -5,6 +5,8 @@ import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../prisma";
 import { requireAuth, requireRole, ROLES } from "../middleware/auth";
 import { withSequentialNumberRetry } from "../services/sequentialNumber";
+import { COLORES, matchColor } from "../services/colorList";
+import { addProductColor, ensureProductColorsLoaded } from "../services/productColors";
 
 export const productsRouter = Router();
 productsRouter.use(requireAuth);
@@ -91,7 +93,6 @@ productsRouter.get("/:id/label", async (req, res) => {
 });
 
 const DENSIDADES = ["ALTA", "BAJA"] as const;
-const COLORES = ["Negro", "Transparente", "Blanco", "Rojo", "Verde", "Verde claro"] as const;
 const MEDIDA_UNIDADES = ["Pulgadas", "Cms."] as const;
 
 const productSchema = z.object({
@@ -100,7 +101,9 @@ const productSchema = z.object({
   measure: z.string().optional(),
   measureUnit: z.enum(MEDIDA_UNIDADES).optional(),
   talla: z.string().optional(),
-  color: z.enum(COLORES).optional(),
+  // Tiene que ser un color de la lista (base + los agregados con POST /colors);
+  // se valida en el handler porque la lista crece en vivo.
+  color: z.string().trim().min(1).max(40).optional(),
   densidad: z.enum(DENSIDADES).optional(),
   medidaRef: z.string().optional(),
   calibre: z.string().optional(),
@@ -111,9 +114,36 @@ const productSchema = z.object({
   unitPrice: z.number().min(0).optional(),
 });
 
+/** Lleva el color a como está escrito en la lista; error si no está en ella. */
+async function resolveColor(data: { color?: string }): Promise<string | null> {
+  if (data.color === undefined) return null;
+  await ensureProductColorsLoaded();
+  const match = matchColor(data.color);
+  if (!match) return `El color "${data.color}" no está en la lista. Agregalo primero con "+ Agregar color".`;
+  data.color = match;
+  return null;
+}
+
+/** Colores disponibles (lista base + los agregados). Lo usan el catálogo y las OPs. */
+productsRouter.get("/colors", async (_req, res) => {
+  await ensureProductColorsLoaded();
+  res.json(COLORES);
+});
+
+/** Agrega un color a la lista. Si ya existe (aunque cambien mayúsculas o
+ * tildes) devuelve el existente sin duplicarlo. */
+productsRouter.post("/colors", requireCatalogoGestion, async (req, res) => {
+  const parsed = z.object({ name: z.string().trim().min(2).max(40) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Escribí el nombre del color (entre 2 y 40 letras)" });
+  const { color, created } = await addProductColor(parsed.data.name);
+  res.status(created ? 201 : 200).json({ color, colors: COLORES });
+});
+
 productsRouter.post("/", requireCatalogoGestion, async (req, res) => {
   const parsed = productSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const colorError = await resolveColor(parsed.data);
+  if (colorError) return res.status(400).json({ error: colorError });
 
   try {
     // El SKU se calcula DENTRO del reintento (no antes) -- si dos creaciones
@@ -147,6 +177,8 @@ productsRouter.patch("/:id", requireCatalogoGestion, async (req, res) => {
   if (Object.keys(parsed.data).length === 0) {
     return res.status(400).json({ error: "No se indicó ningún campo para actualizar" });
   }
+  const colorError = await resolveColor(parsed.data);
+  if (colorError) return res.status(400).json({ error: colorError });
 
   const product = await prisma.product.findUnique({ where: { id: productId } });
   if (!product) return res.status(404).json({ error: "Producto no encontrado" });

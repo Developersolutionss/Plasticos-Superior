@@ -25,6 +25,7 @@ import { dashboardRouter } from "./routes/dashboard";
 import { exportRouter } from "./routes/export";
 import { scheduleFrecuentesReset } from "./services/frecuentesReset";
 import { scheduleStalledAlerts } from "./services/stalledAlerts";
+import { ensureProductColorsLoaded } from "./services/productColors";
 
 const app = express();
 
@@ -71,3 +72,5 @@ app.listen(port, () => {
 scheduleFrecuentesReset();
 // Avisos a Gestión: OPs estancadas y rollos en tránsito hace mucho.
 scheduleStalledAlerts();
+// Colores agregados desde el catálogo (los usan productos y OPs).
+ensureProductColorsLoaded().catch((err) => console.error("[colores] no se pudieron cargar los colores agregados:", err));

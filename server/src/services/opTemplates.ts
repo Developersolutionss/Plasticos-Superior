@@ -1,3 +1,6 @@
+// Lista viva de colores: incluye los que se agregan desde el catálogo (ver colorList.ts).
+import { COLORES } from "./colorList";
+
 /**
  * Plantillas de Orden de Producción por proceso, transcritas de los formatos
  * en papel del cliente (media/FORMATO *.xlsx): título y código del formato,
@@ -133,7 +136,6 @@ export function rollProducedKg(station: OpStation | null, roll: { weightKg: unkn
 const FORMA_MATERIAL = ["Tubular", "Semitubular", "Lám. PH", "Lám. Indiv.", "Fuelles"];
 const SI_NO = ["SI", "NO"];
 const DENSIDAD = ["ALTA", "BAJA"];
-const COLORES = ["Negro", "Transparente", "Blanco", "Rojo", "Verde", "Verde claro"];
 // El material solo se trata/imprime por una cara o por las dos -- nunca es
 // otro valor, así que se restringe a opción fija en vez de texto libre
 // (antes se podía tipear cualquier cosa acá).

@@ -41,6 +41,7 @@ import { checkRateLimit } from "../services/rateLimiter";
 import { LEGACY_ROLL_CODE_RE, PREFIX_TO_STATION, ROLL_CODE_RE, rollWhereFromCode } from "../services/rollCode";
 import { localDayBoundary } from "../services/dateRange";
 import { getRollLocation, rollLocationBlock } from "../services/rollLocation";
+import { ensureProductColorsLoaded } from "../services/productColors";
 
 /** 50 verificaciones de token por minuto y por usuario -- ver
  * rateLimiter.ts: es un freno de rendimiento para un cliente en loop, no un
@@ -62,6 +63,11 @@ const upload = multer({
 
 export const productionOrdersRouter = Router();
 productionOrdersRouter.use(requireAuth);
+// Las OPs validan el Color contra la lista viva (base + agregados): que ya
+// esté cargada antes de validar (es una sola consulta por proceso).
+productionOrdersRouter.use((_req, _res, next) => {
+  ensureProductColorsLoaded().then(() => next(), next);
+});
 
 /**
  * El número consecutivo se calculaba como `count()+1`, lo cual asume que

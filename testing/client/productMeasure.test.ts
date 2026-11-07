@@ -26,4 +26,10 @@ describe("medida del producto en selectores y listas", () => {
     expect(productCalibre({ calibre: "cal 0.6" })).toBe("cal 0.6");
     expect(productCalibre({ calibre: " " })).toBe("");
   });
+
+  it("incluye el color: la misma referencia en distinto color se distingue", () => {
+    expect(nameWithMeasure({ name: "Bolsa tratada", measure: "13x21", measureUnit: "Pulgadas", calibre: "1.8", color: "Blanco" })).toBe(
+      "Bolsa tratada · 13x21 pulg · cal 1.8 · Blanco"
+    );
+  });
 });
