@@ -111,6 +111,32 @@ describe("Productos", () => {
     expect(winStub.document.write).toHaveBeenCalledWith(expect.stringContaining("BUL-001"));
   });
 
+  it("el buscador filtra por nombre, medida y color, y avisa si no hay resultados", async () => {
+    vi.mocked(api.getAllProducts).mockResolvedValue([
+      { id: 1, sku: "BUL-023", name: "Bolsa tratada y grafilada", category: "bultos", unit: "kg", minStock: 0, measure: "13x21", measureUnit: "Pulgadas", calibre: "1.8", color: "Blanco", densidad: "BAJA", active: true },
+      { id: 2, sku: "BUL-026", name: "Bolsa tratada y grafilada", category: "bultos", unit: "kg", minStock: 0, measure: "13x21", measureUnit: "Pulgadas", calibre: "1.8", color: "Negro", densidad: "BAJA", active: true },
+      { id: 3, sku: "ROL-PL-001", name: "Rollo precorte", category: "rollos_prec_lam", unit: "kg", minStock: 0, measure: "9x14", measureUnit: "Pulgadas", active: true },
+    ] as any);
+    const user = userEvent.setup();
+    renderProductos();
+    const table = within(await findTable());
+    const search = screen.getByRole("searchbox", { name: "Buscar producto" });
+
+    await user.type(search, "bolsa 13x21 NEGRO");
+    expect(table.getByText("BUL-026")).toBeInTheDocument();
+    expect(table.queryByText("BUL-023")).not.toBeInTheDocument();
+    expect(table.queryByText("ROL-PL-001")).not.toBeInTheDocument();
+    expect(screen.getByText("1 producto de 3")).toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, "azul");
+    expect(screen.getByText(/Ningún producto coincide con "azul"/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Ver todos" }));
+    expect(table.getByText("ROL-PL-001")).toBeInTheDocument();
+    expect(table.getByText("BUL-023")).toBeInTheDocument();
+  });
+
   it("abre el modal de creación al hacer clic en Nuevo producto", async () => {
     const user = userEvent.setup();
     renderProductos();

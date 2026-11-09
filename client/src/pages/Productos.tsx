@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Pencil, Plus, Tag } from "lucide-react";
+import { Pencil, Plus, Search, Tag, X } from "lucide-react";
 import { api } from "../api/client";
 import Modal from "../components/Modal";
 import ProductoForm from "../components/ProductoForm";
@@ -9,6 +9,7 @@ import { productMeasure, productSpecs } from "../lib/productMeasure";
 import AsyncState from "../components/AsyncState";
 import { SkeletonRows } from "../components/Skeleton";
 import IssuesBadge from "../components/IssuesBadge";
+import { matchesProductSearch } from "../lib/productSearch";
 
 /** El nombre/SKU del producto se interpolan en un HTML servido por
  * `document.write` en una ventana con el mismo origen — sin escapar, un
@@ -109,6 +110,7 @@ export default function Productos() {
   const [deactivatingId, setDeactivatingId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [printing, setPrinting] = useState(false);
+  const [search, setSearch] = useState("");
   const queryClient = useQueryClient();
 
   const productsQuery = useQuery({ queryKey: ["allProducts"], queryFn: api.getAllProducts });
@@ -119,6 +121,9 @@ export default function Productos() {
   const issuesFor = (p: any): string[] =>
     p.active ? [...catalogIssues(p), ...(duplicates.has(p.id) ? ["Hay otro producto activo con el mismo nombre, medida, calibre, color y densidad."] : [])] : [];
   const withIssues = (products ?? []).filter((p: any) => issuesFor(p).length > 0).length;
+  // Buscador: filtra la lista por código, nombre, medida, calibre, color, etc.
+  const visibleProducts = (products ?? []).filter((p: any) => matchesProductSearch(p, search, CATEGORY_LABELS[p.category] ?? ""));
+  const allVisibleSelected = visibleProducts.length > 0 && visibleProducts.every((p: any) => selectedIds.has(p.id));
   async function handleDeactivate(id: number) {
     await api.deactivateProduct(id);
     queryClient.invalidateQueries({ queryKey: ["allProducts"] });
@@ -139,9 +144,16 @@ export default function Productos() {
     });
   }
 
+  /** Marca/desmarca los productos que se están viendo (con el buscador, solo los encontrados). */
   function toggleSelectAll() {
-    if (!products) return;
-    setSelectedIds((prev) => (prev.size === products.length ? new Set() : new Set(products.map((p: any) => p.id))));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const p of visibleProducts) {
+        if (allVisibleSelected) next.delete(p.id);
+        else next.add(p.id);
+      }
+      return next;
+    });
   }
 
   async function handlePrintLabels() {
@@ -188,6 +200,36 @@ export default function Productos() {
         </p>
       )}
 
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search size={16} strokeWidth={2} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            aria-label="Buscar producto"
+            placeholder="Buscar por nombre, código, medida, calibre, color…"
+            className="w-full border border-slate-300 dark:border-slate-600 rounded-lg pl-9 pr-9 py-2 text-sm bg-white dark:bg-slate-800 dark:text-slate-100"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setSearch("")}
+          />
+          {search && (
+            <button
+              type="button"
+              aria-label="Limpiar búsqueda"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              onClick={() => setSearch("")}
+            >
+              <X size={14} strokeWidth={2} />
+            </button>
+          )}
+        </div>
+        {search.trim() && products && (
+          <p className="text-sm text-slate-500 dark:text-slate-400" aria-live="polite">
+            {visibleProducts.length === 1 ? "1 producto" : `${visibleProducts.length} productos`} de {products.length}
+          </p>
+        )}
+      </div>
+
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         <AsyncState
           query={productsQuery}
@@ -203,7 +245,8 @@ export default function Productos() {
                   <th className="p-3 w-8">
                     <input
                       type="checkbox"
-                      checked={products.length > 0 && selectedIds.size === products.length}
+                      aria-label="Seleccionar todos"
+                      checked={allVisibleSelected}
                       onChange={toggleSelectAll}
                     />
                   </th>
@@ -220,7 +263,7 @@ export default function Productos() {
                 </tr>
               </thead>
               <tbody>
-                {products.map((p: any) => (
+                {visibleProducts.map((p: any) => (
                   <tr key={p.id} className="border-t border-slate-100 dark:border-slate-700">
                     <td className="p-3">
                       <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelected(p.id)} />
@@ -283,7 +326,7 @@ export default function Productos() {
             </table>
 
             <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-700">
-              {products.map((p: any) => (
+              {visibleProducts.map((p: any) => (
                 <div key={p.id} className="p-4 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <label className="flex items-center gap-2">
@@ -336,6 +379,15 @@ export default function Productos() {
                 </div>
               ))}
             </div>
+
+            {products.length > 0 && visibleProducts.length === 0 && (
+              <p className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                Ningún producto coincide con "{search.trim()}".{" "}
+                <button type="button" className="text-sky-700 dark:text-sky-400 hover:underline" onClick={() => setSearch("")}>
+                  Ver todos
+                </button>
+              </p>
+            )}
           </>
           )}
         </AsyncState>
