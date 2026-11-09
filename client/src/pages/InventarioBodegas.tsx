@@ -283,7 +283,7 @@ export default function InventarioBodegas() {
           const visibles = data.warehouses.filter((w) => !filter || w.station === filter);
           return (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {data.warehouses.map((w) => (
                   <button
                     key={w.station}

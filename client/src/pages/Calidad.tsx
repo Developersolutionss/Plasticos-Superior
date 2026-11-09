@@ -127,7 +127,7 @@ export default function Calidad() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Calidad</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">OPs finales (Sellado/Precorte) ya cerradas, pendientes de aprobar</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">OPs finales (Impresión, Sellado, Precorte o Embobinado) ya cerradas, pendientes de aprobar</p>
       </div>
 
       {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}

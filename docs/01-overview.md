@@ -41,7 +41,7 @@ El sistema digitaliza este flujo:
 
 | Módulo | Estado | Descripción |
 |---|---|---|
-| Autenticación | ✅ Implementado | Login JWT con matriz de **12 roles**, bloqueo por intentos fallidos (5), 2FA/TOTP opcional y recuperación de contraseña |
+| Autenticación | ✅ Implementado | Login JWT con matriz de **13 roles**, bloqueo por intentos fallidos (5), 2FA/TOTP opcional y recuperación de contraseña |
 | CRM de clientes | ✅ Implementado | Clientes con avatar y ranking "Frecuentes" en vivo, contactos, direcciones, historial de interacciones, límite de crédito y cartera |
 | Comercial | ✅ Implementado | Cotizaciones (con estado, PDF descargable), pedidos **versionados** con adjuntos, facturación con vencimiento/alerta de vencidas, abonos y PDF descargable |
 | Planeación | ✅ Implementado | Cola de ítems de pedidos aprobados/en producción sin OP. Genera la OP de cada ítem |
@@ -64,7 +64,7 @@ El sistema digitaliza este flujo:
 
 ## Actores (roles)
 
-La matriz completa tiene **12 roles** (`server/src/middleware/auth.ts` los agrupa en `ROLES`):
+La matriz completa tiene **13 roles** (`server/src/middleware/auth.ts` los agrupa en `ROLES`):
 
 | Rol | Qué puede hacer |
 |---|---|
