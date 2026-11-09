@@ -5,7 +5,7 @@
  * si se cambia una plantilla hay que tocar ambos lados.
  */
 
-export type OpStation = "extrusion" | "impresion" | "sellado" | "precorte";
+export type OpStation = "extrusion" | "impresion" | "sellado" | "precorte" | "embobinado";
 
 export interface OpSpecField {
   key: string;
@@ -81,6 +81,7 @@ export const STATION_LABELS: Record<OpStation, string> = {
   impresion: "Impresión",
   sellado: "Sellado",
   precorte: "Precorte",
+  embobinado: "Embobinado",
 };
 
 /** Dónde puede estar un rollo: la bodega de cada estación o la bodega
@@ -102,6 +103,7 @@ export const ROLL_CODE_PREFIX: Record<OpStation, string> = {
   impresion: "IMP",
   sellado: "SELL",
   precorte: "PRE",
+  embobinado: "EMB",
 };
 
 const FORMA_MATERIAL = ["Tubular", "Semitubular", "Lám. PH", "Lám. Indiv.", "Fuelles"];
@@ -151,7 +153,7 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
         title: "FORMA DEL MATERIAL",
         fields: [
           { key: "formaMaterial", label: "Forma", kind: "options", options: FORMA_MATERIAL },
-          { key: "materialPara", label: "Material para", kind: "options", options: ["IMPRESION", "SELLADO", "PRECORTE"] },
+          { key: "materialPara", label: "Material para", kind: "options", options: ["IMPRESION", "SELLADO", "PRECORTE", "EMBOBINADO"] },
         ],
       },
       {
@@ -277,6 +279,51 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
     ],
   },
 
+  // Embobinado trabaja igual que Sellado (pedido del cliente 2026-11-09):
+  // misma hoja, mismas columnas de rollos y mismo consumo del rollo madre.
+  embobinado: {
+    title: "ORDEN DE PRODUCCION EMBOBINADO",
+    cod: "COD F-EM-01",
+    sections: [
+      {
+        title: "TIPO DE MATERIAL",
+        fields: [{ key: "tipoMaterial", label: "Tipo", kind: "options", options: FORMA_MATERIAL }],
+      },
+      {
+        title: "MATERIAL",
+        fields: [
+          { key: "materialDensidad", label: "Material (baja/alta)", kind: "options", options: ["BAJA", "ALTA"] },
+          { key: "color", label: "Color", kind: "options", options: COLORES },
+          { key: "impreso", label: "Impreso", kind: "options", options: SI_NO },
+          { key: "caras", label: "Caras", kind: "options", options: CARAS },
+          { key: "rollos", label: "Rollos", kind: "number" },
+          { key: "fuelles", label: "Fuelles", kind: "options", options: SI_NO },
+          { key: "calibre", label: "Calibre", kind: "text" },
+          { key: "ancho", label: "Ancho", kind: "text" },
+          { key: "anchoUnidad", label: "Unidad de ancho", kind: "options", options: ["Pulgadas", "Cms."] },
+          { key: "cantidadKilos", label: "Cantidad (kilos)", kind: "number" },
+          { key: "cantidadRollos", label: "Cantidad (rollos)", kind: "number" },
+        ],
+      },
+      MEDIDAS_FINALES,
+    ],
+    consumesSourceByWeight: true,
+    ordenReferencia: true,
+    ordenReferenciaUnidField: { key: "unidadesEmbobinado", label: "Unid." },
+    rollColumns: [
+      { label: "ETIQUETA TUB", source: "label" },
+      { label: "PESO (KG)", source: "weight", kind: "number" },
+      { label: "FECHA", source: "date" },
+      { label: "TURNO", source: "shift" },
+      { label: "OPERARIO", source: "operator" },
+      { label: "E. BULTO", source: "detail", detailKey: "eBulto", scanBultoLabel: true },
+      { label: "P. BULTO", source: "detail", detailKey: "pBulto", kind: "number" },
+      { label: "PAQ X UNID", source: "detail", detailKey: "paqXUnid" },
+      { label: "DESPERD", source: "waste", kind: "number" },
+      { label: "P. RESISTENCIA", source: "detail", detailKey: "pResistencia", kind: "siNo" },
+    ],
+  },
+
   precorte: {
     title: "ORDEN DE PRODUCCION PRECORTE",
     cod: "COD F-SE-01",
@@ -326,10 +373,13 @@ export const OP_TEMPLATES: Record<OpStation, OpTemplate> = {
  * puede pasar a Impresión, uno de Impresión a Precorte, uno de Precorte a
  * Sellado, etc. — cualquier estación salvo Extrusión y ella misma. */
 export const DERIVATIONS: Record<OpStation, OpStation[]> = {
-  extrusion: ["impresion", "sellado", "precorte"],
+  extrusion: ["impresion", "sellado", "precorte", "embobinado"],
   impresion: ["sellado", "precorte"],
   sellado: ["impresion", "precorte"],
   precorte: ["impresion", "sellado"],
+  // Embobinado (2026-11-09): solo recibe de Extrusión; después puede seguir
+  // a Impresión, Sellado o Precorte, o cerrarse como proceso final.
+  embobinado: ["impresion", "sellado", "precorte"],
 };
 
 /**
@@ -350,7 +400,7 @@ export function orderIsFinalStage(order: { station: string | null; status: strin
 // Impresión también puede ser un proceso final (cerrar directo a Calidad/
 // inventario/despacho), además de poder seguir derivando a Sellado/Precorte
 // como hasta ahora — son dos caminos, no uno excluye al otro.
-export const FINAL_STATIONS: OpStation[] = ["impresion", "sellado", "precorte"];
+export const FINAL_STATIONS: OpStation[] = ["impresion", "sellado", "precorte", "embobinado"];
 
 /** Estados en los que la OP acepta rollos, edición de specs y cierre. */
 export const OPEN_STATUSES = ["pendiente", "en_proceso"];

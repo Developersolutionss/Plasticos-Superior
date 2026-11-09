@@ -18,6 +18,7 @@ const ROLES: { value: string; label: string }[] = [
   { value: "operario_impresion", label: "Operario Impresión" },
   { value: "operario_sellado", label: "Operario Sellado" },
   { value: "operario_precorte", label: "Operario Precorte" },
+  { value: "operario_embobinado", label: "Operario Embobinado" },
   { value: "calidad", label: "Calidad" },
   { value: "almacen_despachos", label: "Almacén / Despachos" },
   { value: "auditor", label: "Auditor" },

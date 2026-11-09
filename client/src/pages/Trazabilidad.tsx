@@ -21,6 +21,7 @@ const STATION_LABELS: Record<string, string> = {
   impresion: "Impresión",
   sellado: "Sellado",
   precorte: "Precorte",
+  embobinado: "Embobinado",
   // Solo en los traslados de rollos entre bodegas (no es una estación de OP).
   principal: "Bodega principal",
 };

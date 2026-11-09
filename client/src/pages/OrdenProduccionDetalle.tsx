@@ -5,7 +5,7 @@ import { AlertTriangle, Check, FileDown, GitBranch, Lock, Paperclip, Pencil, Pri
 import { api, ApiError } from "../api/client";
 import { deriveSpecsFromMeasure } from "../lib/measureSpecs";
 import { useAuth, type UserRole } from "../auth/AuthContext";
-import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, OP_PRECORTE, PRODUCCION_GESTION } from "../components/navConfig";
+import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, OP_PRECORTE, OP_EMBOBINADO, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { splitScannedCode } from "../lib/rollQr";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -45,6 +45,7 @@ const STATION_OPERATE: Record<OpStation, UserRole[]> = {
   impresion: OP_IMPRESION,
   sellado: OP_SELLADO,
   precorte: OP_PRECORTE,
+  embobinado: OP_EMBOBINADO,
 };
 
 /** Cerrar la OP es del operario de esa estación, no de Gestión (espejo de
@@ -55,6 +56,7 @@ const STATION_CLOSE: Record<OpStation, UserRole[]> = {
   impresion: [...ADMIN, "operario_impresion"],
   sellado: [...ADMIN, "operario_sellado"],
   precorte: [...ADMIN, "operario_precorte"],
+  embobinado: [...ADMIN, "operario_embobinado"],
 };
 
 // Clases compartidas de la "hoja" estilo Excel

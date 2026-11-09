@@ -15,6 +15,7 @@ const ROLE_LABELS: Record<string, string> = {
   operario_impresion: "Operario Impresión",
   operario_sellado: "Operario Sellado",
   operario_precorte: "Operario Precorte",
+  operario_embobinado: "Operario Embobinado",
   calidad: "Calidad",
   almacen_despachos: "Almacén / Despachos",
   auditor: "Auditor",

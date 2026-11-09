@@ -43,7 +43,7 @@ rollTransfersRouter.use(requireRole(...ROLES.DESPACHO_BODEGAS));
 
 const requireProduccionGestion = requireRole(...ROLES.PRODUCCION_GESTION);
 
-const STATIONS = ["extrusion", "impresion", "sellado", "precorte"] as const;
+const STATIONS = ["extrusion", "impresion", "sellado", "precorte", "embobinado"] as const;
 /** Las bodegas donde puede estar un rollo: la de cada estación y la principal. */
 const WAREHOUSES = [...STATIONS, "principal"] as const;
 
@@ -231,10 +231,10 @@ async function expectingStationsByOrder(orderIds: number[]): Promise<Map<number,
   return map;
 }
 
-/** "Material para" (IMPRESION/SELLADO/PRECORTE) de la OP, como estación. */
+/** "Material para" (IMPRESION/SELLADO/PRECORTE/EMBOBINADO) de la OP, como estación. */
 function materialParaStation(specs: unknown): OpStation | null {
   const v = (specs as any)?.materialPara;
-  const map: Record<string, OpStation> = { IMPRESION: "impresion", SELLADO: "sellado", PRECORTE: "precorte" };
+  const map: Record<string, OpStation> = { IMPRESION: "impresion", SELLADO: "sellado", PRECORTE: "precorte", EMBOBINADO: "embobinado" };
   return typeof v === "string" ? map[v.toUpperCase()] ?? null : null;
 }
 

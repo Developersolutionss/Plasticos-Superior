@@ -24,6 +24,7 @@ import { auditLogRouter } from "../../server/src/routes/auditLog";
 import { productsRouter } from "../../server/src/routes/products";
 import { COLORES } from "../../server/src/services/colorList";
 import { normalizeSpecOptions } from "../../server/src/services/opTemplates";
+import { rollWhereFromCode } from "../../server/src/services/rollCode";
 import { usersRouter } from "../../server/src/routes/users";
 import { warehouseRouter } from "../../server/src/routes/warehouse";
 import { publicLocationRouter } from "../../server/src/routes/publicLocation";
@@ -182,6 +183,7 @@ before(async () => {
   tokens.operario_impresion = await loginAs("operario.impresion@empresa.com");
   tokens.operario_sellado = await loginAs("operario.sellado@empresa.com");
   tokens.operario_precorte = await loginAs("operario.precorte@empresa.com");
+  tokens.operario_embobinado = await loginAs("operario.embobinado@empresa.com");
 
   // Despachar/consumir ya no deja el stock en negativo (ver auditoría de
   // inventario) -- si esta base de dev compartida quedó con algún saldo
@@ -1609,6 +1611,54 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: nieta.id } });
     await prisma.productionOrder.delete({ where: { id: derived.id } });
     await prisma.productionOrder.delete({ where: { id: parent.id } });
+  });
+
+  it("Embobinado: se deriva solo desde Extrusión (hereda specs como Sellado), después puede seguir a Sellado/Impresión/Precorte, y lo opera solo su operario", async () => {
+    const derive = (id: number, body: object) =>
+      fetch(`${baseUrl}/api/production-orders/${id}/derive`, { method: "POST", headers: headersFor("produccion"), body: JSON.stringify(body) });
+    const toDelete: number[] = [];
+    try {
+      const parent = await prisma.productionOrder.create({
+        data: { orderNumber: `OP-TEST-${Date.now()}`, station: "extrusion", productId, quantityPlanned: 40, specs: { color: "Blanco", calibre: "0.8", formaMaterial: "Tubular" } },
+      });
+      toDelete.push(parent.id);
+
+      const res = await derive(parent.id, { station: "embobinado" });
+      assert.equal(res.status, 201, "extrusión → embobinado");
+      const emb = (await res.json()) as { id: number; station: string; specs: Record<string, unknown> };
+      toDelete.unshift(emb.id);
+      assert.equal(emb.station, "embobinado");
+      assert.equal(emb.specs.color, "Blanco", "hereda el color como Sellado");
+      assert.equal(emb.specs.calibre, "0.8");
+      assert.equal(emb.specs.tipoMaterial, "Tubular", "formaMaterial → tipoMaterial");
+
+      // Solo desde Extrusión: Sellado no deriva a Embobinado.
+      const sellado = (await (await derive(parent.id, { station: "sellado" })).json()) as { id: number };
+      toDelete.unshift(sellado.id);
+      assert.equal((await derive(sellado.id, { station: "embobinado", quantityPlanned: 5 })).status, 400, "sellado → embobinado no");
+
+      // Embobinado sí puede seguir a Sellado.
+      const next = await derive(emb.id, { station: "sellado", quantityPlanned: 5 });
+      assert.equal(next.status, 201, "embobinado → sellado");
+      toDelete.unshift(((await next.json()) as { id: number }).id);
+      assert.equal((await derive(emb.id, { station: "extrusion", quantityPlanned: 5 })).status, 400, "nada vuelve a Extrusión");
+
+      // Rollos: los carga el operario de Embobinado, no el de Sellado; código EMB-n.
+      const open = await prisma.productionOrder.create({ data: { orderNumber: `OP-TEST-${Date.now()}e`, station: "embobinado", productId, quantityPlanned: 10 } });
+      toDelete.unshift(open.id);
+      const denied = await fetch(`${baseUrl}/api/production-orders/${open.id}/rolls`, { method: "POST", headers: headersFor("operario_sellado"), body: JSON.stringify({ weightKg: 5 }) });
+      assert.equal(denied.status, 403, "el operario de Sellado no opera Embobinado");
+      const roll = await fetch(`${baseUrl}/api/production-orders/${open.id}/rolls`, { method: "POST", headers: headersFor("operario_embobinado"), body: JSON.stringify({ weightKg: 5 }) });
+      assert.equal(roll.status, 201);
+      const created = await prisma.productionRoll.findFirstOrThrow({ where: { productionOrderId: open.id } });
+      assert.equal(created.station, "embobinado");
+      assert.deepEqual(rollWhereFromCode(`EMB-${created.stationSequence}`), { station_stationSequence: { station: "embobinado", stationSequence: created.stationSequence } });
+    } finally {
+      for (const id of toDelete) {
+        await prisma.productionRoll.deleteMany({ where: { productionOrderId: id } }).catch(() => {});
+        await prisma.productionOrder.delete({ where: { id } }).catch(() => {});
+      }
+    }
   });
 
   it("derivar hereda como meta lo que el padre REALMENTE produjo (suma de rollos), no lo que el padre planificaba", async () => {
@@ -5813,7 +5863,7 @@ describe("despacho de rollos a bodegas internas", () => {
     const body = (await res.json()) as any;
     assert.equal(body.roll.code, rollCode);
     assert.equal(body.roll.remainingKg, 40);
-    assert.deepEqual(body.destinations, ["impresion", "sellado", "precorte"]);
+    assert.deepEqual(body.destinations, ["impresion", "sellado", "precorte", "embobinado"]);
     assert.equal(body.openTransfer, null);
     assert.equal(body.roll.possessionTokenHash, undefined, "el hash nunca sale del servidor");
   });

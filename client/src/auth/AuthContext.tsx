@@ -10,6 +10,7 @@ export type UserRole =
   | "operario_impresion"
   | "operario_sellado"
   | "operario_precorte"
+  | "operario_embobinado"
   | "calidad"
   | "almacen_despachos"
   | "auditor";

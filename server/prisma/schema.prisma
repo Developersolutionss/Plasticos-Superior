@@ -21,6 +21,7 @@ enum UserRole {
   operario_impresion
   operario_sellado
   operario_precorte
+  operario_embobinado
   calidad
   almacen_despachos
   auditor
@@ -105,6 +106,7 @@ enum ProductionStation {
   impresion
   sellado
   precorte
+  embobinado
 }
 
 /// Dónde puede estar un rollo: la bodega de cada estación o la bodega
@@ -116,6 +118,7 @@ enum RollWarehouse {
   impresion
   sellado
   precorte
+  embobinado
   principal
 }
 

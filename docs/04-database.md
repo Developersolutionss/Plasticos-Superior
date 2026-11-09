@@ -508,7 +508,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 
 | Enum | Valores |
 |---|---|
-| `UserRole` | `super_admin`, `admin`, `gerente_produccion`, `planeacion`, `ventas_pedidos`, `operario_extrusion`, `operario_impresion`, `operario_sellado`, `operario_precorte`, `calidad`, `almacen_despachos`, `auditor` |
+| `UserRole` | `super_admin`, `admin`, `gerente_produccion`, `planeacion`, `ventas_pedidos`, `operario_extrusion`, `operario_impresion`, `operario_sellado`, `operario_precorte`, `operario_embobinado`, `calidad`, `almacen_despachos`, `auditor` |
 | `ProductCategory` | `bultos`, `rollos_prec_lam`, `rollos_fuelle`, `mangueta`, `tiras`, `control_impresion`, `tubular`, `semitubular`, `laminado` |
 | `ProductUnit` | `kg`, `unidad` |
 | `ProductionStatus` | `pendiente`, `en_transito`, `recibido`, `rechazado` |
@@ -566,6 +566,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260901050112_add_alert_threshold_kg` | `production_orders`: `alert_threshold_kg` (umbral de aviso configurable, en kg) |
 | `20260908220202_product_attributes` | `products`: `measure_unit`, `talla`, `color`, `densidad`, `medida_ref`, `calibre`; `ProductCategory` suma `tubular`, `semitubular`, `laminado` |
 | `20260909050155_split_sellado_precorte_role` | Separa el rol `operario_sellado_precorte` en dos roles reales: `operario_sellado` y `operario_precorte` |
+| `20261110120000_estacion_embobinado` | Estación Embobinado: agrega `operario_embobinado` a `UserRole` y `embobinado` a `ProductionStation` y `RollWarehouse` (solo valores de enum, no toca datos) |
 | `20260909190205_add_client_manual_products` | Tabla `client_manual_products` (productos que un cliente pide, cargados a mano) |
 | `20260914022751_source_roll_unique` | `production_rolls.source_roll_id` pasa a `@unique` (paso intermedio, reemplazado por la migración siguiente) |
 | `20260914072151_dispatch_production_order_link` | `dispatches`: `production_order_id` (vínculo con la OP que generó el despacho automático) |

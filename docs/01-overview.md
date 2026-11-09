@@ -75,6 +75,7 @@ La matriz completa tiene **12 roles** (`server/src/middleware/auth.ts` los agrup
 | `operario_impresion` | Registrar etapas de **Impresión** |
 | `operario_sellado` | Registrar etapas de **Sellado** |
 | `operario_precorte` | Registrar etapas de **Precorte** |
+| `operario_embobinado` | Registrar etapas de **Embobinado** (desde 2026-11-09; se deriva solo desde Extrusión y trabaja igual que Sellado) |
 | `ventas_pedidos` | CRM, cotizaciones, pedidos, facturas y pagos |
 | `almacen_despachos` | Carga de producción (Excel/manual) y despachos |
 | `calidad` | Revisa la cola de OPs en `pendiente_calidad`: aprueba el lote o lo rechaza |

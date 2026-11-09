@@ -34,6 +34,7 @@ const STATION_COLORS: Record<string, string> = {
   impresion: "bg-sky-700 text-white",
   sellado: "bg-emerald-700 text-white",
   precorte: "bg-amber-600 text-white",
+  embobinado: "bg-violet-700 text-white",
 };
 
 // La meta se completa con PESO + DESPERDICIO, no solo peso (mismo criterio

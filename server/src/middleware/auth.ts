@@ -66,6 +66,7 @@ export const ROLES = {
     "operario_impresion",
     "operario_sellado",
     "operario_precorte",
+    "operario_embobinado",
   ] as UserRole[],
   CALIDAD: ["super_admin", "admin", "calidad"] as UserRole[],
   AUDITORIA: ["super_admin", "admin", "auditor"] as UserRole[],
@@ -74,7 +75,7 @@ export const ROLES = {
   // afuera (a diferencia de OPERARIOS de arriba, que sí los incluye para
   // cargar rollos/derivar); el chequeo de a qué estación pertenece cada
   // operario sigue siendo OPERARIO_STATIONS más abajo.
-  CIERRE_OP: ["super_admin", "admin", "operario_extrusion", "operario_impresion", "operario_sellado", "operario_precorte"] as UserRole[],
+  CIERRE_OP: ["super_admin", "admin", "operario_extrusion", "operario_impresion", "operario_sellado", "operario_precorte", "operario_embobinado"] as UserRole[],
   // Quién puede elegir productos del catálogo (GET /inventory/products,
   // reusado por Cotizaciones/Pedidos/Facturas/OrdenesProduccion para el
   // selector de producto) — antes GET /inventory, /alerts y /products no
@@ -112,6 +113,7 @@ export const ROLES = {
     "operario_impresion",
     "operario_sellado",
     "operario_precorte",
+    "operario_embobinado",
     "almacen_despachos",
   ] as UserRole[],
 };
@@ -127,4 +129,5 @@ export const OPERARIO_STATIONS: Partial<Record<UserRole, string[]>> = {
   operario_impresion: ["impresion"],
   operario_sellado: ["sellado"],
   operario_precorte: ["precorte"],
+  operario_embobinado: ["embobinado"],
 };

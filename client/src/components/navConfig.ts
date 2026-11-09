@@ -29,6 +29,7 @@ export const OPERARIOS: UserRole[] = [
   "operario_impresion",
   "operario_sellado",
   "operario_precorte",
+  "operario_embobinado",
 ];
 export const OP_EXTRUSION: UserRole[] = [...PRODUCCION_GESTION, "operario_extrusion"];
 export const OP_IMPRESION: UserRole[] = [...PRODUCCION_GESTION, "operario_impresion"];
@@ -36,6 +37,7 @@ export const OP_SELLADO: UserRole[] = [...PRODUCCION_GESTION, "operario_sellado"
 // Antes Sellado y Precorte compartían un solo rol combinado -- el cliente
 // pidió separarlos: cada operario ve y opera solo su propia estación.
 export const OP_PRECORTE: UserRole[] = [...PRODUCCION_GESTION, "operario_precorte"];
+export const OP_EMBOBINADO: UserRole[] = [...PRODUCCION_GESTION, "operario_embobinado"];
 export const CALIDAD: UserRole[] = [...ADMIN, "calidad"];
 export const AUDITORIA: UserRole[] = [...ADMIN, "auditor"];
 export const INVENTARIO: UserRole[] = [...ADMIN, "almacen_despachos", "gerente_produccion", "planeacion", "ventas_pedidos"];
@@ -68,6 +70,7 @@ const TODOS: UserRole[] = [
   "operario_impresion",
   "operario_sellado",
   "operario_precorte",
+  "operario_embobinado",
   "calidad",
   "almacen_despachos",
   "auditor",
@@ -164,6 +167,7 @@ export const navSections: NavEntry[] = [
       { id: "produccion-impresion", label: "Impresión", to: "/produccion/estacion/impresion", roles: OP_IMPRESION },
       { id: "produccion-sellado", label: "Sellado", to: "/produccion/estacion/sellado", roles: OP_SELLADO },
       { id: "produccion-precorte", label: "Precorte", to: "/produccion/estacion/precorte", roles: OP_PRECORTE },
+      { id: "produccion-embobinado", label: "Embobinado", to: "/produccion/estacion/embobinado", roles: OP_EMBOBINADO },
       { id: "produccion-carga", label: "Carga de producción (Excel)", to: "/produccion", roles: [...ALMACEN, ...PRODUCCION_GESTION] },
       { id: "produccion-por-operario", label: "Producción por operario", to: "/produccion/por-operario", roles: PRODUCCION_GESTION },
       { id: "produccion-etiquetas-bulto", label: "Etiquetas de bulto", to: "/produccion/etiquetas-bulto", roles: PRODUCCION_GESTION },

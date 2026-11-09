@@ -84,7 +84,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
-export type ProductionStation = "extrusion" | "impresion" | "sellado" | "precorte";
+export type ProductionStation = "extrusion" | "impresion" | "sellado" | "precorte" | "embobinado";
 /** Dónde puede estar un rollo: la bodega de una estación o la principal. */
 export type RollWarehouse = ProductionStation | "principal";
 

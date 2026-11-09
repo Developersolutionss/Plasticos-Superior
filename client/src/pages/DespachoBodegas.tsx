@@ -19,6 +19,7 @@ const OPERARIO_STATION: Partial<Record<UserRole, OpStation>> = {
   operario_impresion: "impresion",
   operario_sellado: "sellado",
   operario_precorte: "precorte",
+  operario_embobinado: "embobinado",
 };
 
 /** Zona horaria del celular: el servidor pone la hora (no se confía en el
@@ -439,6 +440,7 @@ export default function DespachoBodegas() {
           <option value="impresion">Impresión</option>
           <option value="sellado">Sellado</option>
           <option value="precorte">Precorte</option>
+          <option value="embobinado">Embobinado</option>
           <option value="principal">Bodega principal</option>
         </select>
         <input

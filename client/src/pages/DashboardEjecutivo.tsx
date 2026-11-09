@@ -32,6 +32,7 @@ const ESTACION_LABELS: Record<string, string> = {
   impresion: "Impresión",
   sellado: "Sellado",
   precorte: "Precorte",
+  embobinado: "Embobinado",
 };
 
 const SEVERITY_STYLES: Record<string, string> = {

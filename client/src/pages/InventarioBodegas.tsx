@@ -19,6 +19,7 @@ const OPERARIO_STATION: Partial<Record<UserRole, OpStation>> = {
   operario_impresion: "impresion",
   operario_sellado: "sellado",
   operario_precorte: "precorte",
+  operario_embobinado: "embobinado",
 };
 
 function stationLabel(station: string): string {

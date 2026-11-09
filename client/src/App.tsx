@@ -50,6 +50,7 @@ import {
   OP_IMPRESION,
   OP_SELLADO,
   OP_PRECORTE,
+  OP_EMBOBINADO,
   CALIDAD,
   AUDITORIA,
   EXISTENCIAS,
@@ -76,6 +77,7 @@ const DEFAULT_ROUTE_FOR_ROLE: Partial<Record<UserRole, string>> = {
   operario_impresion: "/produccion/estacion/impresion",
   operario_sellado: "/produccion/estacion/sellado",
   operario_precorte: "/produccion/estacion/precorte",
+  operario_embobinado: "/produccion/estacion/embobinado",
   calidad: "/calidad",
   auditor: "/auditoria",
   // Ve Existencias (desde 2026-10-22), pero su pantalla habitual sigue
@@ -111,6 +113,7 @@ const STATION_ROLES: Record<string, UserRole[]> = {
   impresion: OP_IMPRESION,
   sellado: OP_SELLADO,
   precorte: OP_PRECORTE,
+  embobinado: OP_EMBOBINADO,
 };
 
 function RequireStationRole({ children }: { children: ReactNode }) {

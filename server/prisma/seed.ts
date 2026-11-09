@@ -48,6 +48,7 @@ async function main() {
       { name: "Operario Impresión", email: "operario.impresion@empresa.com", passwordHash, role: "operario_impresion" },
       { name: "Operario Sellado", email: "operario.sellado@empresa.com", passwordHash, role: "operario_sellado" },
       { name: "Operario Precorte", email: "operario.precorte@empresa.com", passwordHash, role: "operario_precorte" },
+      { name: "Operario Embobinado", email: "operario.embobinado@empresa.com", passwordHash, role: "operario_embobinado" },
       { name: "Calidad", email: "calidad@empresa.com", passwordHash, role: "calidad" },
       { name: "Auditor", email: "auditor@empresa.com", passwordHash, role: "auditor" },
     ],
@@ -752,7 +753,7 @@ async function main() {
       "administrador@empresa.com (admin), produccion@empresa.com (gerente_produccion), " +
       "planeacion@empresa.com, ventas@empresa.com (ventas_pedidos), despacho@empresa.com (almacen_despachos), " +
       "operario.extrusion@empresa.com, operario.impresion@empresa.com, operario.sellado@empresa.com, " +
-      "operario.precorte@empresa.com, calidad@empresa.com, auditor@empresa.com"
+      "operario.precorte@empresa.com, operario.embobinado@empresa.com, calidad@empresa.com, auditor@empresa.com"
   );
 }
 

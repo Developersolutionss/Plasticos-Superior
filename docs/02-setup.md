@@ -118,6 +118,7 @@ Todos con contraseña `password123`, uno por rol de la matriz completa:
 | `operario.impresion@empresa.com` | operario_impresion |
 | `operario.sellado@empresa.com` | operario_sellado |
 | `operario.precorte@empresa.com` | operario_precorte |
+| `operario.embobinado@empresa.com` | operario_embobinado |
 | `calidad@empresa.com` | calidad |
 | `auditor@empresa.com` | auditor |
 

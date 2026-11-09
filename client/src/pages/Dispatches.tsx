@@ -43,7 +43,7 @@ function StatusBadge({ status }: { status: string }) {
 const fecha = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString("es-CO", { dateStyle: "medium" }) : "—");
 // Código de rollo (EXT-12, SELL-3, o el viejo RL-40). Una etiqueta de bulto
 // tiene la forma EXT- + 5 cifras (EXT-00001): no es un rollo.
-const ROLL_CODE = /^((EXT|IMP|SELL|PRE)-\d+|RL-\d+)$/;
+const ROLL_CODE = /^((EXT|IMP|SELL|PRE|EMB)-\d+|RL-\d+)$/;
 const BULTO_LABEL = /^EXT-\d{5}$/;
 
 type RollTarget = { dispatchId: number; itemId: number; clientName: string; reserved: boolean; quantityRequested: number };
