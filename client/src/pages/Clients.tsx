@@ -354,8 +354,9 @@ export default function Clients() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
-        {/* Resultados */}
-        <div className="space-y-4">
+        {/* Resultados: en pantallas grandes la lista tiene su propio scroll,
+            así la ficha del cliente no se pierde al bajar por la lista. */}
+        <div className="space-y-4 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:pr-1">
           {isLoading && <p className="text-slate-500 dark:text-slate-400 text-sm p-2">Cargando clientes...</p>}
 
           {view === "list" && !isLoading && (
@@ -400,7 +401,7 @@ export default function Clients() {
         </div>
 
         {/* Ficha del cliente seleccionado */}
-        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 lg:self-start">
           {!selectedClient && (
             <p className="text-slate-500 dark:text-slate-400">Seleccioná un cliente de la lista para ver su ficha.</p>
           )}
