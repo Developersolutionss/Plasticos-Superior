@@ -254,6 +254,7 @@ Catálogo, stock desnormalizado (mismo patrón 1:1 que `inventory_stock`) y bit�
 | measure | String? | hereda del producto si no se indica |
 | status | `ProductionOrderStatus` | `borrador` / `pendiente` / `en_proceso` / `pendiente_calidad` / `detenida` / `finalizada` / `cancelada`. Nace en `borrador` (Gestión todavía la arma) y pasa a `pendiente` al liberarla a planta (`POST /:id/release`). `finalizada` de una etapa intermedia se muestra como "Etapa terminada" |
 | isFinalStage | Boolean? | `@map("is_final_stage")`. Si esta etapa es el producto final (va a Calidad y entra al inventario) o una etapa intermedia cuyo material sigue a otra estación. Se decide al cerrar (`POST /:id/close`), al derivar (el padre pasa a `false`) o con `POST /:id/send-to-quality`. `NULL` = sin decidir (OP abierta) u OP anterior: ahí manda el estado (`orderIsFinalStage` en `services/opTemplates.ts`). Extrusión nunca es final. De esto depende si sus rollos son producto terminado o material |
+| openingStock | Boolean | `@map("opening_stock")`, default `false`. OP de **ingreso de inventario inicial** (`POST /production-orders/opening-stock`): rollos que ya estaban en bodega, no producción del período. El dashboard no los suma a los kg producidos |
 | specs | Json? | Encabezado de la plantilla de la estación (materia prima con %, medidas, montaje, colores, etc. — ver `services/opTemplates.ts`) |
 | parentOrderId | Int? | `@map("parent_order_id")`. Self-FK → production_orders. OP de la que se derivó (cadena Extrusión → …) |
 | pedidoVersionItemId | Int? | `@unique` `@map("pedido_version_item_id")`. FK → pedido_version_items. Vínculo opcional con el ítem del pedido que originó la OP (módulo Planeación). `NULL` en las OPs manuales |
@@ -567,6 +568,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260908220202_product_attributes` | `products`: `measure_unit`, `talla`, `color`, `densidad`, `medida_ref`, `calibre`; `ProductCategory` suma `tubular`, `semitubular`, `laminado` |
 | `20260909050155_split_sellado_precorte_role` | Separa el rol `operario_sellado_precorte` en dos roles reales: `operario_sellado` y `operario_precorte` |
 | `20261110120000_estacion_embobinado` | Estación Embobinado: agrega `operario_embobinado` a `UserRole` y `embobinado` a `ProductionStation` y `RollWarehouse` (solo valores de enum, no toca datos) |
+| `20261120120000_inventario_inicial` | `production_orders.opening_stock` (BOOLEAN, default false): marca las OPs de ingreso de inventario inicial (solo agrega la columna, no toca datos) |
 | `20260909190205_add_client_manual_products` | Tabla `client_manual_products` (productos que un cliente pide, cargados a mano) |
 | `20260914022751_source_roll_unique` | `production_rolls.source_roll_id` pasa a `@unique` (paso intermedio, reemplazado por la migración siguiente) |
 | `20260914072151_dispatch_production_order_link` | `dispatches`: `production_order_id` (vínculo con la OP que generó el despacho automático) |

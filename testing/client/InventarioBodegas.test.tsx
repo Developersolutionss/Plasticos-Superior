@@ -11,7 +11,7 @@ vi.mock("../../client/src/api/client", async () => {
   const actual = await vi.importActual<typeof import("../../client/src/api/client")>("../../client/src/api/client");
   return {
     ApiError: actual.ApiError,
-    api: { getWarehouseInventory: vi.fn(), countRoll: vi.fn() },
+    api: { getWarehouseInventory: vi.fn(), countRoll: vi.fn(), getProducts: vi.fn(), getClients: vi.fn(), createOpeningStock: vi.fn() },
   };
 });
 
@@ -111,6 +111,11 @@ describe("InventarioBodegas", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.getWarehouseInventory).mockResolvedValue(INVENTORY as any);
+    vi.mocked(api.getProducts).mockResolvedValue([
+      { id: 7, sku: "TUB-24", name: "Tubular", measure: "24", measureUnit: "Pulgadas", calibre: "07", color: null },
+      { id: 8, sku: "BOL-10", name: "Bolsa", measure: "10x15", measureUnit: "Pulgadas", calibre: "2", color: null },
+    ] as any);
+    vi.mocked(api.getClients).mockResolvedValue([{ id: 4, name: "KLISTO" }] as any);
   });
 
   it("muestra cada bodega con su total, los rollos parados y lo que está en camino", async () => {
@@ -249,5 +254,67 @@ describe("InventarioBodegas", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: /Bodega principal.*18 kg/ }));
     expect(screen.queryByText("PRE-7")).not.toBeInTheDocument();
     expect(screen.getByText("SELL-4")).toBeInTheDocument();
+  });
+  it("ingreso de inventario inicial: solo Gestión ve el botón", async () => {
+    renderPage("almacen_despachos");
+    await screen.findByText("Bodega de Sellado");
+    expect(screen.queryByRole("button", { name: /Ingresar rollos que ya están en bodega/ })).not.toBeInTheDocument();
+  });
+
+  it("ingreso de inventario inicial: rollos con peso y tiquete, sin QR, a la bodega de Sellado; después imprime las etiquetas", async () => {
+    vi.mocked(api.createOpeningStock).mockResolvedValue({
+      order: { id: 55, orderNumber: "OP-00055" },
+      productName: "Tubular",
+      warehouse: "sellado",
+      totalKg: 99.5,
+      rolls: [
+        { id: 1, code: "EXT-40", ticket: "T-1", weightKg: 48.5, possessionToken: "A", qrDataUrl: "data:image/png;base64,AAA" },
+        { id: 2, code: "EXT-41", ticket: "T-2", weightKg: 51, possessionToken: "B", qrDataUrl: "data:image/png;base64,BBB" },
+      ],
+    });
+    const win = { document: { write: vi.fn(), close: vi.fn() }, focus: vi.fn(), print: vi.fn(), onload: null };
+    const open = vi.spyOn(window, "open").mockReturnValue(win as any);
+    renderPage("gerente_produccion");
+    await screen.findByText("Bodega de Sellado");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Ingresar rollos que ya están en bodega/ }));
+
+    // Sin peso no deja guardar.
+    await user.click(screen.getByRole("button", { name: /^Ingresar/ }));
+    expect(screen.getByText("Elegí el producto")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("searchbox", { name: "Buscar producto" }), "24 07");
+    const productSelect = screen.getByRole("combobox", { name: "Producto" });
+    expect(within(productSelect).queryByText(/Bolsa/)).not.toBeInTheDocument();
+    await user.selectOptions(productSelect, "7");
+
+    // Enter en la última fila agrega otra: los tiquetes se cargan seguidos.
+    await user.type(screen.getByRole("spinbutton", { name: "Peso del rollo 1 (kg)" }), "48.5");
+    await user.type(screen.getByRole("textbox", { name: "Tiquete del rollo 1" }), "T-1{Enter}");
+    await user.type(screen.getByRole("spinbutton", { name: "Peso del rollo 2 (kg)" }), "51");
+    await user.type(screen.getByRole("textbox", { name: "Tiquete del rollo 2" }), "T-2");
+    expect(screen.getByText("99.5 kg")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ingresar 2 rollos" }));
+
+    expect(api.createOpeningStock).toHaveBeenCalledWith({
+      productId: 7,
+      clientId: undefined,
+      warehouse: "sellado",
+      rolls: [
+        { weightKg: 48.5, ticket: "T-1" },
+        { weightKg: 51, ticket: "T-2" },
+      ],
+      notes: undefined,
+    });
+    expect(await screen.findByText(/quedaron en/)).toHaveTextContent("2 rollos (99.5 kg) de Tubular quedaron en la bodega de Sellado como OP-00055");
+    expect(screen.getByRole("link", { name: "Abrir OP-00055" })).toHaveAttribute("href", "/produccion/ordenes/55");
+
+    await user.click(screen.getByRole("button", { name: "Imprimir etiquetas (2)" }));
+    expect(open).toHaveBeenCalled();
+    const html = win.document.write.mock.calls[0][0] as string;
+    expect(html).toContain("EXT-40");
+    expect(html).toContain("EXT-41");
+    expect(html).toContain("Tiquete T-2");
+    open.mockRestore();
   });
 });

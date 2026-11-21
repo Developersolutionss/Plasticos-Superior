@@ -95,7 +95,7 @@ dashboardRouter.get("/resumen", async (req, res) => {
       include: { items: true, payments: true, client: { select: { id: true, name: true } } },
     }),
     prisma.productionRoll.findMany({
-      where: { date: { gte: chartStart } },
+      where: { date: { gte: chartStart }, productionOrder: { openingStock: false } },
       select: { date: true, weightKg: true, details: true, productionOrder: { select: { station: true } } },
     }),
     prisma.productionOrder.count({ where: { status: { in: ["pendiente", "en_proceso", "pendiente_calidad"] } } }),
@@ -149,11 +149,11 @@ dashboardRouter.get("/resumen", async (req, res) => {
     prisma.factura.findMany({ where: { status: { not: "anulada" }, createdAt: { gte: start, lte: ahora } }, include: { items: true } }),
     prisma.factura.findMany({ where: { status: { not: "anulada" }, createdAt: { gte: prevStart, lt: prevEnd } }, include: { items: true } }),
     prisma.productionRoll.findMany({
-      where: { date: { gte: start, lte: ahora } },
+      where: { date: { gte: start, lte: ahora }, productionOrder: { openingStock: false } },
       select: { weightKg: true, details: true, productionOrder: { select: { station: true } } },
     }),
     prisma.productionRoll.findMany({
-      where: { date: { gte: prevStart, lt: prevEnd } },
+      where: { date: { gte: prevStart, lt: prevEnd }, productionOrder: { openingStock: false } },
       select: { weightKg: true, details: true, productionOrder: { select: { station: true } } },
     }),
   ]);

@@ -763,6 +763,12 @@ model ProductionOrder {
   /// manda el estado (ver `orderIsFinalStage` en services/opTemplates.ts).
   /// Extrusión nunca es final.
   isFinalStage        Boolean?              @map("is_final_stage")
+  /// OP de "Ingreso de inventario inicial" (pedido del cliente 2026-11-20):
+  /// rollos de Extrusión que ya estaban físicamente en una bodega antes de
+  /// usar el sistema, cargados a mano con el peso de su tiquete (ver POST
+  /// /production-orders/opening-stock). No es producción del período: no
+  /// suma a los kg producidos del dashboard.
+  openingStock        Boolean               @default(false) @map("opening_stock")
   specs               Json?
   notes               String?
   parentOrderId       Int?                  @map("parent_order_id")

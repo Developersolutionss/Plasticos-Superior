@@ -778,6 +778,147 @@ productionOrdersRouter.post("/", requireProduccionGestion, async (req, res) => {
   res.status(201).json(order);
 });
 
+const openingStockSchema = z.object({
+  productId: z.number().int(),
+  clientId: z.number().int().optional(),
+  /** Bodega donde están físicamente los rollos hoy. */
+  warehouse: z.enum(["extrusion", "impresion", "sellado", "precorte", "embobinado", "principal"]),
+  /** Un rollo por tiquete: el peso que dice el tiquete y su número. */
+  rolls: z
+    .array(
+      z.object({
+        weightKg: z.number().positive().max(100_000),
+        ticket: z.string().trim().max(60).optional(),
+      })
+    )
+    .min(1, "Agregá al menos un rollo")
+    .max(200, "Máximo 200 rollos por ingreso"),
+  notes: z.string().trim().max(500).optional(),
+});
+
+/**
+ * Ingreso de inventario inicial (pedido del cliente 2026-11-20: "tengo en
+ * bodega 10 rollos de la medida 24 en 07, cada uno con un tiquete, ¿cómo los
+ * meto sin código QR?" — son rollos que vienen de Extrusión y están en la
+ * bodega de Sellado). Se registran como una OP de Extrusión ya finalizada
+ * (marcada `openingStock`), con un rollo por tiquete, y quedan directamente
+ * en la bodega elegida (un despacho ya recibido, sin camión).
+ *
+ * Desde esa OP se deriva a Sellado/Impresión/... como cualquier otra, y el
+ * operario consume los rollos escaneando la etiqueta que se imprime acá
+ * (el token de posesión solo existe en esta respuesta; si se pierde, se
+ * reemite desde la hoja de la OP). No suma stock de producto terminado: es
+ * material, igual que cualquier rollo de Extrusión.
+ */
+productionOrdersRouter.post("/opening-stock", requireProduccionGestion, async (req, res) => {
+  const parsed = openingStockSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const data = parsed.data;
+
+  const product = await prisma.product.findUnique({ where: { id: data.productId } });
+  if (!product || !product.active) return res.status(404).json({ error: "Producto no encontrado" });
+  if (data.clientId) {
+    const client = await prisma.client.findUnique({ where: { id: data.clientId } });
+    if (!client) return res.status(404).json({ error: "Cliente no encontrado" });
+  }
+  const tickets = data.rolls.map((r) => r.ticket ?? "").filter((t) => t !== "");
+  const repeated = tickets.find((t, i) => tickets.findIndex((o) => o.toUpperCase() === t.toUpperCase()) !== i);
+  if (repeated) return res.status(400).json({ error: `El tiquete ${repeated} está repetido` });
+
+  const totalKg = Math.round(data.rolls.reduce((acc, r) => acc + r.weightKg, 0) * 100) / 100;
+  // Lo que se sabe del producto pasa a la hoja de la OP (y de ahí a sus
+  // derivadas, ver inheritSpecs). Normalizado sin trabar: un dato viejo del
+  // catálogo no debe impedir el ingreso.
+  const baseSpecs: Record<string, unknown> = {};
+  if (product.color) baseSpecs.color = product.color;
+  if (product.calibre) baseSpecs.calibre = product.calibre;
+  const specs = normalizeSpecOptions("extrusion", baseSpecs).specs;
+  const measure = product.measure ? `${product.measure}${product.measureUnit ? ` ${product.measureUnit}` : ""}` : undefined;
+
+  const result = await withSequentialNumberRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const orderNumber = await nextOrderNumber(tx);
+      const order = await tx.productionOrder.create({
+        data: {
+          orderNumber,
+          station: "extrusion",
+          productId: product.id,
+          clientId: data.clientId,
+          quantityPlanned: totalKg,
+          measure,
+          status: "finalizada",
+          isFinalStage: false,
+          openingStock: true,
+          specs: Object.keys(specs).length ? (specs as Prisma.InputJsonValue) : undefined,
+          notes: data.notes ? `Inventario inicial · ${data.notes}` : "Inventario inicial (rollos que ya estaban en bodega)",
+          createdById: req.user!.userId,
+        },
+      });
+
+      let stationSequence = await nextStationSequence(tx, "extrusion");
+      const now = new Date();
+      const created: { id: number; code: string; ticket: string | null; weightKg: number; possessionToken: string }[] = [];
+      for (const r of data.rolls) {
+        const code = `${ROLL_CODE_PREFIX.extrusion}-${stationSequence}`;
+        const possessionToken = generatePossessionToken();
+        const roll = await tx.productionRoll.create({
+          data: {
+            productionOrderId: order.id,
+            station: "extrusion",
+            stationSequence,
+            date: now,
+            operatorName: req.user!.name,
+            label: r.ticket || undefined,
+            weightKg: r.weightKg,
+            notes: "Inventario inicial",
+            createdById: req.user!.userId,
+            possessionTokenHash: hashPossessionToken(code, possessionToken),
+          },
+        });
+        stationSequence += 1;
+        // Ya está en esa bodega: un despacho recibido en el acto, para que
+        // Inventario de bodegas y la regla "un rollo solo se consume donde
+        // está" (services/rollLocation.ts) lo ubiquen ahí.
+        if (data.warehouse !== "extrusion") {
+          await tx.rollTransfer.create({
+            data: {
+              rollId: roll.id,
+              fromStation: "extrusion",
+              toStation: data.warehouse,
+              mode: "entrega",
+              carrierName: "Inventario inicial",
+              registeredById: req.user!.userId,
+              clientTimezone: "America/Bogota",
+              clientUtcOffsetMinutes: -300,
+              notes: "Ingreso de inventario inicial: el rollo ya estaba en esta bodega",
+              dispatchedKg: r.weightKg,
+              status: "recibido",
+              receivedById: req.user!.userId,
+              receivedAt: now,
+              receivedTimezone: "America/Bogota",
+              receivedUtcOffsetMinutes: -300,
+              receivedKg: r.weightKg,
+            },
+          });
+        }
+        created.push({ id: roll.id, code, ticket: roll.label, weightKg: r.weightKg, possessionToken });
+      }
+      return { order, created };
+    })
+  );
+
+  const rolls = await Promise.all(
+    result.created.map(async (r) => ({ ...r, qrDataUrl: await QRCode.toDataURL(`${r.code}-${r.possessionToken}`) }))
+  );
+  res.status(201).json({
+    order: { id: result.order.id, orderNumber: result.order.orderNumber },
+    productName: product.name,
+    warehouse: data.warehouse,
+    totalKg,
+    rolls,
+  });
+});
+
 /**
  * Genera la OP correspondiente a un item de pedido pendiente de planeación.
  * Nace sin proceso asignado, con el cliente del pedido, en "borrador" —

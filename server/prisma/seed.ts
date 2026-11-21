@@ -438,6 +438,66 @@ async function main() {
       });
     }
 
+    // Ingreso de inventario inicial (POST /production-orders/opening-stock):
+    // 3 rollos de Extrusión con su tiquete que ya estaban en la bodega de
+    // Sellado, para que Inventario de bodegas y el listado de OPs muestren el
+    // caso sin tener que cargarlo a mano. Idempotente por orderNumber fijo.
+    const existingSeedInicial = await prisma.productionOrder.findFirst({ where: { orderNumber: "OP-SEED-INV-INICIAL" } });
+    if (!existingSeedInicial) {
+      const gestionInicial = await prisma.user.findUniqueOrThrow({ where: { email: "produccion@empresa.com" } });
+      const pesos = [48.5, 51.2, 49.8];
+      const inicial = await prisma.productionOrder.create({
+        data: {
+          orderNumber: "OP-SEED-INV-INICIAL",
+          station: "extrusion",
+          productId: bulto.id,
+          quantityPlanned: pesos.reduce((a, b) => a + b, 0),
+          measure: bulto.measure,
+          status: "finalizada",
+          isFinalStage: false,
+          openingStock: true,
+          notes: "Inventario inicial (rollos que ya estaban en bodega)",
+          createdById: gestionInicial.id,
+        },
+      });
+      for (const [i, weightKg] of pesos.entries()) {
+        const seq = await nextSeedStationSequence("extrusion");
+        const roll = await prisma.productionRoll.create({
+          data: {
+            productionOrderId: inicial.id,
+            station: "extrusion",
+            stationSequence: seq,
+            operatorName: gestionInicial.name,
+            label: `TQ-${101 + i}`,
+            weightKg,
+            notes: "Inventario inicial",
+            createdById: gestionInicial.id,
+            possessionTokenHash: seedPossessionTokenHash("extrusion", seq),
+          },
+        });
+        await prisma.rollTransfer.create({
+          data: {
+            rollId: roll.id,
+            fromStation: "extrusion",
+            toStation: "sellado",
+            mode: "entrega",
+            carrierName: "Inventario inicial",
+            registeredById: gestionInicial.id,
+            clientTimezone: "America/Bogota",
+            clientUtcOffsetMinutes: -300,
+            notes: "Ingreso de inventario inicial: el rollo ya estaba en esta bodega",
+            dispatchedKg: weightKg,
+            status: "recibido",
+            receivedById: gestionInicial.id,
+            receivedAt: new Date(),
+            receivedTimezone: "America/Bogota",
+            receivedUtcOffsetMinutes: -300,
+            receivedKg: weightKg,
+          },
+        });
+      }
+    }
+
     // OP recién creada, todavía SIN proceso asignado (station null) — así lo
     // pidió el cliente: se crea "en blanco" y Gestión la deriva a Extrusión
     // como primer paso explícito (POST /:id/derive), en vez de nacer ya

@@ -1613,6 +1613,98 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     await prisma.productionOrder.delete({ where: { id: parent.id } });
   });
 
+  it("ingreso de inventario inicial: rollos con tiquete quedan en la bodega elegida, se derivan y Sellado los consume escaneando su etiqueta", async () => {
+    const ingresar = (body: object, role = "produccion") =>
+      fetch(`${baseUrl}/api/production-orders/opening-stock`, { method: "POST", headers: headersFor(role), body: JSON.stringify(body) });
+    const orderIds: number[] = [];
+    try {
+      assert.equal((await ingresar({ productId, warehouse: "sellado", rolls: [{ weightKg: 10 }] }, "operario_sellado")).status, 403, "solo Gestión");
+      assert.equal((await ingresar({ productId, warehouse: "sellado", rolls: [] })).status, 400, "sin rollos");
+      const repetido = await ingresar({ productId, warehouse: "sellado", rolls: [{ weightKg: 10, ticket: "T-1" }, { weightKg: 12, ticket: "t-1" }] });
+      assert.equal(repetido.status, 400, "tiquete repetido");
+      assert.match(((await repetido.json()) as { error: string }).error, /repetido/);
+
+      const res = await ingresar({ productId, warehouse: "sellado", rolls: [{ weightKg: 48.5, ticket: "T-101" }, { weightKg: 51.25, ticket: "T-102" }] });
+      assert.equal(res.status, 201);
+      const body = (await res.json()) as {
+        order: { id: number; orderNumber: string };
+        totalKg: number;
+        rolls: { id: number; code: string; ticket: string; weightKg: number; possessionToken: string; qrDataUrl: string }[];
+      };
+      orderIds.push(body.order.id);
+      assert.equal(body.totalKg, 99.75);
+      assert.equal(body.rolls.length, 2);
+      assert.match(body.rolls[0].code, /^EXT-\d+$/);
+      assert.equal(body.rolls[0].ticket, "T-101");
+      assert.match(body.rolls[0].qrDataUrl, /^data:image\/png/);
+
+      const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id: body.order.id } });
+      assert.equal(order.station, "extrusion");
+      assert.equal(order.status, "finalizada");
+      assert.equal(order.openingStock, true);
+      assert.equal(Number(order.quantityPlanned), 99.75);
+
+      // Quedan en la bodega de Sellado, sin despacho en camino.
+      const inv = (await (await fetch(`${baseUrl}/api/roll-transfers/inventory`, { headers: headersFor("produccion") })).json()) as any;
+      const sellado = inv.warehouses.find((w: any) => w.station === "sellado");
+      const enSellado = sellado.items.filter((i: any) => body.rolls.some((r) => r.id === i.rollId));
+      assert.equal(enSellado.length, 2, "los dos rollos están en la bodega de Sellado");
+      assert.equal(enSellado.find((i: any) => i.code === body.rolls[0].code).label, "T-101");
+      assert.equal(inv.inTransit.some((t: any) => body.rolls.some((r) => r.code === t.code)), false);
+
+      // Se deriva a Sellado y el operario consume el rollo escaneando su etiqueta.
+      const derived = await fetch(`${baseUrl}/api/production-orders/${order.id}/derive`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ station: "sellado" }),
+      });
+      assert.equal(derived.status, 201);
+      const child = (await derived.json()) as { id: number; quantityPlanned: string };
+      orderIds.unshift(child.id);
+      assert.equal(Number(child.quantityPlanned), 99.75, "la meta es lo que se ingresó");
+      const [first] = body.rolls;
+      const scan = await fetch(`${baseUrl}/api/production-orders/rolls/by-code/${first.code}?token=${first.possessionToken}&forStation=sellado`, {
+        headers: headersFor("operario_sellado"),
+      });
+      assert.equal(scan.status, 200, "el escaneo lo encuentra en la bodega de Sellado");
+      const row = await fetch(`${baseUrl}/api/production-orders/${child.id}/rolls`, {
+        method: "POST",
+        headers: headersFor("operario_sellado"),
+        body: JSON.stringify({ weightKg: 20, sourceRollIds: [first.id], sourceRollTokens: { [first.id]: first.possessionToken } }),
+      });
+      assert.equal(row.status, 201, "Sellado consume el rollo del inventario inicial");
+    } finally {
+      for (const id of orderIds) {
+        const rolls = await prisma.productionRoll.findMany({ where: { productionOrderId: id }, select: { id: true } });
+        const ids = rolls.map((r) => r.id);
+        await prisma.rollConsumption.deleteMany({ where: { OR: [{ rollId: { in: ids } }, { sourceRollId: { in: ids } }] } }).catch(() => {});
+        await prisma.productionRoll.deleteMany({ where: { productionOrderId: id } }).catch(() => {});
+        await prisma.productionOrder.delete({ where: { id } }).catch(() => {});
+      }
+    }
+  });
+
+  it("un ingreso de inventario inicial no cuenta como kg producidos en el dashboard", async () => {
+    const antes = (await (await fetch(`${baseUrl}/api/dashboard/resumen`, { headers: headersFor("super_admin") })).json()) as any;
+    const res = await fetch(`${baseUrl}/api/production-orders/opening-stock`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ productId, warehouse: "extrusion", rolls: [{ weightKg: 333 }] }),
+    });
+    assert.equal(res.status, 201);
+    const { order } = (await res.json()) as { order: { id: number } };
+    try {
+      const despues = (await (await fetch(`${baseUrl}/api/dashboard/resumen`, { headers: headersFor("super_admin") })).json()) as any;
+      assert.deepEqual(despues.kgProducidosDelPeriodo, antes.kgProducidosDelPeriodo);
+      // Sin bodega distinta de Extrusión no se crea ningún despacho.
+      const transfers = await prisma.rollTransfer.count({ where: { roll: { productionOrderId: order.id } } });
+      assert.equal(transfers, 0);
+    } finally {
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: order.id } });
+      await prisma.productionOrder.delete({ where: { id: order.id } });
+    }
+  });
+
   it("Embobinado: se deriva solo desde Extrusión (hereda specs como Sellado), después puede seguir a Sellado/Impresión/Precorte, y lo opera solo su operario", async () => {
     const derive = (id: number, body: object) =>
       fetch(`${baseUrl}/api/production-orders/${id}/derive`, { method: "POST", headers: headersFor("produccion"), body: JSON.stringify(body) });

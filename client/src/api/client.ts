@@ -178,6 +178,14 @@ export interface InTransitRoll extends Omit<WarehouseRoll, "days" | "stale" | "p
   dispatchedKg: number | null;
 }
 
+export interface OpeningStockResult {
+  order: { id: number; orderNumber: string };
+  productName: string;
+  warehouse: string;
+  totalKg: number;
+  rolls: { id: number; code: string; ticket: string | null; weightKg: number; possessionToken: string; qrDataUrl: string }[];
+}
+
 export interface WarehouseInventory {
   staleDays: number;
   staleTransitHours: number;
@@ -626,6 +634,16 @@ export const api = {
   getMyLastCarrier: () => request<{ carrierName: string | null }>("/roll-transfers/carriers/last-mine"),
   /** Qué rollos hay hoy en cada bodega de planta, y cuáles están en camino. */
   getWarehouseInventory: () => request<WarehouseInventory>("/roll-transfers/inventory"),
+  /** Ingreso de inventario inicial (solo Gestión): rollos de Extrusión que ya
+   * estaban en una bodega, uno por tiquete. Crea una OP de Extrusión
+   * finalizada y devuelve las etiquetas con QR (el token solo viene acá). */
+  createOpeningStock: (data: {
+    productId: number;
+    clientId?: number;
+    warehouse: string;
+    rolls: { weightKg: number; ticket?: string }[];
+    notes?: string;
+  }) => request<OpeningStockResult>("/production-orders/opening-stock", { method: "POST", body: JSON.stringify(data) }),
   /** Ajuste por conteo físico (solo Gestión): el saldo pasa a ser `countedKg`. */
   countRoll: (rollId: number, data: { countedKg: number; notes: string }) =>
     request<{ rollId: number; code: string; previousKg: number; newKg: number; deltaKg: number }>(`/roll-transfers/rolls/${rollId}/count`, {

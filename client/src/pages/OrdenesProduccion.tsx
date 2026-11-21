@@ -132,6 +132,7 @@ function FragmentChain({
         </td>
         <td className="p-3">
           <StationBadge station={head.station} />
+          {head.openingStock && <OpeningStockBadge />}
         </td>
         <td className="p-3">{head.client?.name ?? "—"}</td>
         <td className="p-3">{head.product.name}</td>
@@ -184,6 +185,16 @@ export function StationBadge({ station }: { station: string | null }) {
   return (
     <span className={`text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 ${STATION_COLORS[station] ?? ""}`}>
       {STATION_LABELS[station as OpStation] ?? station}
+    </span>
+  );
+}
+
+/** OP que solo registra rollos que ya estaban en bodega (ingreso de
+ * inventario inicial, ver Inventario de bodegas), no producción. */
+export function OpeningStockBadge() {
+  return (
+    <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200">
+      Inventario inicial
     </span>
   );
 }
@@ -512,7 +523,10 @@ export default function OrdenesProduccion() {
                         >
                           <div className="flex items-center justify-between gap-2">
                             <p className="font-medium text-slate-800 dark:text-slate-100">{orderNumber}</p>
-                            <StationBadge station={o.station} />
+                            <span className="inline-flex gap-1">
+                              <StationBadge station={o.station} />
+                              {o.openingStock && <OpeningStockBadge />}
+                            </span>
                           </div>
                           <p className="text-sm text-slate-600 dark:text-slate-300">
                             {o.product.name}

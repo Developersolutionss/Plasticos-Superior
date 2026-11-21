@@ -5,6 +5,7 @@ import { AlertTriangle, Check, FileDown, GitBranch, Lock, Paperclip, Pencil, Pri
 import { api, ApiError } from "../api/client";
 import { deriveSpecsFromMeasure } from "../lib/measureSpecs";
 import { useAuth, type UserRole } from "../auth/AuthContext";
+import { printRollLabel } from "../lib/rollLabels";
 import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, OP_PRECORTE, OP_EMBOBINADO, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { splitScannedCode } from "../lib/rollQr";
@@ -79,63 +80,6 @@ function SheetBand({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
-}
-
-/** Mismo patrón que printLabels en Productos.tsx: ventana nueva
- * autocontenida + @media print, con el mismo cuidado de escapar el texto
- * interpolado y esperar a que el QR (data: URI) termine de decodificar antes
- * de imprimir (si no, la primera impresión sale con el QR vacío). */
-function escapeHtml(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
-
-function printRollLabel(label: { code: string; orderNumber: string; productName: string; weightKg: unknown; qrDataUrl: string }) {
-  const win = window.open("", "_blank");
-  if (!win) return;
-
-  const code = escapeHtml(label.code);
-  const info = escapeHtml(`${label.orderNumber} · ${label.productName} · ${Number(label.weightKg)} kg`);
-
-  win.document.write(`<!DOCTYPE html>
-    <html>
-      <head>
-        <title>Etiqueta de rollo</title>
-        <style>
-          * { box-sizing: border-box; }
-          body { font-family: sans-serif; margin: 0; padding: 8mm; }
-          .label {
-            width: 6cm; min-height: 4cm; height: auto;
-            border: 1px dashed #999; border-radius: 3mm;
-            padding: 3mm; display: flex; align-items: center; gap: 3mm;
-          }
-          .label img { width: 2.6cm; height: 2.6cm; flex-shrink: 0; }
-          .label .text { overflow: hidden; min-width: 0; }
-          .label .code { font-weight: bold; font-size: 12pt; margin: 0 0 2mm; overflow-wrap: anywhere; word-break: break-word; }
-          .label .info { font-size: 8pt; margin: 0; color: #333; overflow-wrap: anywhere; }
-          @media print { body { padding: 0; } }
-        </style>
-      </head>
-      <body>
-        <div class="label">
-          <img src="${label.qrDataUrl}" alt="QR ${code}" />
-          <div class="text">
-            <p class="code">${code}</p>
-            <p class="info">${info}</p>
-          </div>
-        </div>
-      </body>
-    </html>`);
-  win.document.close();
-
-  let printed = false;
-  const doPrint = () => {
-    if (printed) return;
-    printed = true;
-    win.focus();
-    win.print();
-  };
-  win.onload = doPrint;
-  setTimeout(doPrint, 400);
 }
 
 interface MateriaPrimaRow {
@@ -1710,6 +1654,9 @@ export default function OrdenProduccionDetalle() {
           <div className={`${cellBorder} p-2`}>
             <span className={cellLabel}>Nro O.Prod</span>
             <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{order.orderNumber}</span>
+            {order.openingStock && (
+              <span className="block text-[11px] text-sky-800 dark:text-sky-300">Inventario inicial: rollos que ya estaban en bodega</span>
+            )}
           </div>
           <div className={`${cellBorder} p-2`}>
             <span className={cellLabel} title="A qué cliente se despacha esta OP al aprobarse en Calidad -- vacío = entra a stock general (estantería)">

@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ArrowRight, Clock, Scale, ScanLine, Send, Warehouse } from "lucide-react";
+import { AlertTriangle, ArrowRight, Clock, PackagePlus, Scale, ScanLine, Send, Warehouse } from "lucide-react";
 import { api, type WarehouseInventory, type WarehouseRoll } from "../api/client";
 import { useAuth, type UserRole } from "../auth/AuthContext";
 import AsyncState from "../components/AsyncState";
 import BarcodeScanner from "../components/BarcodeScanner";
+import IngresoInventarioInicial from "../components/IngresoInventarioInicial";
 import { SkeletonRows } from "../components/Skeleton";
 import { PRODUCCION_GESTION } from "../components/navConfig";
 import { splitScannedCode } from "../lib/rollQr";
@@ -208,6 +209,7 @@ export default function InventarioBodegas() {
   const [filter, setFilter] = useState<string>((user && OPERARIO_STATION[user.role]) || "");
   const query = useQuery({ queryKey: ["warehouseInventory"], queryFn: api.getWarehouseInventory });
   const [scanning, setScanning] = useState(false);
+  const [ingresando, setIngresando] = useState(false);
   const [located, setLocated] = useState<{ code: string } | null>(null);
   const [scanMessage, setScanMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -264,6 +266,16 @@ export default function InventarioBodegas() {
         >
           <ScanLine size={18} aria-hidden="true" /> {canCount ? "Escanear rollo para ubicarlo o contarlo" : "Escanear rollo para ubicarlo"}
         </button>
+        {/* Rollos que ya estaban en bodega antes del sistema (solo Gestión). */}
+        {canCount && !ingresando && (
+          <button
+            type="button"
+            onClick={() => setIngresando(true)}
+            className="w-full sm:w-auto sm:ml-2 inline-flex items-center justify-center gap-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 px-5 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
+          >
+            <PackagePlus size={18} aria-hidden="true" /> Ingresar rollos que ya están en bodega
+          </button>
+        )}
         {scanMessage && (
           <p
             role="status"
@@ -277,6 +289,10 @@ export default function InventarioBodegas() {
           </p>
         )}
       </div>
+
+      {canCount && ingresando && (
+        <IngresoInventarioInicial defaultWarehouse={(filter as RollWarehouse) || undefined} onClose={() => setIngresando(false)} />
+      )}
 
       <AsyncState query={query} skeleton={<SkeletonRows />} errorMessage="No se pudo cargar el inventario de bodegas.">
         {(data: WarehouseInventory) => {
