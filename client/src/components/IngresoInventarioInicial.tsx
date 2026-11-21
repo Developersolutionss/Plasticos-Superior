@@ -14,7 +14,10 @@ interface Row {
 }
 
 const emptyRow = (): Row => ({ weight: "", ticket: "" });
-const input = "border rounded px-3 py-2 text-sm w-full dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100";
+// Sin ancho: cada uso pone el suyo (w-full vs. el ancho fijo del peso) —
+// con w-full acá, el peso se comía toda la fila y el tiquete quedaba aplastado.
+const inputBase = "border rounded px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100";
+const input = `${inputBase} w-full`;
 const WAREHOUSES = Object.keys(WAREHOUSE_LABELS) as RollWarehouse[];
 
 /**
@@ -226,7 +229,7 @@ export default function IngresoInventarioInicial({ defaultWarehouse, onClose }: 
                   inputMode="decimal"
                   step="0.01"
                   min="0"
-                  className={`${input} w-32`}
+                  className={`${inputBase} w-28 sm:w-36 shrink-0`}
                   placeholder="Peso kg"
                   aria-label={`Peso del rollo ${i + 1} (kg)`}
                   value={r.weight}
@@ -234,7 +237,7 @@ export default function IngresoInventarioInicial({ defaultWarehouse, onClose }: 
                   onKeyDown={(e) => handleRowKey(e, i)}
                 />
                 <input
-                  className={`${input} flex-1`}
+                  className={`${inputBase} flex-1 min-w-0`}
                   placeholder="N° de tiquete"
                   aria-label={`Tiquete del rollo ${i + 1}`}
                   maxLength={60}
