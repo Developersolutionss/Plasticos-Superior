@@ -1541,7 +1541,7 @@ export default function OrdenProduccionDetalle() {
               <Send size={14} aria-hidden="true" /> Enviar a Calidad
             </button>
           )}
-          {canGestion && isReopenable && (
+          {canGestion && isReopenable && !order.openingStock && (
             <button
               type="button"
               onClick={handleReopen}
@@ -2196,7 +2196,7 @@ export default function OrdenProduccionDetalle() {
                           <RotateCcw size={13} aria-hidden="true" />
                         </button>
                       )}
-                      {canGestion && isOpen && (
+                      {canGestion && (isOpen || order.openingStock) && (
                         <button type="button" className="text-red-600 dark:text-red-400 ml-1.5" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
                           <Trash2 size={13} aria-hidden="true" />
                         </button>
@@ -2342,7 +2342,7 @@ export default function OrdenProduccionDetalle() {
                         <RotateCcw size={15} aria-hidden="true" />
                       </button>
                     )}
-                    {canGestion && isOpen && (
+                    {canGestion && (isOpen || order.openingStock) && (
                       <button type="button" className="text-red-600 dark:text-red-400" title="Borrar rollo" onClick={() => handleDeleteRoll(roll.id)}>
                         <Trash2 size={15} aria-hidden="true" />
                       </button>

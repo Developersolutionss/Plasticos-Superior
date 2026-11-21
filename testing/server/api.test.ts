@@ -1684,6 +1684,48 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     }
   });
 
+  it("inventario inicial: no se reabre ni se cierra; un rollo mal cargado se borra (baja la meta); un tiquete ya ingresado se rechaza; no es producción de ningún operario", async () => {
+    const tiquete = `TQ-${Date.now()}`;
+    const today = new Date().toLocaleDateString("en-CA");
+    const extrusionKg = async () => {
+      const rows = (await (await fetch(`${baseUrl}/api/production-orders/reports/por-operario?from=${today}&to=${today}&station=extrusion`, { headers: headersFor("produccion") })).json()) as { weightKg: number }[];
+      return Math.round(rows.reduce((a, r) => a + r.weightKg, 0) * 100) / 100;
+    };
+    const antes = await extrusionKg();
+    const res = await fetch(`${baseUrl}/api/production-orders/opening-stock`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ productId, warehouse: "sellado", rolls: [{ weightKg: 40, ticket: tiquete }, { weightKg: 60 }] }),
+    });
+    assert.equal(res.status, 201);
+    const body = (await res.json()) as { order: { id: number }; rolls: { id: number }[] };
+    const id = body.order.id;
+    try {
+      const post = (path: string, role = "produccion") => fetch(`${baseUrl}/api/production-orders/${id}/${path}`, { method: "POST", headers: headersFor(role), body: "{}" });
+      const reopen = await post("reopen");
+      assert.equal(reopen.status, 400);
+      assert.match(((await reopen.json()) as { error: string }).error, /inventario inicial no se reabre/);
+      assert.equal((await post("close", "super_admin")).status, 400, "ni siquiera un admin la cierra");
+
+      const again = await fetch(`${baseUrl}/api/production-orders/opening-stock`, {
+        method: "POST",
+        headers: headersFor("produccion"),
+        body: JSON.stringify({ productId, warehouse: "sellado", rolls: [{ weightKg: 40, ticket: tiquete.toLowerCase() }] }),
+      });
+      assert.equal(again.status, 400, "el mismo tiquete ya se ingresó");
+      assert.match(((await again.json()) as { error: string }).error, /ya se ingresó/);
+
+      assert.equal(await extrusionKg(), antes, "no suma a la producción por operario");
+      const del = await fetch(`${baseUrl}/api/production-orders/${id}/rolls/${body.rolls[1].id}`, { method: "DELETE", headers: headersFor("produccion") });
+      assert.equal(del.status, 204, "se borra el rollo mal cargado aunque la OP esté finalizada");
+      const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id } });
+      assert.equal(Number(order.quantityPlanned), 40, "la meta baja a lo que queda");
+    } finally {
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: id } });
+      await prisma.productionOrder.delete({ where: { id } });
+    }
+  });
+
   it("un ingreso de inventario inicial no cuenta como kg producidos en el dashboard", async () => {
     const antes = (await (await fetch(`${baseUrl}/api/dashboard/resumen`, { headers: headersFor("super_admin") })).json()) as any;
     const res = await fetch(`${baseUrl}/api/production-orders/opening-stock`, {

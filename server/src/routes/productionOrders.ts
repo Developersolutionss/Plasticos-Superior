@@ -234,7 +234,9 @@ productionOrdersRouter.get("/reports/por-operario", requireProduccionGestion, as
   const rolls = await prisma.productionRoll.findMany({
     where: {
       date: { gte: from, lte: to },
-      productionOrder: stationParam ? { station: stationParam as any } : undefined,
+      // El ingreso de inventario inicial no es producción de nadie (ver
+      // POST /opening-stock).
+      productionOrder: { openingStock: false, ...(stationParam ? { station: stationParam as any } : {}) },
     },
     select: {
       date: true,
@@ -824,6 +826,22 @@ productionOrdersRouter.post("/opening-stock", requireProduccionGestion, async (r
   const tickets = data.rolls.map((r) => r.ticket ?? "").filter((t) => t !== "");
   const repeated = tickets.find((t, i) => tickets.findIndex((o) => o.toUpperCase() === t.toUpperCase()) !== i);
   if (repeated) return res.status(400).json({ error: `El tiquete ${repeated} está repetido` });
+  // Mismo tiquete ya ingresado para este producto (reenvío tras un corte de
+  // red, o dos personas cargando el mismo lote): duplicaría el stock.
+  if (tickets.length) {
+    const already = await prisma.productionRoll.findFirst({
+      where: {
+        productionOrder: { openingStock: true, productId: product.id },
+        OR: tickets.map((t) => ({ label: { equals: t, mode: "insensitive" as const } })),
+      },
+      select: { label: true, station: true, stationSequence: true },
+    });
+    if (already) {
+      return res.status(400).json({
+        error: `El tiquete ${already.label} ya se ingresó para este producto (rollo ${ROLL_CODE_PREFIX[already.station as OpStation]}-${already.stationSequence})`,
+      });
+    }
+  }
 
   const totalKg = Math.round(data.rolls.reduce((acc, r) => acc + r.weightKg, 0) * 100) / 100;
   // Lo que se sabe del producto pasa a la hoja de la OP (y de ahí a sus
@@ -904,7 +922,7 @@ productionOrdersRouter.post("/opening-stock", requireProduccionGestion, async (r
         created.push({ id: roll.id, code, ticket: roll.label, weightKg: r.weightKg, possessionToken });
       }
       return { order, created };
-    })
+    }, { timeout: 30_000 })
   );
 
   const rolls = await Promise.all(
@@ -1575,6 +1593,7 @@ productionOrdersRouter.post("/:id/close", requireRole(...ROLES.CIERRE_OP), async
     include: { rolls: { select: { id: true, weightKg: true, wasteKg: true, details: true } } },
   });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  if (order.openingStock) return res.status(400).json({ error: "Una OP de inventario inicial no se cierra: ya nace terminada" });
   if (!OPEN_STATUSES.includes(order.status)) {
     return res.status(400).json({ error: "Esta OP ya no está abierta" });
   }
@@ -1814,6 +1833,15 @@ productionOrdersRouter.post("/:id/reopen", requireProduccionGestion, async (req,
     include: { qualityCheck: true, rolls: { select: { weightKg: true, details: true } } },
   });
   if (!order) return res.status(404).json({ error: "OP no encontrada" });
+  // Reabrirla la mandaría a la cola de Extrusión y al cerrarla de nuevo se
+  // descontaría materia prima que nunca se usó (esos rollos no se
+  // extruyeron en el sistema). Se corrige borrando el rollo equivocado o
+  // ajustándolo por conteo.
+  if (order.openingStock) {
+    return res.status(400).json({
+      error: "Una OP de inventario inicial no se reabre: para corregirla, borrá el rollo equivocado (si todavía no se usó) y volvé a ingresarlo, o ajustá su peso por conteo en Inventario de bodegas",
+    });
+  }
   if (!REOPENABLE_STATUSES.includes(order.status)) {
     return res.status(400).json({ error: "Esta OP no se puede reabrir desde su estado actual" });
   }
@@ -2334,7 +2362,10 @@ productionOrdersRouter.delete("/:id/rolls/:rollId", requireProduccionGestion, as
     include: { productionOrder: true },
   });
   if (!roll) return res.status(404).json({ error: "Rollo no encontrado" });
-  if (!OPEN_STATUSES.includes(roll.productionOrder.status)) {
+  // Inventario inicial: la OP nace finalizada y no se reabre, así que un
+  // tiquete cargado mal se corrige borrando su rollo (mientras no se haya
+  // usado, ver chequeos de abajo) y volviéndolo a ingresar.
+  if (!roll.productionOrder.openingStock && !OPEN_STATUSES.includes(roll.productionOrder.status)) {
     return res.status(400).json({ error: "La OP ya no está abierta" });
   }
   // Si a este rollo ya le sacaron material en otra estación, borrarlo
@@ -2387,6 +2418,11 @@ productionOrdersRouter.delete("/:id/rolls/:rollId", requireProduccionGestion, as
       // Los consumos DE este rollo (lo que él le sacó a sus madres) se borran
       // en cascada, así que el saldo de los madres se libera solo.
       await tx.productionRoll.delete({ where: { id: rollId } });
+      // En inventario inicial la meta es lo ingresado: baja con el rollo borrado.
+      if (roll.productionOrder.openingStock) {
+        const left = await tx.productionRoll.aggregate({ where: { productionOrderId }, _sum: { weightKg: true } });
+        await tx.productionOrder.update({ where: { id: productionOrderId }, data: { quantityPlanned: left._sum.weightKg ?? 0 } });
+      }
       for (const a of anclas) {
         const liberado = await remainingSourceKg(tx, a.sourceRollId);
         await adjustRollBalance(tx, {
