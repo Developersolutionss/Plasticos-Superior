@@ -490,6 +490,13 @@ productionOrdersRouter.get("/suggestions", requireProduccionGestion, async (req,
   res.json({ manual, frequent: { sampleSize: stationOrders.length, specs: frequentSpecs } });
 });
 
+/** QR de muestra para la prueba de impresión de etiquetas (Configuración →
+ * Prueba de etiquetas): no corresponde a ningún rollo, solo sirve para ver
+ * que la impresora lo saca nítido y que el lector lo lee. */
+productionOrdersRouter.get("/label-sample-qr", async (_req, res) => {
+  res.json({ qrDataUrl: await QRCode.toDataURL("PRUEBA-IMPRESION-SAT-TT460") });
+});
+
 /**
  * Detalle completo de una OP: sus rollos, adjuntos, cadena de derivación
  * (padre e hijas), el resultado de Calidad (si ya se registró) y el

@@ -1726,6 +1726,13 @@ describe("órdenes de producción · una OP por proceso (derivación, rollos, ca
     }
   });
 
+  it("QR de muestra para la prueba de impresión: lo pide cualquier operario (va antes de /:id)", async () => {
+    const res = await fetch(`${baseUrl}/api/production-orders/label-sample-qr`, { headers: headersFor("operario_sellado") });
+    assert.equal(res.status, 200);
+    assert.match(((await res.json()) as { qrDataUrl: string }).qrDataUrl, /^data:image\/png/);
+    assert.equal((await fetch(`${baseUrl}/api/production-orders/label-sample-qr`)).status, 401);
+  });
+
   it("un ingreso de inventario inicial no cuenta como kg producidos en el dashboard", async () => {
     const antes = (await (await fetch(`${baseUrl}/api/dashboard/resumen`, { headers: headersFor("super_admin") })).json()) as any;
     const res = await fetch(`${baseUrl}/api/production-orders/opening-stock`, {

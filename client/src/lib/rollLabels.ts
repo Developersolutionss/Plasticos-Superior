@@ -57,9 +57,48 @@ export interface LabelFormat {
 export const PRINTER_MAX_WIDTH_MM = 108;
 
 /** Hoja que recibe la impresora: ancho = lo que cruza el cabezal. */
-export function labelSheet(station: LabelStation): { widthMm: number; heightMm: number; rotated: boolean } {
+/**
+ * Ajustes de la impresora de ESTE equipo (se guardan en el navegador del PC
+ * que tiene la impresora conectada): si se gira lo que no entra a lo ancho
+ * (por si cargan el rollo de etiquetas de otra forma) y cuánto correr el
+ * diseño (mm) si la impresora lo saca corrido. Se calibran en
+ * Configuración → Prueba de etiquetas.
+ */
+export interface PrinterSettings {
+  rotateWide: boolean;
+  offsetXmm: number;
+  offsetYmm: number;
+}
+
+export const DEFAULT_PRINTER_SETTINGS: PrinterSettings = { rotateWide: true, offsetXmm: 0, offsetYmm: 0 };
+const PRINTER_SETTINGS_KEY = "labelPrinterSettings";
+
+export function getPrinterSettings(): PrinterSettings {
+  try {
+    const raw = localStorage.getItem(PRINTER_SETTINGS_KEY);
+    if (!raw) return DEFAULT_PRINTER_SETTINGS;
+    const s = JSON.parse(raw) as Partial<PrinterSettings>;
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(-20, Math.min(20, v)) : 0);
+    return { rotateWide: s.rotateWide !== false, offsetXmm: num(s.offsetXmm), offsetYmm: num(s.offsetYmm) };
+  } catch {
+    return DEFAULT_PRINTER_SETTINGS;
+  }
+}
+
+export function savePrinterSettings(settings: PrinterSettings) {
+  try {
+    localStorage.setItem(PRINTER_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Sin almacenamiento (modo privado): se usa lo de por defecto.
+  }
+}
+
+export function labelSheet(
+  station: LabelStation,
+  settings: Pick<PrinterSettings, "rotateWide"> = DEFAULT_PRINTER_SETTINGS
+): { widthMm: number; heightMm: number; rotated: boolean } {
   const f = LABEL_FORMATS[station] ?? LABEL_FORMATS.extrusion;
-  const rotated = f.widthMm > PRINTER_MAX_WIDTH_MM;
+  const rotated = settings.rotateWide && f.widthMm > PRINTER_MAX_WIDTH_MM;
   return rotated ? { widthMm: f.heightMm, heightMm: f.widthMm, rotated } : { widthMm: f.widthMm, heightMm: f.heightMm, rotated };
 }
 
@@ -115,7 +154,7 @@ function field(label: string, value: string, wide = false): string {
   return `<div class="f${wide ? " wide" : ""}"><b>${escapeHtml(label)}:</b> <span>${v}</span></div>`;
 }
 
-function labelHtml(label: RollLabel, logoUrl: string): string {
+function labelHtml(label: RollLabel, logoUrl: string, settings: PrinterSettings): string {
   const fmt = LABEL_FORMATS[label.station] ?? LABEL_FORMATS.extrusion;
   const name = label.productName.toUpperCase();
   const fields = [
@@ -127,9 +166,13 @@ function labelHtml(label: RollLabel, logoUrl: string): string {
     label.ticket ? field("TIQUETE", label.ticket) : "",
     label.clientName ? field("CLIENTE", label.clientName.toUpperCase(), true) : "",
   ].join("");
-  const sheet = labelSheet(label.station);
+  const sheet = labelSheet(label.station, settings);
   // Girada: el diseño se arma derecho y se rota 90° dentro de la hoja.
-  const rotate = sheet.rotated ? ` style="transform: translateX(${sheet.widthMm}mm) rotate(90deg)"` : "";
+  const moves = [
+    settings.offsetXmm || settings.offsetYmm ? `translate(${settings.offsetXmm}mm, ${settings.offsetYmm}mm)` : "",
+    sheet.rotated ? `translateX(${sheet.widthMm}mm) rotate(90deg)` : "",
+  ].filter(Boolean);
+  const rotate = moves.length ? ` style="transform: ${moves.join(" ")}"` : "";
   return `<div class="sheet sheet-${label.station}" style="width:${sheet.widthMm}mm;height:${sheet.heightMm}mm">
   <div class="label lbl-${label.station}"${rotate}>
     <header>
@@ -220,9 +263,6 @@ const STYLES = `
   .sheet-sellado { page: bulto; }
   .sheet-embobinado { page: embobinado; }
   @page { margin: 0; }
-  @page rollo { size: 100mm 130mm; margin: 0; }
-  @page bulto { size: 80mm 160mm; margin: 0; }
-  @page embobinado { size: 100mm 80mm; margin: 0; }
   @media screen {
     /* En pantalla se ve derecha; girada es solo para la impresora. */
     .sheet { width: auto !important; height: auto !important; }
@@ -232,8 +272,15 @@ const STYLES = `
 `;
 
 /** HTML de la página de impresión (separado para poder probarlo). */
-export function rollLabelsHtml(labels: RollLabel[], logoUrl = "/logo-full.png"): string {
-  const first = labelSheet(labels[0]?.station ?? "extrusion");
+export function rollLabelsHtml(labels: RollLabel[], logoUrl = "/logo-full.png", settings: PrinterSettings = getPrinterSettings()): string {
+  const first = labelSheet(labels[0]?.station ?? "extrusion", settings);
+  const size = (s: LabelStation) => {
+    const sh = labelSheet(s, settings);
+    return `${sh.widthMm}mm ${sh.heightMm}mm`;
+  };
+  const pages = `@page rollo { size: ${size("precorte")}; margin: 0; }
+      @page bulto { size: ${size("sellado")}; margin: 0; }
+      @page embobinado { size: ${size("embobinado")}; margin: 0; }`;
   return `<!DOCTYPE html>
 <html lang="es">
   <head>
@@ -241,11 +288,12 @@ export function rollLabelsHtml(labels: RollLabel[], logoUrl = "/logo-full.png"):
     <title>${labels.length === 1 ? `Etiqueta ${escapeHtml(labels[0].code)}` : `Etiquetas (${labels.length})`}</title>
     <style>
       ${STYLES}
+      ${pages}
       @page { size: ${first.widthMm}mm ${first.heightMm}mm; margin: 0; }
     </style>
   </head>
   <body>
-    ${labels.map((l) => labelHtml(l, logoUrl)).join("\n")}
+    ${labels.map((l) => labelHtml(l, logoUrl, settings)).join("\n")}
   </body>
 </html>`;
 }

@@ -227,6 +227,7 @@ export const navSections: NavEntry[] = [
       { id: "configuracion-auth", label: "Autenticación", to: "/configuracion/autenticacion", roles: ADMIN },
       { id: "configuracion-usuarios", label: "Usuarios y permisos", to: "/configuracion/usuarios", roles: ADMIN },
       { id: "configuracion-apariencia", label: "Apariencia", to: "/configuracion/apariencia" },
+      { id: "configuracion-etiquetas", label: "Prueba de etiquetas", to: "/configuracion/etiquetas", roles: OPERARIOS },
     ],
   },
 ];
