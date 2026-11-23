@@ -5,7 +5,7 @@ import { PackagePlus, Plus, Printer, Trash2, X } from "lucide-react";
 import { api, type OpeningStockResult } from "../api/client";
 import { nameWithMeasure } from "../lib/productMeasure";
 import { matchesProductSearch } from "../lib/productSearch";
-import { printRollLabels } from "../lib/rollLabels";
+import { labelReference, printRollLabels } from "../lib/rollLabels";
 import { WAREHOUSE_LABELS, warehousePhrase, type RollWarehouse } from "../opTemplates";
 
 interface Row {
@@ -100,14 +100,19 @@ export default function IngresoInventarioInicial({ defaultWarehouse, onClose }: 
 
   function print() {
     if (!result) return;
+    const product = (products ?? []).find((p: any) => String(p.id) === productId);
     printRollLabels(
       result.rolls.map((r) => ({
+        station: "extrusion" as const,
         code: r.code,
         orderNumber: result.order.orderNumber,
         productName: result.productName,
+        reference: labelReference(product),
+        color: product?.color ?? null,
         weightKg: r.weightKg,
         qrDataUrl: r.qrDataUrl,
         ticket: r.ticket,
+        clientName: (clients ?? []).find((c: any) => String(c.id) === clientId)?.name ?? null,
       }))
     );
   }

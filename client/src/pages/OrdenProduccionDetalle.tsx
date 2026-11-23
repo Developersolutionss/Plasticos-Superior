@@ -5,7 +5,7 @@ import { AlertTriangle, Check, FileDown, GitBranch, Lock, Paperclip, Pencil, Pri
 import { api, ApiError } from "../api/client";
 import { deriveSpecsFromMeasure } from "../lib/measureSpecs";
 import { useAuth, type UserRole } from "../auth/AuthContext";
-import { printRollLabel } from "../lib/rollLabels";
+import { printRollLabel, printRollLabels, rollLabelFromOrder, type RollLabel } from "../lib/rollLabels";
 import { ADMIN, OP_EXTRUSION, OP_IMPRESION, OP_SELLADO, OP_PRECORTE, OP_EMBOBINADO, PRODUCCION_GESTION } from "../components/navConfig";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { splitScannedCode } from "../lib/rollQr";
@@ -243,9 +243,7 @@ export default function OrdenProduccionDetalle() {
   // es la única oportunidad de imprimirlo tal cual: el token nunca se
   // guarda en texto plano, así que no se puede volver a pedir después (ver
   // handleReissueLabel para esa situación).
-  const [justCreatedLabels, setJustCreatedLabels] = useState<
-    { rollId: number; code: string; qrDataUrl: string; weightKg: unknown; orderNumber: string; productName: string }[]
-  >([]);
+  const [justCreatedLabels, setJustCreatedLabels] = useState<(RollLabel & { rollId: number })[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reopening, setReopening] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -844,11 +842,7 @@ export default function OrdenProduccionDetalle() {
         if (created.qrDataUrl) {
           newLabels.push({
             rollId: created.id,
-            code: `${ROLL_CODE_PREFIX[station]}-${created.stationSequence}`,
-            qrDataUrl: created.qrDataUrl,
-            weightKg: created.weightKg,
-            orderNumber: order.orderNumber,
-            productName: order.product.name,
+            ...rollLabelFromOrder(order, created, `${ROLL_CODE_PREFIX[station]}-${created.stationSequence}`, created.qrDataUrl),
           });
         }
       }
@@ -978,7 +972,8 @@ export default function OrdenProduccionDetalle() {
     }
     try {
       const label = await api.reissueProductionRollLabel(orderId, rollId);
-      printRollLabel(label);
+      const roll = (order.rolls ?? []).find((r: any) => r.id === rollId);
+      printRollLabel(rollLabelFromOrder(order, roll ?? { weightKg: label.weightKg, label: label.label }, label.code, label.qrDataUrl));
     } catch {
       setError("No se pudo reemitir la etiqueta");
     }
@@ -1612,6 +1607,15 @@ export default function OrdenProduccionDetalle() {
           <p className="text-sm text-emerald-800 dark:text-emerald-300 font-medium">
             Etiquetas listas para imprimir ({justCreatedLabels.length}):
           </p>
+          {justCreatedLabels.length > 1 && (
+            <button
+              type="button"
+              onClick={() => printRollLabels(justCreatedLabels)}
+              className="inline-flex items-center gap-1.5 text-sm bg-emerald-800 hover:bg-emerald-700 text-white rounded px-3 py-1.5 font-medium"
+            >
+              <Printer size={14} aria-hidden="true" /> Imprimir todas
+            </button>
+          )}
           {justCreatedLabels.map((l) => (
             <button
               key={l.rollId}

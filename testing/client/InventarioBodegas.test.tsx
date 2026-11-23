@@ -314,7 +314,9 @@ describe("InventarioBodegas", () => {
     const html = win.document.write.mock.calls[0][0] as string;
     expect(html).toContain("EXT-40");
     expect(html).toContain("EXT-41");
-    expect(html).toContain("Tiquete T-2");
+    expect(html).toContain("<b>TIQUETE:</b> <span>T-2</span>");
+    expect(html).toContain("ROLLO DE EXTRUSIÓN"); // etiqueta de rollo de Extrusión, 13 × 10 cm
+    expect(html).toContain("REF: <u>24 PULG · CAL 07</u>");
     open.mockRestore();
   });
 });
