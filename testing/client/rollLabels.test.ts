@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LABEL_FORMATS, labelDate, rollLabelFromOrder, rollLabelsHtml, type RollLabel } from "../../client/src/lib/rollLabels";
+import { LABEL_FORMATS, labelDate, labelSheet, rollLabelFromOrder, rollLabelsHtml, type RollLabel } from "../../client/src/lib/rollLabels";
 
 const base: RollLabel = {
   station: "precorte",
@@ -19,8 +19,13 @@ describe("etiquetas por estación", () => {
     expect(LABEL_FORMATS.sellado).toMatchObject({ widthMm: 160, heightMm: 80, subtitle: "BULTO SELLADO" });
     for (const s of ["extrusion", "impresion", "precorte"] as const) expect(LABEL_FORMATS[s]).toMatchObject({ widthMm: 130, heightMm: 100 });
     expect(LABEL_FORMATS.embobinado).toMatchObject({ widthMm: 100, heightMm: 80 });
-    expect(rollLabelsHtml([{ ...base, station: "sellado" }])).toContain("@page { size: 160mm 80mm; margin: 0; }");
-    expect(rollLabelsHtml([base])).toContain("@page { size: 130mm 100mm; margin: 0; }");
+    // La SAT TT460 imprime hasta 108 mm a lo ancho: las más anchas salen giradas.
+    expect(labelSheet("sellado")).toEqual({ widthMm: 80, heightMm: 160, rotated: true });
+    expect(labelSheet("precorte")).toEqual({ widthMm: 100, heightMm: 130, rotated: true });
+    expect(labelSheet("embobinado")).toEqual({ widthMm: 100, heightMm: 80, rotated: false });
+    expect(rollLabelsHtml([{ ...base, station: "sellado" }])).toContain("@page { size: 80mm 160mm; margin: 0; }");
+    expect(rollLabelsHtml([{ ...base, station: "sellado" }])).toContain("transform: translateX(80mm) rotate(90deg)");
+    expect(rollLabelsHtml([base])).toContain("@page { size: 100mm 130mm; margin: 0; }");
     expect(rollLabelsHtml([{ ...base, station: "embobinado" }])).toContain("@page { size: 100mm 80mm; margin: 0; }");
   });
 

@@ -46,6 +46,23 @@ export interface LabelFormat {
   cantPaca: string | null;
 }
 
+/**
+ * Impresora de planta: SAT TT460 UE (transferencia térmica, 203 dpi). El
+ * cabezal imprime hasta 108 mm de ancho; a lo largo (por donde sale el
+ * papel) la etiqueta puede ser más larga. Una etiqueta más ancha que el
+ * cabezal (Sellado 16 cm, rollos 13 cm) se manda GIRADA 90°: el rollo de
+ * etiquetas va cargado por su lado corto (8 cm / 10 cm) y la etiqueta sale
+ * a lo largo. Igual se lee derecha una vez pegada.
+ */
+export const PRINTER_MAX_WIDTH_MM = 108;
+
+/** Hoja que recibe la impresora: ancho = lo que cruza el cabezal. */
+export function labelSheet(station: LabelStation): { widthMm: number; heightMm: number; rotated: boolean } {
+  const f = LABEL_FORMATS[station] ?? LABEL_FORMATS.extrusion;
+  const rotated = f.widthMm > PRINTER_MAX_WIDTH_MM;
+  return rotated ? { widthMm: f.heightMm, heightMm: f.widthMm, rotated } : { widthMm: f.widthMm, heightMm: f.heightMm, rotated };
+}
+
 export const LABEL_FORMATS: Record<LabelStation, LabelFormat> = {
   sellado: { widthMm: 160, heightMm: 80, subtitle: "BULTO SELLADO", weightLabel: "PESO BULTO", cantPaca: "PAQ X UNID" },
   extrusion: { widthMm: 130, heightMm: 100, subtitle: "ROLLO DE EXTRUSIÓN", weightLabel: "PESO", cantPaca: null },
@@ -110,7 +127,11 @@ function labelHtml(label: RollLabel, logoUrl: string): string {
     label.ticket ? field("TIQUETE", label.ticket) : "",
     label.clientName ? field("CLIENTE", label.clientName.toUpperCase(), true) : "",
   ].join("");
-  return `<div class="label lbl-${label.station}">
+  const sheet = labelSheet(label.station);
+  // Girada: el diseño se arma derecho y se rota 90° dentro de la hoja.
+  const rotate = sheet.rotated ? ` style="transform: translateX(${sheet.widthMm}mm) rotate(90deg)"` : "";
+  return `<div class="sheet sheet-${label.station}" style="width:${sheet.widthMm}mm;height:${sheet.heightMm}mm">
+  <div class="label lbl-${label.station}"${rotate}>
     <header>
       <img class="logo" src="${escapeHtml(logoUrl)}" alt="Plásticos Superior San Judas SAS" />
       <div class="slogan">EN PRECIOS Y CALIDAD<br /><u>SOMOS SUPERIOR</u></div>
@@ -126,6 +147,7 @@ function labelHtml(label: RollLabel, logoUrl: string): string {
       <div class="claim">${escapeHtml(COMPANY_FOOTER.claim)}<br />${escapeHtml(COMPANY_FOOTER.address)}<br />${escapeHtml(COMPANY_FOOTER.city)}</div>
       <div class="pcode"><small>CÓDIGO PRODUCTO</small><strong>${escapeHtml(label.code)}</strong></div>
     </footer>
+  </div>
   </div>`;
 }
 
@@ -137,9 +159,10 @@ const STYLES = `
     position: relative; overflow: hidden; background: #fff;
     border: 0.6mm solid #000; padding: 2.5mm 3mm;
     display: grid; column-gap: 3mm;
-    break-after: page; page-break-after: always;
+    transform-origin: top left;
   }
-  .label:last-child { break-after: auto; page-break-after: auto; }
+  .sheet { position: relative; overflow: hidden; break-after: page; page-break-after: always; }
+  .sheet:last-child { break-after: auto; page-break-after: auto; }
   header { grid-area: header; display: flex; align-items: center; justify-content: space-between; gap: 3mm; min-height: 0; }
   .logo { height: 100%; max-height: 15mm; width: auto; filter: grayscale(1) contrast(1.4); }
   .slogan { font-family: "Courier New", Courier, monospace; font-size: 8.5pt; text-align: center; line-height: 1.25; }
@@ -163,13 +186,13 @@ const STYLES = `
 
   /* Extrusión / Impresión / Precorte: 13 × 10 cm */
   .lbl-extrusion, .lbl-impresion, .lbl-precorte {
-    width: 130mm; height: 100mm; page: rollo;
+    width: 130mm; height: 100mm;
     grid-template-columns: 1fr 30mm; grid-template-rows: 16mm auto 1fr 14mm;
     grid-template-areas: "header header" "title title" "fields qr" "footer footer";
   }
   /* Sellado (bulto): 16 × 8 cm, apaisada: el QR ocupa la columna derecha. */
   .lbl-sellado {
-    width: 160mm; height: 80mm; page: bulto;
+    width: 160mm; height: 80mm;
     grid-template-columns: 1fr 34mm; grid-template-rows: 13mm auto 1fr 12mm;
     grid-template-areas: "header qr" "title qr" "fields qr" "footer footer";
   }
@@ -179,7 +202,7 @@ const STYLES = `
   .lbl-sellado .logo { max-height: 12mm; }
   /* Embobinado: 10 × 8 cm, todo más compacto. */
   .lbl-embobinado {
-    width: 100mm; height: 80mm; page: embobinado; padding: 2mm 2.5mm;
+    width: 100mm; height: 80mm; padding: 2mm 2.5mm;
     grid-template-columns: 1fr 24mm; grid-template-rows: 11mm auto 1fr 11mm;
     grid-template-areas: "header header" "title title" "fields qr" "footer footer";
   }
@@ -192,18 +215,25 @@ const STYLES = `
   .lbl-embobinado .pcode strong { font-size: 13pt; }
   .lbl-embobinado .pcode small { font-size: 5.5pt; }
 
+  /* Hoja de impresora por tamaño (ancho = lo que cruza el cabezal). */
+  .sheet-extrusion, .sheet-impresion, .sheet-precorte { page: rollo; }
+  .sheet-sellado { page: bulto; }
+  .sheet-embobinado { page: embobinado; }
   @page { margin: 0; }
-  @page rollo { size: 130mm 100mm; margin: 0; }
-  @page bulto { size: 160mm 80mm; margin: 0; }
+  @page rollo { size: 100mm 130mm; margin: 0; }
+  @page bulto { size: 80mm 160mm; margin: 0; }
   @page embobinado { size: 100mm 80mm; margin: 0; }
   @media screen {
+    /* En pantalla se ve derecha; girada es solo para la impresora. */
+    .sheet { width: auto !important; height: auto !important; }
+    .label { transform: none !important; }
     body { background: #e5e7eb; padding: 8mm; display: flex; flex-wrap: wrap; gap: 6mm; align-items: flex-start; }
   }
 `;
 
 /** HTML de la página de impresión (separado para poder probarlo). */
 export function rollLabelsHtml(labels: RollLabel[], logoUrl = "/logo-full.png"): string {
-  const first = LABEL_FORMATS[labels[0]?.station] ?? LABEL_FORMATS.extrusion;
+  const first = labelSheet(labels[0]?.station ?? "extrusion");
   return `<!DOCTYPE html>
 <html lang="es">
   <head>
