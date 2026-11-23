@@ -38,6 +38,13 @@ describe("Prueba de etiquetas", () => {
     const row = (await screen.findByText("Bulto de Sellado")).closest("tr")!;
     await vi.waitFor(() => expect(within(row).getByRole("button", { name: /Imprimir prueba/ })).toBeEnabled());
 
+    // Se puede teclear un negativo (antes "-" se volvía 0 y quedaba "05").
+    const y = screen.getByLabelText("Correr hacia abajo (mm)");
+    await user.clear(y);
+    await user.type(y, "-1.5");
+    expect(getPrinterSettings().offsetYmm).toBe(-1.5);
+    await user.clear(y);
+    await user.type(y, "0");
     const x = screen.getByLabelText("Correr a la derecha (mm)");
     await user.clear(x);
     await user.type(x, "2");

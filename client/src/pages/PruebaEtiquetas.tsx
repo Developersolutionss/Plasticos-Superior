@@ -43,6 +43,37 @@ function sampleLabel(station: LabelStation, qrDataUrl: string): RollLabel {
 
 const num = "border rounded px-2 py-1.5 text-sm w-24 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100";
 
+/** Corrimiento en mm: guarda el texto tal cual se escribe (para poder teclear
+ * "-" o "1." sin que se convierta en 0 a mitad de camino) y solo aplica el
+ * número cuando es válido; al salir del campo lo deja limpio. */
+function OffsetInput({ label, value, onChange }: { label: string; value: number; onChange: (mm: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const clamp = (n: number) => Math.max(-20, Math.min(20, n));
+  return (
+    <label className="flex items-center gap-2">
+      {label}
+      <input
+        type="text"
+        inputMode="decimal"
+        className={num}
+        value={text}
+        onChange={(e) => {
+          const raw = e.target.value.replace(",", ".");
+          setText(raw);
+          const n = Number(raw);
+          if (raw.trim() !== "" && raw !== "-" && Number.isFinite(n)) onChange(clamp(n));
+        }}
+        onBlur={() => {
+          const n = Number(text);
+          const clean = Number.isFinite(n) ? clamp(n) : 0;
+          setText(String(clean));
+          onChange(clean);
+        }}
+      />
+    </label>
+  );
+}
+
 /**
  * Prueba de impresión de etiquetas (impresora SAT TT460 UE): imprime una
  * etiqueta de muestra de cada estación sin crear rollos, y calibra el giro y
@@ -52,6 +83,7 @@ export default function PruebaEtiquetas() {
   const { data: sample } = useQuery({ queryKey: ["labelSampleQr"], queryFn: api.getLabelSampleQr, staleTime: Infinity });
   const [settings, setSettings] = useState<PrinterSettings>(getPrinterSettings);
   const [preview, setPreview] = useState<LabelStation>("sellado");
+  const [resets, setResets] = useState(0);
   const qr = sample?.qrDataUrl ?? "";
 
   function update(patch: Partial<PrinterSettings>) {
@@ -141,17 +173,17 @@ export default function PruebaEtiquetas() {
           </span>
         </label>
         <div className="flex flex-wrap gap-4 text-sm text-slate-700 dark:text-slate-200">
-          <label className="flex items-center gap-2">
-            Correr a la derecha (mm)
-            <input type="number" step="0.5" min="-20" max="20" className={num} value={settings.offsetXmm}
-              onChange={(e) => update({ offsetXmm: Math.max(-20, Math.min(20, Number(e.target.value) || 0)) })} />
-          </label>
-          <label className="flex items-center gap-2">
-            Correr hacia abajo (mm)
-            <input type="number" step="0.5" min="-20" max="20" className={num} value={settings.offsetYmm}
-              onChange={(e) => update({ offsetYmm: Math.max(-20, Math.min(20, Number(e.target.value) || 0)) })} />
-          </label>
-          <button type="button" onClick={() => update(DEFAULT_PRINTER_SETTINGS)} className="text-sky-700 dark:text-sky-400 hover:underline">
+          {/* key: "Volver a lo normal" reinicia también el texto de los campos. */}
+          <OffsetInput key={`x${resets}`} label="Correr a la derecha (mm)" value={settings.offsetXmm} onChange={(mm) => update({ offsetXmm: mm })} />
+          <OffsetInput key={`y${resets}`} label="Correr hacia abajo (mm)" value={settings.offsetYmm} onChange={(mm) => update({ offsetYmm: mm })} />
+          <button
+            type="button"
+            onClick={() => {
+              update(DEFAULT_PRINTER_SETTINGS);
+              setResets((n) => n + 1);
+            }}
+            className="text-sky-700 dark:text-sky-400 hover:underline"
+          >
             Volver a lo normal
           </button>
         </div>

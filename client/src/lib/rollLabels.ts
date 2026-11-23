@@ -173,8 +173,11 @@ function labelHtml(label: RollLabel, logoUrl: string, settings: PrinterSettings)
     sheet.rotated ? `translateX(${sheet.widthMm}mm) rotate(90deg)` : "",
   ].filter(Boolean);
   const rotate = moves.length ? ` style="transform: ${moves.join(" ")}"` : "";
-  return `<div class="sheet sheet-${label.station}" style="width:${sheet.widthMm}mm;height:${sheet.heightMm}mm">
-  <div class="label lbl-${label.station}"${rotate}>
+  // 0.3 mm menos de alto que la hoja: por redondeo de mm a px Chrome puede
+  // sacar una hoja en blanco entre etiquetas si mide exactamente lo mismo.
+  const station = escapeHtml(label.station);
+  return `<div class="sheet sheet-${station}" style="width:${sheet.widthMm}mm;height:${sheet.heightMm - 0.3}mm">
+  <div class="label lbl-${station}"${rotate}>
     <header>
       <img class="logo" src="${escapeHtml(logoUrl)}" alt="Plásticos Superior San Judas SAS" />
       <div class="slogan">EN PRECIOS Y CALIDAD<br /><u>SOMOS SUPERIOR</u></div>
@@ -185,7 +188,7 @@ function labelHtml(label: RollLabel, logoUrl: string, settings: PrinterSettings)
       ${label.reference ? `<p class="ref">REF: <u>${escapeHtml(label.reference.toUpperCase())}</u></p>` : ""}
     </section>
     <section class="fields">${fields}</section>
-    <section class="qr"><img src="${label.qrDataUrl}" alt="QR ${escapeHtml(label.code)}" /></section>
+    <section class="qr"><img src="${/^data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+$/.test(label.qrDataUrl) ? label.qrDataUrl : ""}" alt="QR ${escapeHtml(label.code)}" /></section>
     <footer>
       <div class="claim">${escapeHtml(COMPANY_FOOTER.claim)}<br />${escapeHtml(COMPANY_FOOTER.address)}<br />${escapeHtml(COMPANY_FOOTER.city)}</div>
       <div class="pcode"><small>CÓDIGO PRODUCTO</small><strong>${escapeHtml(label.code)}</strong></div>

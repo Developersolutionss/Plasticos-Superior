@@ -585,11 +585,11 @@ export const api = {
   ) => request<any>(`/production-orders/${productionOrderId}/rolls`, { method: "POST", body: JSON.stringify(data) }),
   deleteProductionRoll: (productionOrderId: number, rollId: number) =>
     request<void>(`/production-orders/${productionOrderId}/rolls/${rollId}`, { method: "DELETE" }),
+  /** QR de muestra para la prueba de impresión (no es de ningún rollo). */
+  getLabelSampleQr: () => request<{ qrDataUrl: string }>("/production-orders/label-sample-qr"),
   /** Genera un token de posesión NUEVO para un rollo ya creado e imprime su
    * QR con el código+token embebido — invalida cualquier etiqueta anterior
    * (su token viejo deja de servir). Para etiquetas dañadas/perdidas. */
-  /** QR de muestra para la prueba de impresión (no es de ningún rollo). */
-  getLabelSampleQr: () => request<{ qrDataUrl: string }>("/production-orders/label-sample-qr"),
   reissueProductionRollLabel: (productionOrderId: number, rollId: number) =>
     request<any>(`/production-orders/${productionOrderId}/rolls/${rollId}/reissue-label`, { method: "POST" }),
   /** Resuelve un rollo por el código de su QR (`EXT-9`), para el escaneo de
