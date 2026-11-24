@@ -29,6 +29,8 @@ import { usersRouter } from "../../server/src/routes/users";
 import { warehouseRouter } from "../../server/src/routes/warehouse";
 import { publicLocationRouter } from "../../server/src/routes/publicLocation";
 import { dashboardRouter } from "../../server/src/routes/dashboard";
+import { printersRouter, printJobsRouter, printAgentRouter } from "../../server/src/routes/printers";
+import { renderLabelZpl, zplText } from "../../server/src/services/labelZpl";
 import { exportRouter } from "../../server/src/routes/export";
 import { notificationsRouter } from "../../server/src/routes/notifications";
 import { whatsappWebhookRouter } from "../../server/src/routes/whatsappWebhook";
@@ -158,6 +160,9 @@ function buildApp() {
   app.use("/api/warehouse", warehouseRouter);
   app.use("/api/public/locations", publicLocationRouter);
   app.use("/api/dashboard", dashboardRouter);
+  app.use("/api/printers", printersRouter);
+  app.use("/api/print-jobs", printJobsRouter);
+  app.use("/api/print-agent", printAgentRouter);
   app.use("/api/export", exportRouter);
   app.use("/api/notifications", notificationsRouter);
   app.use("/webhook/whatsapp", whatsappWebhookRouter);
@@ -8210,5 +8215,136 @@ describe("avisos: OPs estancadas y rollos en tránsito hace mucho", () => {
     await runStalledAlerts(new Date(now.getTime() + 60 * 60 * 1000));
     assert.equal(await prisma.notification.count({ where: { type: "op_estancada", link: `/produccion/ordenes/${stalled.id}`, userId: gestion.id } }), 1);
     assert.equal(await prisma.notification.count({ where: { type: "rollo_en_transito", link: { endsWith: `#traslado-${transfer.id}` }, userId: gestion.id } }), 1);
+  });
+});
+
+describe("impresión de etiquetas desde el celular (cola + puente de impresión)", () => {
+  const printerIds: number[] = [];
+  const orderIds: number[] = [];
+  let productId = 0;
+  before(async () => {
+    productId = (await prisma.product.findFirstOrThrow({ where: { sku: "BUL-001" } })).id;
+  });
+  const agent = (token: string, path: string, body: object = {}) =>
+    fetch(`${baseUrl}/api/print-agent${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const createPrinter = async () => {
+    const res = await fetch(`${baseUrl}/api/printers`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ name: `SAT TT460 test ${Date.now()}`, labelWidthMm: 100, labelHeightMm: 75, stations: ["sellado"] }),
+    });
+    assert.equal(res.status, 201);
+    const body = (await res.json()) as { id: number; agentToken: string; online: boolean };
+    printerIds.push(body.id);
+    return body;
+  };
+
+  after(async () => {
+    await prisma.printJob.deleteMany({ where: { printerId: { in: printerIds } } });
+    await prisma.labelPrinter.deleteMany({ where: { id: { in: printerIds } } });
+    for (const id of orderIds) {
+      await prisma.productionRoll.deleteMany({ where: { productionOrderId: id } });
+      await prisma.productionOrder.delete({ where: { id } }).catch(() => {});
+    }
+  });
+
+  it("solo Gestión da de alta impresoras; el token del puente sale una sola vez y no se guarda en claro", async () => {
+    const denied = await fetch(`${baseUrl}/api/printers`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+      body: JSON.stringify({ name: "x", labelWidthMm: 100, labelHeightMm: 75 }),
+    });
+    assert.equal(denied.status, 403);
+    const printer = await createPrinter();
+    assert.match(printer.agentToken, /^psa_/);
+    assert.equal(printer.online, false);
+    const row = await prisma.labelPrinter.findUniqueOrThrow({ where: { id: printer.id } });
+    assert.notEqual(row.agentTokenHash, printer.agentToken);
+    const list = (await (await fetch(`${baseUrl}/api/printers`, { headers: headersFor("operario_sellado") })).json()) as any[];
+    const seen = list.find((p) => p.id === printer.id);
+    assert.ok(seen, "el operario la ve para elegir dónde imprimir");
+    assert.equal(JSON.stringify(seen).includes("psa_"), false);
+  });
+
+  it("prueba: el celular la pide, el puente la recoge (queda en línea), la imprime y avisa; el ZPL se borra al terminar", async () => {
+    const printer = await createPrinter();
+    assert.equal((await agent("psa_falso", "/poll")).status, 401);
+
+    const res = await fetch(`${baseUrl}/api/print-jobs/test`, {
+      method: "POST",
+      headers: headersFor("operario_sellado"),
+      body: JSON.stringify({ printerId: printer.id, station: "sellado" }),
+    });
+    assert.equal(res.status, 201);
+    const { jobs } = (await res.json()) as { jobs: { id: number; status: string }[] };
+    assert.equal(jobs[0].status, "pendiente");
+
+    const poll = await agent(printer.agentToken, "/poll", { hostname: "PC-PLANTA", printer: "SAT TT460 UE (203 dpi) (ZPL)" });
+    assert.equal(poll.status, 200);
+    const polled = (await poll.json()) as { jobs: { id: number; zpl: string }[] };
+    assert.equal(polled.jobs.length, 1);
+    assert.match(polled.jobs[0].zpl, /^\^XA/);
+    assert.match(polled.jobs[0].zpl, /\^PW799\n\^LL599/, "100 × 75 mm a 203 dpi");
+    assert.match(polled.jobs[0].zpl, /BULTO SELLADO/);
+    assert.match(polled.jobs[0].zpl, /\^BQN,2,\d+\^FDLA,PRUEBA-IMPRESION-SAT-TT460/);
+    assert.equal(((await (await agent(printer.agentToken, "/poll")).json()) as { jobs: unknown[] }).jobs.length, 0, "no se entrega dos veces");
+
+    const list = (await (await fetch(`${baseUrl}/api/printers`, { headers: headersFor("operario_sellado") })).json()) as any[];
+    const seen = list.find((p) => p.id === printer.id);
+    assert.equal(seen.online, true);
+    assert.equal(seen.agentInfo, "PC-PLANTA · SAT TT460 UE (203 dpi) (ZPL)");
+
+    assert.equal((await agent(printer.agentToken, `/jobs/${jobs[0].id}/result`, { ok: true })).status, 200);
+    const status = (await (await fetch(`${baseUrl}/api/print-jobs?ids=${jobs[0].id}`, { headers: headersFor("operario_sellado") })).json()) as any[];
+    assert.equal(status[0].status, "impreso");
+    assert.equal((await prisma.printJob.findUniqueOrThrow({ where: { id: jobs[0].id } })).zpl, "");
+    assert.equal((await agent(printer.agentToken, `/jobs/${jobs[0].id}/result`, { ok: true })).status, 404, "ya cerrado");
+  });
+
+  it("rollos: imprime con el token de posesión del rollo (el QR lo lleva) y rechaza un token viejo; otro puente no toca trabajos ajenos", async () => {
+    const printer = await createPrinter();
+    const other = await createPrinter();
+    const order = await prisma.productionOrder.create({
+      data: { orderNumber: `OP-TEST-${Date.now()}`, station: "sellado", productId, quantityPlanned: 40, specs: { color: "Negro" } },
+    });
+    orderIds.push(order.id);
+    const roll = await createTestRoll(order.id, { weightKg: 30, details: { pBulto: 12.5, paqXUnid: "50" } });
+    const code = `SELL-${roll.stationSequence}`;
+    const send = (token: string) =>
+      fetch(`${baseUrl}/api/print-jobs/rolls`, {
+        method: "POST",
+        headers: headersFor("operario_sellado"),
+        body: JSON.stringify({ printerId: printer.id, rolls: [{ rollId: roll.id, token }] }),
+      });
+    assert.equal((await send("ZZZZZZZZZZZZZZZZ")).status, 403);
+    const ok = await send(roll.possessionToken);
+    assert.equal(ok.status, 201);
+    const { jobs } = (await ok.json()) as { jobs: { id: number; description: string }[] };
+    assert.match(jobs[0].description, new RegExp(`^${code} · `));
+
+    assert.equal(((await (await agent(other.agentToken, "/poll")).json()) as { jobs: unknown[] }).jobs.length, 0);
+    const polled = (await (await agent(printer.agentToken, "/poll")).json()) as { jobs: { id: number; zpl: string }[] };
+    const zpl = polled.jobs[0].zpl;
+    assert.ok(zpl.includes(`^FDLA,${code}-${roll.possessionToken}^FS`), "el QR es el de la etiqueta del rollo");
+    assert.ok(zpl.includes("PESO BULTO: 12,5 kg"), "Sellado: peso del bulto");
+    assert.ok(zpl.includes("PAQ X UNID: 50"));
+    assert.ok(zpl.includes("COLOR: NEGRO"));
+    assert.equal((await agent(other.agentToken, `/jobs/${jobs[0].id}/result`, { ok: true })).status, 404, "otro puente no lo cierra");
+    assert.equal((await agent(printer.agentToken, `/jobs/${jobs[0].id}/result`, { ok: false, error: "Sin papel" })).status, 200);
+    const status = (await (await fetch(`${baseUrl}/api/print-jobs?ids=${jobs[0].id}`, { headers: headersFor("operario_sellado") })).json()) as any[];
+    assert.deepEqual([status[0].status, status[0].error], ["error", "Sin papel"]);
+  });
+
+  it("el ZPL no deja colar comandos en los textos y se adapta al tamaño de la etiqueta", () => {
+    assert.equal(zplText("BOLSA ^XZ~JA 30x40"), "BOLSA XZ JA 30x40");
+    const label = { station: "embobinado" as const, code: "EMB-1", qrContent: "EMB-1-AAAA", orderNumber: "OP-1", productName: "Rollo ^FS", weightKg: 8.4 };
+    const small = renderLabelZpl(label, { widthMm: 100, heightMm: 75 });
+    assert.ok(small.includes("^PW799") && small.includes("^LL599"));
+    assert.ok(!small.includes("ROLLO ^FS"), "el ^ del nombre no llega al ZPL");
+    assert.ok(renderLabelZpl(label, { widthMm: 100, heightMm: 150 }).includes("^LL1199"));
   });
 });

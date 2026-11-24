@@ -40,6 +40,7 @@ import ResetPassword from "./pages/ResetPassword";
 import SecuritySettings from "./pages/SecuritySettings";
 import Apariencia from "./pages/Apariencia";
 import PruebaEtiquetas from "./pages/PruebaEtiquetas";
+import Impresoras from "./pages/Impresoras";
 import ErrorBoundary from "./components/ErrorBoundary";
 import {
   ADMIN,
@@ -409,6 +410,14 @@ export default function App() {
         />
         {/* Sin RequireRole a propósito: es una preferencia personal, no algo que restringir por rol. */}
         <Route path="configuracion/apariencia" element={<Apariencia />} />
+        <Route
+          path="configuracion/impresoras"
+          element={
+            <RequireRole roles={PRODUCCION_GESTION}>
+              <Impresoras />
+            </RequireRole>
+          }
+        />
         <Route
           path="configuracion/etiquetas"
           element={

@@ -6,7 +6,7 @@ import PruebaEtiquetas from "../../client/src/pages/PruebaEtiquetas";
 import { getPrinterSettings, rollLabelsHtml } from "../../client/src/lib/rollLabels";
 
 vi.mock("../../client/src/api/client", () => ({
-  api: { getLabelSampleQr: vi.fn().mockResolvedValue({ qrDataUrl: "data:image/png;base64,QQQ" }) },
+  api: { getLabelSampleQr: vi.fn().mockResolvedValue({ qrDataUrl: "data:image/png;base64,QQQ" }), getPrinters: vi.fn().mockResolvedValue([]) },
 }));
 
 function renderPage() {
@@ -23,10 +23,10 @@ describe("Prueba de etiquetas", () => {
 
   it("lista cada etiqueta con su tamaño y el rollo a cargar en la SAT TT460 (las anchas salen giradas)", async () => {
     renderPage();
-    const sellado = (await screen.findByText("Bulto de Sellado")).closest("tr")!;
+    const sellado = (await screen.findByRole("cell", { name: "Bulto de Sellado" })).closest("tr")!;
     expect(within(sellado).getByText("16 × 8 cm")).toBeInTheDocument();
     expect(within(sellado).getByText(/8 cm de ancho · sale girada/)).toBeInTheDocument();
-    const emb = screen.getByText("Rollo de Embobinado").closest("tr")!;
+    const emb = screen.getByRole("cell", { name: "Rollo de Embobinado" }).closest("tr")!;
     expect(within(emb).getByText("10 cm de ancho")).toBeInTheDocument();
   });
 
@@ -35,7 +35,7 @@ describe("Prueba de etiquetas", () => {
     const open = vi.spyOn(window, "open").mockReturnValue(win as any);
     renderPage();
     const user = userEvent.setup();
-    const row = (await screen.findByText("Bulto de Sellado")).closest("tr")!;
+    const row = (await screen.findByRole("cell", { name: "Bulto de Sellado" })).closest("tr")!;
     await vi.waitFor(() => expect(within(row).getByRole("button", { name: /Imprimir prueba/ })).toBeEnabled());
 
     // Se puede teclear un negativo (antes "-" se volvía 0 y quedaba "05").

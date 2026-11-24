@@ -11,7 +11,7 @@ vi.mock("../../client/src/api/client", async () => {
   const actual = await vi.importActual<typeof import("../../client/src/api/client")>("../../client/src/api/client");
   return {
     ApiError: actual.ApiError,
-    api: { getWarehouseInventory: vi.fn(), countRoll: vi.fn(), getProducts: vi.fn(), getClients: vi.fn(), createOpeningStock: vi.fn() },
+    api: { getWarehouseInventory: vi.fn(), countRoll: vi.fn(), getProducts: vi.fn(), getClients: vi.fn(), createOpeningStock: vi.fn(), getPrinters: vi.fn(), printRollLabelsOn: vi.fn(), getPrintJobs: vi.fn() },
   };
 });
 
@@ -116,6 +116,7 @@ describe("InventarioBodegas", () => {
       { id: 8, sku: "BOL-10", name: "Bolsa", measure: "10x15", measureUnit: "Pulgadas", calibre: "2", color: null },
     ] as any);
     vi.mocked(api.getClients).mockResolvedValue([{ id: 4, name: "KLISTO" }] as any);
+    vi.mocked(api.getPrinters).mockResolvedValue([]);
   });
 
   it("muestra cada bodega con su total, los rollos parados y lo que está en camino", async () => {
@@ -309,7 +310,7 @@ describe("InventarioBodegas", () => {
     expect(await screen.findByText(/quedaron en/)).toHaveTextContent("2 rollos (99.5 kg) de Tubular quedaron en la bodega de Sellado como OP-00055");
     expect(screen.getByRole("link", { name: "Abrir OP-00055" })).toHaveAttribute("href", "/produccion/ordenes/55");
 
-    await user.click(screen.getByRole("button", { name: "Imprimir etiquetas (2)" }));
+    await user.click(screen.getByRole("button", { name: "Imprimir etiquetas en este equipo (2)" }));
     expect(open).toHaveBeenCalled();
     const html = win.document.write.mock.calls[0][0] as string;
     expect(html).toContain("EXT-40");

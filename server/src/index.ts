@@ -23,6 +23,7 @@ import { warehouseRouter } from "./routes/warehouse";
 import { publicLocationRouter } from "./routes/publicLocation";
 import { dashboardRouter } from "./routes/dashboard";
 import { exportRouter } from "./routes/export";
+import { printersRouter, printJobsRouter, printAgentRouter } from "./routes/printers";
 import { scheduleFrecuentesReset } from "./services/frecuentesReset";
 import { scheduleStalledAlerts } from "./services/stalledAlerts";
 import { ensureProductColorsLoaded } from "./services/productColors";
@@ -60,6 +61,10 @@ app.use("/api/warehouse", warehouseRouter);
 // A propósito sin requireAuth — ver publicLocation.ts.
 app.use("/api/public/locations", publicLocationRouter);
 app.use("/api/dashboard", dashboardRouter);
+app.use("/api/printers", printersRouter);
+app.use("/api/print-jobs", printJobsRouter);
+// Puente de impresión del PC de planta: se autentica con el token de su impresora, no con sesión de usuario.
+app.use("/api/print-agent", printAgentRouter);
 app.use("/api/export", exportRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
 

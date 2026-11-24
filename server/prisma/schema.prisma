@@ -1220,3 +1220,59 @@ model AppMeta {
 
   @@map("app_meta")
 }
+
+/// Impresora de etiquetas de planta (pedido del cliente 2026-11-24: imprimir
+/// las etiquetas desde los celulares). El celular no le habla a la
+/// impresora: pide la impresión (PrintJob) y el puente de impresión, un
+/// script en el PC de planta donde está conectada, la recoge y la imprime
+/// (ver routes/printers.ts). El puente se identifica con un token propio de
+/// cada impresora (solo se guarda su hash).
+model LabelPrinter {
+  id             Int                 @id @default(autoincrement())
+  name           String
+  /// Etiqueta cargada (hoy 100 × 75 mm): la etiqueta ZPL se arma a esa medida.
+  labelWidthMm   Int                 @map("label_width_mm")
+  labelHeightMm  Int                 @map("label_height_mm")
+  dpi            Int                 @default(203)
+  /// Estaciones que imprimen acá por defecto (vacío = todas).
+  stations       ProductionStation[]
+  agentTokenHash String              @unique @map("agent_token_hash")
+  active         Boolean             @default(true)
+  /// Último contacto del puente: si es reciente, la impresora está "en línea".
+  lastSeenAt     DateTime?           @map("last_seen_at")
+  /// Equipo y nombre de impresora de Windows que informa el puente.
+  agentInfo      String?             @map("agent_info")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  jobs           PrintJob[]
+
+  @@map("label_printers")
+}
+
+enum PrintJobStatus {
+  pendiente
+  enviado
+  impreso
+  error
+}
+
+/// Una etiqueta (o varias) por imprimir. `zpl` lleva el QR con el token de
+/// posesión del rollo, así que se borra apenas el trabajo termina (o vence):
+/// el token no queda guardado en texto plano.
+model PrintJob {
+  id            Int            @id @default(autoincrement())
+  printerId     Int            @map("printer_id")
+  printer       LabelPrinter   @relation(fields: [printerId], references: [id])
+  description   String
+  zpl           String         @default("")
+  status        PrintJobStatus @default(pendiente)
+  error         String?
+  attempts      Int            @default(0)
+  createdById   Int?           @map("created_by")
+  createdByName String?        @map("created_by_name")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  sentAt        DateTime?      @map("sent_at")
+  finishedAt    DateTime?      @map("finished_at")
+
+  @@index([printerId, status])
+  @@map("print_jobs")
+}

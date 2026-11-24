@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Printer } from "lucide-react";
 import { api } from "../api/client";
+import PrintOnPrinter from "../components/PrintOnPrinter";
 import {
   DEFAULT_PRINTER_SETTINGS,
   LABEL_FORMATS,
@@ -109,6 +110,24 @@ export default function PruebaEtiquetas() {
 
       <section className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">
         <h2 className="font-medium text-slate-700 dark:text-slate-200">Etiquetas</h2>
+        {/* Impresora de planta (la que se usa desde el celular): la etiqueta
+            sale al tamaño del rollo cargado en esa impresora. */}
+        <div className="flex flex-wrap items-center gap-2 rounded border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 p-3 text-sm">
+          <span className="text-slate-700 dark:text-slate-200">Probar en la impresora de planta:</span>
+          <select
+            aria-label="Etiqueta de prueba"
+            className="border rounded px-2 py-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            value={preview}
+            onChange={(e) => setPreview(e.target.value as LabelStation)}
+          >
+            {STATIONS.map((s) => (
+              <option key={s.station} value={s.station}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <PrintOnPrinter key={preview} testStation={preview} label="Imprimir prueba en impresora" />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

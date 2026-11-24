@@ -1,6 +1,6 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 // Usa el mismo cliente auditado que la app (../src/prisma.ts) en vez de uno
 // propio, para que los Client que crea este seed generen entradas reales de
 // auditoría — así el módulo de Auditoría no queda vacío en la primera corrida.
@@ -496,6 +496,24 @@ async function main() {
           },
         });
       }
+    }
+
+    // Impresora de etiquetas de planta (Configuración → Impresoras) para ver
+    // la pantalla y el botón "Imprimir en ..." sin darla de alta a mano. El
+    // token del puente se genera al azar y solo se imprime acá (mismo hash
+    // que routes/printers.ts). Idempotente por nombre fijo.
+    const existingSeedPrinter = await prisma.labelPrinter.findFirst({ where: { name: "SAT TT460 (demo)" } });
+    if (!existingSeedPrinter) {
+      const agentToken = `psa_${randomBytes(24).toString("base64url")}`;
+      await prisma.labelPrinter.create({
+        data: {
+          name: "SAT TT460 (demo)",
+          labelWidthMm: 100,
+          labelHeightMm: 75,
+          agentTokenHash: createHash("sha256").update(agentToken).digest("hex"),
+        },
+      });
+      console.log(`Token del puente de la impresora demo: ${agentToken}`);
     }
 
     // OP recién creada, todavía SIN proceso asignado (station null) — así lo

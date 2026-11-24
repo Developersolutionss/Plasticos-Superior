@@ -178,6 +178,30 @@ export interface InTransitRoll extends Omit<WarehouseRoll, "days" | "stale" | "p
   dispatchedKg: number | null;
 }
 
+export interface LabelPrinter {
+  id: number;
+  name: string;
+  labelWidthMm: number;
+  labelHeightMm: number;
+  dpi: number;
+  stations: string[];
+  active: boolean;
+  lastSeenAt: string | null;
+  agentInfo: string | null;
+  /** El puente de impresión se reportó hace menos de 30 s. */
+  online: boolean;
+}
+
+export interface PrintJob {
+  id: number;
+  description: string;
+  status: "pendiente" | "enviado" | "impreso" | "error";
+  error?: string | null;
+  createdByName?: string | null;
+  createdAt?: string;
+  finishedAt?: string | null;
+}
+
 export interface OpeningStockResult {
   order: { id: number; orderNumber: string };
   productName: string;
@@ -585,6 +609,22 @@ export const api = {
   ) => request<any>(`/production-orders/${productionOrderId}/rolls`, { method: "POST", body: JSON.stringify(data) }),
   deleteProductionRoll: (productionOrderId: number, rollId: number) =>
     request<void>(`/production-orders/${productionOrderId}/rolls/${rollId}`, { method: "DELETE" }),
+  /** Impresoras de etiquetas de planta (para elegir dónde imprimir). */
+  getPrinters: () => request<LabelPrinter[]>("/printers"),
+  /** Todas, con sus últimos trabajos (Gestión). */
+  getPrintersAdmin: () => request<(LabelPrinter & { jobs: PrintJob[] })[]>("/printers/admin"),
+  createPrinter: (data: { name: string; labelWidthMm: number; labelHeightMm: number; stations?: string[] }) =>
+    request<LabelPrinter & { agentToken: string }>("/printers", { method: "POST", body: JSON.stringify(data) }),
+  updatePrinter: (id: number, data: Partial<{ name: string; labelWidthMm: number; labelHeightMm: number; stations: string[]; active: boolean }>) =>
+    request<LabelPrinter>(`/printers/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  /** Token nuevo para el puente (el anterior deja de servir). */
+  rotatePrinterToken: (id: number) => request<{ agentToken: string }>(`/printers/${id}/token`, { method: "POST" }),
+  /** Manda a imprimir etiquetas de rollos (con el token de posesión que vino al crearlos). */
+  printRollLabelsOn: (printerId: number, rolls: { rollId: number; token: string }[]) =>
+    request<{ jobs: PrintJob[] }>("/print-jobs/rolls", { method: "POST", body: JSON.stringify({ printerId, rolls }) }),
+  printTestLabelOn: (printerId: number, station: string) =>
+    request<{ jobs: PrintJob[] }>("/print-jobs/test", { method: "POST", body: JSON.stringify({ printerId, station }) }),
+  getPrintJobs: (ids: number[]) => request<PrintJob[]>(`/print-jobs?ids=${ids.join(",")}`),
   /** QR de muestra para la prueba de impresión (no es de ningún rollo). */
   getLabelSampleQr: () => request<{ qrDataUrl: string }>("/production-orders/label-sample-qr"),
   /** Genera un token de posesión NUEVO para un rollo ya creado e imprime su

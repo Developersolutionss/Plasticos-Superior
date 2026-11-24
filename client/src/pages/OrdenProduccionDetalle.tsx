@@ -12,6 +12,7 @@ import { splitScannedCode } from "../lib/rollQr";
 import { useConfirm } from "../components/ConfirmDialog";
 import ErrorToast from "../components/ErrorToast";
 import Modal from "../components/Modal";
+import PrintOnPrinter from "../components/PrintOnPrinter";
 import { SkeletonRows } from "../components/Skeleton";
 import { SuggestionSources } from "../components/SuggestionSources";
 import {
@@ -243,7 +244,8 @@ export default function OrdenProduccionDetalle() {
   // es la única oportunidad de imprimirlo tal cual: el token nunca se
   // guarda en texto plano, así que no se puede volver a pedir después (ver
   // handleReissueLabel para esa situación).
-  const [justCreatedLabels, setJustCreatedLabels] = useState<(RollLabel & { rollId: number })[]>([]);
+  // `token`: el de posesión, para mandarla a la impresora de planta desde el celular.
+  const [justCreatedLabels, setJustCreatedLabels] = useState<(RollLabel & { rollId: number; token: string })[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reopening, setReopening] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -842,6 +844,7 @@ export default function OrdenProduccionDetalle() {
         if (created.qrDataUrl) {
           newLabels.push({
             rollId: created.id,
+            token: created.possessionToken,
             ...rollLabelFromOrder(order, created, `${ROLL_CODE_PREFIX[station]}-${created.stationSequence}`, created.qrDataUrl),
           });
         }
@@ -973,7 +976,16 @@ export default function OrdenProduccionDetalle() {
     try {
       const label = await api.reissueProductionRollLabel(orderId, rollId);
       const roll = (order.rolls ?? []).find((r: any) => r.id === rollId);
-      printRollLabel(rollLabelFromOrder(order, roll ?? { weightKg: label.weightKg, label: label.label }, label.code, label.qrDataUrl));
+      // Queda en el recuadro de etiquetas: se imprime en la impresora de
+      // planta (desde el celular) o en este equipo.
+      setJustCreatedLabels([
+        {
+          rollId,
+          token: label.possessionToken,
+          ...rollLabelFromOrder(order, roll ?? { weightKg: label.weightKg, label: label.label }, label.code, label.qrDataUrl),
+        },
+      ]);
+      window.scrollTo?.({ top: 0, behavior: "smooth" });
     } catch {
       setError("No se pudo reemitir la etiqueta");
     }
@@ -1607,13 +1619,14 @@ export default function OrdenProduccionDetalle() {
           <p className="text-sm text-emerald-800 dark:text-emerald-300 font-medium">
             Etiquetas listas para imprimir ({justCreatedLabels.length}):
           </p>
+          <PrintOnPrinter station={station} rolls={justCreatedLabels.map((l) => ({ rollId: l.rollId, token: l.token }))} />
           {justCreatedLabels.length > 1 && (
             <button
               type="button"
               onClick={() => printRollLabels(justCreatedLabels)}
               className="inline-flex items-center gap-1.5 text-sm bg-emerald-800 hover:bg-emerald-700 text-white rounded px-3 py-1.5 font-medium"
             >
-              <Printer size={14} aria-hidden="true" /> Imprimir todas
+              <Printer size={14} aria-hidden="true" /> Imprimir todas en este equipo
             </button>
           )}
           {justCreatedLabels.map((l) => (

@@ -3,6 +3,7 @@ import { FormEvent, KeyboardEvent, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { PackagePlus, Plus, Printer, Trash2, X } from "lucide-react";
 import { api, type OpeningStockResult } from "../api/client";
+import PrintOnPrinter from "./PrintOnPrinter";
 import { nameWithMeasure } from "../lib/productMeasure";
 import { matchesProductSearch } from "../lib/productSearch";
 import { labelReference, printRollLabels } from "../lib/rollLabels";
@@ -161,9 +162,10 @@ export default function IngresoInventarioInicial({ defaultWarehouse, onClose }: 
             Imprimí las etiquetas ahora y pegá cada una en el rollo de su tiquete: el operario la escanea para consumir el rollo. Si alguna se
             pierde, se reemite desde la OP. Para usarlos en Sellado (u otra estación), abrí la OP y tocá <strong>Derivar a Sellado</strong>.
           </p>
+          <PrintOnPrinter station={result.warehouse} rolls={result.rolls.map((r) => ({ rollId: r.id, token: r.possessionToken }))} />
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={print} className="inline-flex items-center gap-1.5 text-sm bg-emerald-700 hover:bg-emerald-600 text-white rounded px-3 py-2">
-              <Printer size={14} aria-hidden="true" /> Imprimir etiquetas ({result.rolls.length})
+              <Printer size={14} aria-hidden="true" /> Imprimir etiquetas en este equipo ({result.rolls.length})
             </button>
             <Link
               to={`/produccion/ordenes/${result.order.id}`}

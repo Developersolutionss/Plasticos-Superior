@@ -569,6 +569,7 @@ Tabla clave/valor para el estado interno del sistema. Hoy guarda la fecha de la 
 | `20260909050155_split_sellado_precorte_role` | Separa el rol `operario_sellado_precorte` en dos roles reales: `operario_sellado` y `operario_precorte` |
 | `20261110120000_estacion_embobinado` | Estación Embobinado: agrega `operario_embobinado` a `UserRole` y `embobinado` a `ProductionStation` y `RollWarehouse` (solo valores de enum, no toca datos) |
 | `20261120120000_inventario_inicial` | `production_orders.opening_stock` (BOOLEAN, default false): marca las OPs de ingreso de inventario inicial (solo agrega la columna, no toca datos) |
+| `20261124120000_impresion_etiquetas` | Tablas `label_printers` (impresoras de etiquetas de planta, hash del token del puente) y `print_jobs` (cola de etiquetas ZPL que recoge el puente de impresión) y enum `PrintJobStatus`. Solo crea tablas, no toca datos |
 | `20260909190205_add_client_manual_products` | Tabla `client_manual_products` (productos que un cliente pide, cargados a mano) |
 | `20260914022751_source_roll_unique` | `production_rolls.source_roll_id` pasa a `@unique` (paso intermedio, reemplazado por la migración siguiente) |
 | `20260914072151_dispatch_production_order_link` | `dispatches`: `production_order_id` (vínculo con la OP que generó el despacho automático) |
