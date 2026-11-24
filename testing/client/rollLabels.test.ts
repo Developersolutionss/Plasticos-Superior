@@ -19,14 +19,24 @@ describe("etiquetas por estación", () => {
     expect(LABEL_FORMATS.sellado).toMatchObject({ widthMm: 160, heightMm: 80, subtitle: "BULTO SELLADO" });
     for (const s of ["extrusion", "impresion", "precorte"] as const) expect(LABEL_FORMATS[s]).toMatchObject({ widthMm: 130, heightMm: 100 });
     expect(LABEL_FORMATS.embobinado).toMatchObject({ widthMm: 100, heightMm: 80 });
-    // La SAT TT460 imprime hasta 108 mm a lo ancho: las más anchas salen giradas.
-    expect(labelSheet("sellado")).toEqual({ widthMm: 80, heightMm: 160, rotated: true });
-    expect(labelSheet("precorte")).toEqual({ widthMm: 100, heightMm: 130, rotated: true });
-    expect(labelSheet("embobinado")).toEqual({ widthMm: 100, heightMm: 80, rotated: false });
-    expect(rollLabelsHtml([{ ...base, station: "sellado" }])).toContain("@page { size: 80mm 160mm; margin: 0; }");
-    expect(rollLabelsHtml([{ ...base, station: "sellado" }])).toContain("transform: translateX(80mm) rotate(90deg)");
-    expect(rollLabelsHtml([base])).toContain("@page { size: 100mm 130mm; margin: 0; }");
-    expect(rollLabelsHtml([{ ...base, station: "embobinado" }])).toContain("@page { size: 100mm 80mm; margin: 0; }");
+    // Tamaño por estación: la SAT TT460 imprime hasta 108 mm a lo ancho, las más anchas salen giradas.
+    const porEstacion = { sizeMode: "estacion" as const, labelWidthMm: 100, labelHeightMm: 75, rotateWide: true, offsetXmm: 0, offsetYmm: 0 };
+    expect(labelSheet("sellado", porEstacion)).toEqual({ widthMm: 80, heightMm: 160, rotated: true, scale: 1 });
+    expect(labelSheet("precorte", porEstacion)).toEqual({ widthMm: 100, heightMm: 130, rotated: true, scale: 1 });
+    expect(labelSheet("embobinado", porEstacion)).toEqual({ widthMm: 100, heightMm: 80, rotated: false, scale: 1 });
+    expect(rollLabelsHtml([{ ...base, station: "sellado" }], "/l.png", porEstacion)).toContain("@page { size: 80mm 160mm; margin: 0; }");
+    expect(rollLabelsHtml([{ ...base, station: "sellado" }], "/l.png", porEstacion)).toContain("transform: translateX(80mm) rotate(90deg)");
+    expect(rollLabelsHtml([base], "/l.png", porEstacion)).toContain("@page { size: 100mm 130mm; margin: 0; }");
+  });
+
+  it("por defecto todas salen al tamaño del rollo cargado (100 × 75 mm), derechas, achicadas y centradas", () => {
+    expect(labelSheet("sellado")).toEqual({ widthMm: 100, heightMm: 75, rotated: false, scale: 0.625 });
+    expect(labelSheet("precorte")).toEqual({ widthMm: 100, heightMm: 75, rotated: false, scale: 0.75 });
+    const sellado = rollLabelsHtml([{ ...base, station: "sellado" }]);
+    expect(sellado).toContain("@page { size: 100mm 75mm; margin: 0; }");
+    expect(sellado).toContain("transform: translate(0mm, 12.5mm) scale(0.625)");
+    expect(sellado).not.toContain("rotate(90deg)");
+    expect(rollLabelsHtml([base])).toContain("transform: translate(1.25mm, 0mm) scale(0.75)");
   });
 
   it("lleva los datos de la etiqueta de papel: producto, subtítulo, REF, fecha dd-mm-aa, cant. paca, peso, color y código", () => {

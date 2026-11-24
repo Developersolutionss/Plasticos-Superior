@@ -56,21 +56,37 @@ export interface LabelFormat {
  */
 export const PRINTER_MAX_WIDTH_MM = 108;
 
-/** Hoja que recibe la impresora: ancho = lo que cruza el cabezal. */
 /**
  * Ajustes de la impresora de ESTE equipo (se guardan en el navegador del PC
- * que tiene la impresora conectada): si se gira lo que no entra a lo ancho
- * (por si cargan el rollo de etiquetas de otra forma) y cuánto correr el
- * diseño (mm) si la impresora lo saca corrido. Se calibran en
- * Configuración → Prueba de etiquetas.
+ * que tiene la impresora conectada). Se calibran en Configuración → Prueba
+ * de etiquetas.
+ *
+ * - `sizeMode: "unico"` (por defecto): todas las etiquetas salen al tamaño
+ *   del rollo cargado (hoy 100 × 75 mm, el que compraron), derechas y con
+ *   el diseño de cada estación achicado para que entre — igual que por la
+ *   impresora de planta desde el celular.
+ * - `sizeMode: "estacion"`: cada estación a su tamaño propio (16×8, 13×10,
+ *   10×8), girando las más anchas que el cabezal (`rotateWide`), para si
+ *   algún día cargan un rollo de cada medida.
+ * - Corrimiento (mm) si la impresora saca el diseño corrido.
  */
 export interface PrinterSettings {
+  sizeMode: "unico" | "estacion";
+  labelWidthMm: number;
+  labelHeightMm: number;
   rotateWide: boolean;
   offsetXmm: number;
   offsetYmm: number;
 }
 
-export const DEFAULT_PRINTER_SETTINGS: PrinterSettings = { rotateWide: true, offsetXmm: 0, offsetYmm: 0 };
+export const DEFAULT_PRINTER_SETTINGS: PrinterSettings = {
+  sizeMode: "unico",
+  labelWidthMm: 100,
+  labelHeightMm: 75,
+  rotateWide: true,
+  offsetXmm: 0,
+  offsetYmm: 0,
+};
 const PRINTER_SETTINGS_KEY = "labelPrinterSettings";
 
 export function getPrinterSettings(): PrinterSettings {
@@ -79,7 +95,15 @@ export function getPrinterSettings(): PrinterSettings {
     if (!raw) return DEFAULT_PRINTER_SETTINGS;
     const s = JSON.parse(raw) as Partial<PrinterSettings>;
     const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(-20, Math.min(20, v)) : 0);
-    return { rotateWide: s.rotateWide !== false, offsetXmm: num(s.offsetXmm), offsetYmm: num(s.offsetYmm) };
+    const mm = (v: unknown, def: number, max: number) => (typeof v === "number" && Number.isFinite(v) && v >= 20 && v <= max ? v : def);
+    return {
+      sizeMode: s.sizeMode === "estacion" ? "estacion" : "unico",
+      labelWidthMm: mm(s.labelWidthMm, DEFAULT_PRINTER_SETTINGS.labelWidthMm, PRINTER_MAX_WIDTH_MM),
+      labelHeightMm: mm(s.labelHeightMm, DEFAULT_PRINTER_SETTINGS.labelHeightMm, 300),
+      rotateWide: s.rotateWide !== false,
+      offsetXmm: num(s.offsetXmm),
+      offsetYmm: num(s.offsetYmm),
+    };
   } catch {
     return DEFAULT_PRINTER_SETTINGS;
   }
@@ -93,13 +117,25 @@ export function savePrinterSettings(settings: PrinterSettings) {
   }
 }
 
+/**
+ * Hoja que recibe la impresora (ancho = lo que cruza el cabezal) y cómo
+ * entra el diseño: girado y/o achicado (`scale`).
+ */
 export function labelSheet(
   station: LabelStation,
-  settings: Pick<PrinterSettings, "rotateWide"> = DEFAULT_PRINTER_SETTINGS
-): { widthMm: number; heightMm: number; rotated: boolean } {
+  settings: Partial<PrinterSettings> = DEFAULT_PRINTER_SETTINGS
+): { widthMm: number; heightMm: number; rotated: boolean; scale: number } {
   const f = LABEL_FORMATS[station] ?? LABEL_FORMATS.extrusion;
-  const rotated = settings.rotateWide && f.widthMm > PRINTER_MAX_WIDTH_MM;
-  return rotated ? { widthMm: f.heightMm, heightMm: f.widthMm, rotated } : { widthMm: f.widthMm, heightMm: f.heightMm, rotated };
+  const mode = settings.sizeMode ?? DEFAULT_PRINTER_SETTINGS.sizeMode;
+  if (mode === "unico") {
+    const w = settings.labelWidthMm ?? DEFAULT_PRINTER_SETTINGS.labelWidthMm;
+    const h = settings.labelHeightMm ?? DEFAULT_PRINTER_SETTINGS.labelHeightMm;
+    return { widthMm: w, heightMm: h, rotated: false, scale: Math.min(1, w / f.widthMm, h / f.heightMm) };
+  }
+  const rotated = (settings.rotateWide ?? true) && f.widthMm > PRINTER_MAX_WIDTH_MM;
+  return rotated
+    ? { widthMm: f.heightMm, heightMm: f.widthMm, rotated, scale: 1 }
+    : { widthMm: f.widthMm, heightMm: f.heightMm, rotated, scale: 1 };
 }
 
 export const LABEL_FORMATS: Record<LabelStation, LabelFormat> = {
@@ -167,10 +203,18 @@ function labelHtml(label: RollLabel, logoUrl: string, settings: PrinterSettings)
     label.clientName ? field("CLIENTE", label.clientName.toUpperCase(), true) : "",
   ].join("");
   const sheet = labelSheet(label.station, settings);
-  // Girada: el diseño se arma derecho y se rota 90° dentro de la hoja.
+  // El diseño se arma derecho a su tamaño y se acomoda en la hoja: girado
+  // 90° (tamaño por estación) o achicado y centrado (un solo tamaño).
+  const f = LABEL_FORMATS[label.station] ?? LABEL_FORMATS.extrusion;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const cx = sheet.scale < 1 ? r2((sheet.widthMm - f.widthMm * sheet.scale) / 2) : 0;
+  const cy = sheet.scale < 1 ? r2((sheet.heightMm - f.heightMm * sheet.scale) / 2) : 0;
+  const dx = r2(settings.offsetXmm + cx);
+  const dy = r2(settings.offsetYmm + cy);
   const moves = [
-    settings.offsetXmm || settings.offsetYmm ? `translate(${settings.offsetXmm}mm, ${settings.offsetYmm}mm)` : "",
+    dx || dy ? `translate(${dx}mm, ${dy}mm)` : "",
     sheet.rotated ? `translateX(${sheet.widthMm}mm) rotate(90deg)` : "",
+    sheet.scale < 1 ? `scale(${r2(sheet.scale * 1000) / 1000})` : "",
   ].filter(Boolean);
   const rotate = moves.length ? ` style="transform: ${moves.join(" ")}"` : "";
   // 0.3 mm menos de alto que la hoja: por redondeo de mm a px Chrome puede

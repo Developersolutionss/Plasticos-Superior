@@ -21,13 +21,16 @@ function renderPage() {
 describe("Prueba de etiquetas", () => {
   beforeEach(() => localStorage.clear());
 
-  it("lista cada etiqueta con su tamaño y el rollo a cargar en la SAT TT460 (las anchas salen giradas)", async () => {
+  it("por defecto todas salen al tamaño del rollo cargado (100 × 75); por estación, las anchas salen giradas", async () => {
     renderPage();
     const sellado = (await screen.findByRole("cell", { name: "Bulto de Sellado" })).closest("tr")!;
     expect(within(sellado).getByText("16 × 8 cm")).toBeInTheDocument();
-    expect(within(sellado).getByText(/8 cm de ancho · sale girada/)).toBeInTheDocument();
+    expect(within(sellado).getByText(/10 × 7.5 cm · al 63%/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("radio", { name: /Cada estación a su tamaño/ }));
+    expect(within(sellado).getByText(/8 × 16 cm · sale girada/)).toBeInTheDocument();
     const emb = screen.getByRole("cell", { name: "Rollo de Embobinado" }).closest("tr")!;
-    expect(within(emb).getByText("10 cm de ancho")).toBeInTheDocument();
+    // Embobinado entra derecho: la hoja es igual a su tamaño (sin girar ni achicar).
+    expect(within(emb).getAllByText(/^10 × 8 cm$/, { selector: "td" })).toHaveLength(2);
   });
 
   it("imprime una muestra sin crear rollos, y los ajustes de este equipo se guardan y se aplican", async () => {
@@ -48,9 +51,10 @@ describe("Prueba de etiquetas", () => {
     const x = screen.getByLabelText("Correr a la derecha (mm)");
     await user.clear(x);
     await user.type(x, "2");
+    await user.click(screen.getByRole("radio", { name: /Cada estación a su tamaño/ }));
     await user.click(screen.getByRole("checkbox"));
-    expect(getPrinterSettings()).toEqual({ rotateWide: false, offsetXmm: 2, offsetYmm: 0 });
-    expect(within(row).getByText("16 cm de ancho")).toBeInTheDocument();
+    expect(getPrinterSettings()).toEqual({ sizeMode: "estacion", labelWidthMm: 100, labelHeightMm: 75, rotateWide: false, offsetXmm: 2, offsetYmm: 0 });
+    expect(within(row).getByText(/16 × 8 cm/, { selector: "td:nth-child(3)" })).toBeInTheDocument();
     expect(within(row).getByText(/No entra en la impresora/)).toBeInTheDocument();
 
     await user.click(within(row).getByRole("button", { name: /Imprimir prueba/ }));
@@ -61,12 +65,12 @@ describe("Prueba de etiquetas", () => {
     open.mockRestore();
   });
 
-  it("sin ajustes guardados: gira las anchas y no corre nada", () => {
+  it("sin ajustes guardados: al tamaño del rollo (100 × 75), sin girar", () => {
     const html = rollLabelsHtml(
       [{ station: "sellado", code: "X", qrDataUrl: "data:x", orderNumber: "OP", productName: "P", weightKg: 1 }],
       "/logo.png"
     );
-    expect(html).toContain("transform: translateX(80mm) rotate(90deg)");
-    expect(html).not.toContain("translate(0mm");
+    expect(html).toContain("@page { size: 100mm 75mm; margin: 0; }");
+    expect(html).not.toContain("rotate(90deg)");
   });
 });

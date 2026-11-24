@@ -149,7 +149,8 @@ export default function PruebaEtiquetas() {
                       {f.widthMm / 10} × {f.heightMm / 10} cm
                     </td>
                     <td className="py-2 pr-3 text-slate-600 dark:text-slate-300">
-                      {sheet.widthMm / 10} cm de ancho{sheet.rotated ? " · sale girada" : ""}
+                      {sheet.widthMm / 10} × {sheet.heightMm / 10} cm{sheet.rotated ? " · sale girada" : ""}
+                      {sheet.scale < 1 ? ` · al ${Math.round(sheet.scale * 100)}%` : ""}
                       {sheet.widthMm > PRINTER_MAX_WIDTH_MM && <span className="block text-xs text-red-600 dark:text-red-400">No entra en la impresora (máx. {PRINTER_MAX_WIDTH_MM / 10} cm)</span>}
                     </td>
                     <td className="py-2 text-right whitespace-nowrap">
@@ -182,6 +183,38 @@ export default function PruebaEtiquetas() {
 
       <section className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">
         <h2 className="font-medium text-slate-700 dark:text-slate-200">Ajustes de este equipo</h2>
+        <fieldset className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
+          <legend className="sr-only">Tamaño de etiqueta</legend>
+          <label className="flex items-start gap-2">
+            <input type="radio" name="sizeMode" className="mt-0.5" checked={settings.sizeMode === "unico"} onChange={() => update({ sizeMode: "unico" })} />
+            <span>
+              Todas al tamaño del rollo cargado
+              <span className="block text-xs text-slate-500 dark:text-slate-400">El diseño de cada estación se achica para que entre, derecho.</span>
+            </span>
+          </label>
+          {settings.sizeMode === "unico" && (
+            <div className="flex flex-wrap items-center gap-2 pl-6">
+              <label className="flex items-center gap-1.5">
+                Ancho (mm)
+                <input type="number" min={20} max={PRINTER_MAX_WIDTH_MM} className={num} value={settings.labelWidthMm}
+                  onChange={(e) => { const v = Number(e.target.value); if (v >= 20 && v <= PRINTER_MAX_WIDTH_MM) update({ labelWidthMm: v }); }} />
+              </label>
+              <label className="flex items-center gap-1.5">
+                Largo (mm)
+                <input type="number" min={20} max={300} className={num} value={settings.labelHeightMm}
+                  onChange={(e) => { const v = Number(e.target.value); if (v >= 20 && v <= 300) update({ labelHeightMm: v }); }} />
+              </label>
+            </div>
+          )}
+          <label className="flex items-start gap-2">
+            <input type="radio" name="sizeMode" className="mt-0.5" checked={settings.sizeMode === "estacion"} onChange={() => update({ sizeMode: "estacion" })} />
+            <span>
+              Cada estación a su tamaño (Sellado 16×8, rollos 13×10, Embobinado 10×8)
+              <span className="block text-xs text-slate-500 dark:text-slate-400">Para cuando haya un rollo de etiquetas de cada medida.</span>
+            </span>
+          </label>
+        </fieldset>
+        {settings.sizeMode === "estacion" && (
         <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
           <input type="checkbox" className="mt-0.5" checked={settings.rotateWide} onChange={(e) => update({ rotateWide: e.target.checked })} />
           <span>
@@ -191,6 +224,7 @@ export default function PruebaEtiquetas() {
             </span>
           </span>
         </label>
+        )}
         <div className="flex flex-wrap gap-4 text-sm text-slate-700 dark:text-slate-200">
           {/* key: "Volver a lo normal" reinicia también el texto de los campos. */}
           <OffsetInput key={`x${resets}`} label="Correr a la derecha (mm)" value={settings.offsetXmm} onChange={(mm) => update({ offsetXmm: mm })} />
