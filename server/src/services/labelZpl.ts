@@ -212,11 +212,12 @@ export function labelDataFromRoll(
     product: { name: string; measure: string | null; measureUnit: string | null; calibre: string | null; color: string | null };
     client: { name: string } | null;
   },
-  roll: { weightKg: unknown; details: unknown; date: Date; label: string | null },
+  roll: { station: string; weightKg: unknown; details: unknown; date: Date; label: string | null },
   code: string,
   possessionToken: string
 ): LabelData {
-  const station = (order.station ?? "extrusion") as LabelStation;
+  // La del rollo: es la de su código (EXT/SELL/...), aunque la OP ya se haya derivado.
+  const station = (roll.station ?? order.station ?? "extrusion") as LabelStation;
   const details = roll.details && typeof roll.details === "object" ? (roll.details as Record<string, unknown>) : {};
   const specs = order.specs && typeof order.specs === "object" ? (order.specs as Record<string, unknown>) : {};
   const str = (v: unknown) => (v == null || v === "" ? null : String(v));

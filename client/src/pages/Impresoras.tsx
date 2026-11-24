@@ -44,7 +44,7 @@ function AgentDownload({ printer, token, onClose }: { printer: { id: number; nam
           <div className="flex flex-wrap gap-2 mt-1">
             <button
               type="button"
-              onClick={() => downloadText(AGENT_SCRIPT_NAME, buildAgentScript({ server, token, printerName: windowsName.trim() || DEFAULT_WINDOWS_PRINTER }))}
+              onClick={() => downloadText(AGENT_SCRIPT_NAME, buildAgentScript({ server, token, printerName: windowsName.trim() || DEFAULT_WINDOWS_PRINTER }), { bom: true })}
               className="inline-flex items-center gap-1.5 bg-slate-800 text-white rounded px-3 py-1.5"
             >
               <Download size={14} aria-hidden="true" /> {AGENT_SCRIPT_NAME}
@@ -146,7 +146,7 @@ export default function Impresoras() {
             </label>
             <label className="block">
               <span className="text-slate-600 dark:text-slate-300">Ancho de la etiqueta (mm)</span>
-              <input className={`${input} w-full mt-1`} type="number" min={20} max={112} required value={form.width} onChange={(e) => setForm({ ...form, width: e.target.value })} />
+              <input className={`${input} w-full mt-1`} type="number" min={20} max={108} required value={form.width} onChange={(e) => setForm({ ...form, width: e.target.value })} />
             </label>
             <label className="block">
               <span className="text-slate-600 dark:text-slate-300">Largo de la etiqueta (mm)</span>

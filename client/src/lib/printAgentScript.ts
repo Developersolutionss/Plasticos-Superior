@@ -12,8 +12,28 @@
 export const AGENT_SCRIPT_NAME = "puente-impresion.ps1";
 export const AGENT_INSTALLER_NAME = "instalar-puente.cmd";
 
-function psString(s: string): string {
-  return `'${s.replace(/'/g, "''")}'`;
+/**
+ * Texto como expresión de PowerShell que no depende de cómo se lea el
+ * archivo: lo ASCII va entre comillas simples y todo lo demás (tildes, ñ,
+ * comillas tipográficas, que PowerShell 5.1 también toma como comillas)
+ * como [char]0x.... Así un nombre de impresora con "ñ" ni se corrompe ni
+ * puede cerrar la cadena e inyectar código.
+ */
+export function psString(s: string): string {
+  const parts: string[] = [];
+  let ascii = "";
+  for (const ch of s) {
+    const code = ch.codePointAt(0)!;
+    if (code >= 0x20 && code < 0x7f) {
+      ascii += ch === "'" ? "''" : ch;
+    } else {
+      if (ascii) parts.push(`'${ascii}'`);
+      ascii = "";
+      if (code <= 0xffff) parts.push(`[char]0x${code.toString(16).padStart(4, "0")}`);
+    }
+  }
+  if (ascii || parts.length === 0) parts.push(`'${ascii}'`);
+  return parts.length === 1 ? parts[0] : `(${parts.join(" + ")})`;
 }
 
 export function buildAgentScript(opts: { server: string; token: string; printerName: string }): string {
@@ -38,6 +58,9 @@ if ($Instalar) {
   $quien   = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
   $ajustes = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
   Register-ScheduledTask -TaskName $Tarea -Action $accion -Trigger $inicio -Principal $quien -Settings $ajustes -Force | Out-Null
+  # La tarea corre como SYSTEM y el archivo lleva la clave de la impresora:
+  # solo Administradores y SYSTEM pueden leer o cambiar esta carpeta.
+  icacls $Carpeta /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
   Stop-ScheduledTask -TaskName $Tarea -ErrorAction SilentlyContinue
   Start-ScheduledTask -TaskName $Tarea
   Write-Host ''
@@ -107,10 +130,16 @@ while ($true) {
     $r = Enviar '/api/print-agent/poll' @{ hostname = $env:COMPUTERNAME; printer = $Impresora }
     foreach ($job in @($r.jobs)) {
       if ($null -eq $job) { continue }
-      $res = [RawPrinter]::Send($Impresora, $utf8.GetBytes([string]$job.zpl), ('Etiqueta ' + $job.description))
-      if ($res -eq 'OK') { $datos = @{ ok = $true } } else { $datos = @{ ok = $false; error = $res } }
-      Enviar ('/api/print-agent/jobs/' + $job.id + '/result') $datos | Out-Null
-      Escribir ('Trabajo ' + $job.id + ' (' + $job.description + '): ' + $res)
+      # Cada etiqueta por separado: si falla una (o el aviso de una), las
+      # demas del lote se imprimen igual.
+      try {
+        $res = [RawPrinter]::Send($Impresora, $utf8.GetBytes([string]$job.zpl), ('Etiqueta ' + $job.description))
+        if ($res -eq 'OK') { $datos = @{ ok = $true } } else { $datos = @{ ok = $false; error = $res } }
+        Escribir ('Trabajo ' + $job.id + ' (' + $job.description + '): ' + $res)
+        Enviar ('/api/print-agent/jobs/' + $job.id + '/result') $datos | Out-Null
+      } catch {
+        Escribir ('Trabajo ' + $job.id + ': no se pudo avisar el resultado: ' + $_.Exception.Message)
+      }
     }
     $espera = 2
   } catch {
@@ -132,8 +161,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell
 }
 
 /** Descarga un texto como archivo. */
-export function downloadText(filename: string, content: string) {
-  const blob = new Blob([content], { type: "application/octet-stream" });
+export function downloadText(filename: string, content: string, opts?: { bom?: boolean }) {
+  // Con BOM, PowerShell 5.1 lee el .ps1 como UTF-8 y no como ANSI.
+  const blob = new Blob([opts?.bom ? "\uFEFF" + content : content], { type: "application/octet-stream" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

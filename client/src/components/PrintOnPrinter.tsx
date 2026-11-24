@@ -64,6 +64,8 @@ export default function PrintOnPrinter({
   const [jobs, setJobs] = useState<PrintJob[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  /** Pasó el tiempo de espera sin que el puente terminara: se avisa y se puede reintentar. */
+  const [timedOut, setTimedOut] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const list = printers ?? [];
@@ -81,7 +83,10 @@ export default function PrintOnPrinter({
       } catch {
         // Sin señal un momento: se reintenta en el próximo tic.
       }
-      if (Date.now() - started > 120_000 && pollRef.current) clearInterval(pollRef.current);
+      if (Date.now() - started > 120_000) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        setTimedOut(true);
+      }
     }, 1500);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -95,6 +100,7 @@ export default function PrintOnPrinter({
   async function send() {
     if (!printer) return;
     setError(null);
+    setTimedOut(false);
     setSending(true);
     try {
       const res = testStation
@@ -111,7 +117,7 @@ export default function PrintOnPrinter({
 
   const done = jobs.filter((j) => j.status === "impreso").length;
   const failed = jobs.filter((j) => j.status === "error");
-  const waiting = jobs.length > 0 && done + failed.length < jobs.length;
+  const waiting = jobs.length > 0 && done + failed.length < jobs.length && !timedOut;
   const count = testStation ? 1 : rolls?.length ?? 0;
 
   return (
@@ -147,7 +153,12 @@ export default function PrintOnPrinter({
           </span>
         )}
       </div>
-      {jobs.length > 0 && (
+      {timedOut && done + failed.length < jobs.length && (
+        <p role="status" className="text-xs text-amber-700 dark:text-amber-400">
+          Sin respuesta de la impresora ({done} de {jobs.length} impresas): revisá que el PC de la impresora esté prendido y volvé a intentar.
+        </p>
+      )}
+      {jobs.length > 0 && !timedOut && (
         <p role="status" className="text-xs inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">
           {waiting ? (
             <>

@@ -978,13 +978,12 @@ export default function OrdenProduccionDetalle() {
       const roll = (order.rolls ?? []).find((r: any) => r.id === rollId);
       // Queda en el recuadro de etiquetas: se imprime en la impresora de
       // planta (desde el celular) o en este equipo.
-      setJustCreatedLabels([
-        {
-          rollId,
-          token: label.possessionToken,
-          ...rollLabelFromOrder(order, roll ?? { weightKg: label.weightKg, label: label.label }, label.code, label.qrDataUrl),
-        },
-      ]);
+      const fresh = {
+        rollId,
+        token: label.possessionToken,
+        ...rollLabelFromOrder(order, roll ?? { weightKg: label.weightKg, label: label.label }, label.code, label.qrDataUrl),
+      };
+      setJustCreatedLabels((prev) => [...prev.filter((l) => l.rollId !== rollId), fresh]);
       window.scrollTo?.({ top: 0, behavior: "smooth" });
     } catch {
       setError("No se pudo reemitir la etiqueta");
@@ -1619,7 +1618,12 @@ export default function OrdenProduccionDetalle() {
           <p className="text-sm text-emerald-800 dark:text-emerald-300 font-medium">
             Etiquetas listas para imprimir ({justCreatedLabels.length}):
           </p>
-          <PrintOnPrinter station={station} rolls={justCreatedLabels.map((l) => ({ rollId: l.rollId, token: l.token }))} />
+          {/* key: con otras etiquetas, el estado de la impresión anterior no queda a la vista. */}
+          <PrintOnPrinter
+            key={justCreatedLabels.map((l) => `${l.rollId}:${l.token}`).join(",")}
+            station={station}
+            rolls={justCreatedLabels.map((l) => ({ rollId: l.rollId, token: l.token }))}
+          />
           {justCreatedLabels.length > 1 && (
             <button
               type="button"

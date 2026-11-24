@@ -111,7 +111,8 @@ printersRouter.get("/admin", requireGestion, async (_req, res) => {
 
 const printerSchema = z.object({
   name: z.string().trim().min(1).max(80),
-  labelWidthMm: z.number().int().min(20).max(112),
+  // El cabezal de la SAT TT460 imprime hasta 108 mm.
+  labelWidthMm: z.number().int().min(20).max(108),
   labelHeightMm: z.number().int().min(20).max(300),
   dpi: z.union([z.literal(203), z.literal(300)]).optional(),
   stations: z.array(z.enum(STATIONS)).max(STATIONS.length).optional(),
@@ -236,6 +237,9 @@ const testJobSchema = z.object({
 printJobsRouter.post("/test", async (req, res) => {
   const parsed = testJobSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!checkRateLimit(`print-jobs:${req.user!.userId}`, 60, 60_000)) {
+    return res.status(429).json({ error: "Demasiadas impresiones seguidas — esperá un momento" });
+  }
   const printer = await activePrinter(parsed.data.printerId);
   if (!printer) return res.status(404).json({ error: "Impresora no encontrada" });
   const job = await prisma.printJob.create({
@@ -282,9 +286,15 @@ async function requireAgent(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token.startsWith("psa_")) return res.status(401).json({ error: "Token del puente no provisto" });
-  if (!checkRateLimit(`print-agent:${req.ip}`, 120, 60_000)) return res.status(429).json({ error: "Demasiadas consultas" });
   const printer = await prisma.labelPrinter.findUnique({ where: { agentTokenHash: hashAgentToken(token) } });
-  if (!printer || !printer.active) return res.status(401).json({ error: "Token del puente inválido o impresora desactivada" });
+  if (!printer || !printer.active) {
+    // Los intentos con token inválido tienen su propio cupo: si compartieran
+    // el del puente real (detrás de nginx todos llegan con la misma IP),
+    // cualquiera podría dejarlo sin servicio mandando tokens falsos.
+    if (!checkRateLimit("print-agent-invalid", 300, 60_000)) return res.status(429).json({ error: "Demasiadas consultas" });
+    return res.status(401).json({ error: "Token del puente inválido o impresora desactivada" });
+  }
+  if (!checkRateLimit(`print-agent:${printer.id}`, 240, 60_000)) return res.status(429).json({ error: "Demasiadas consultas" });
   res.locals.printer = printer;
   next();
 }

@@ -8339,6 +8339,18 @@ describe("impresión de etiquetas desde el celular (cola + puente de impresión)
     assert.deepEqual([status[0].status, status[0].error], ["error", "Sin papel"]);
   });
 
+  it("tokens falsos no le gastan el cupo al puente real; el ancho máximo es el del cabezal (108 mm)", async () => {
+    const printer = await createPrinter();
+    for (let i = 0; i < 130; i++) await agent("psa_falso", "/poll");
+    assert.equal((await agent(printer.agentToken, "/poll")).status, 200, "el puente real sigue funcionando");
+    const wide = await fetch(`${baseUrl}/api/printers`, {
+      method: "POST",
+      headers: headersFor("produccion"),
+      body: JSON.stringify({ name: "ancha", labelWidthMm: 110, labelHeightMm: 75 }),
+    });
+    assert.equal(wide.status, 400);
+  });
+
   it("el ZPL no deja colar comandos en los textos y se adapta al tamaño de la etiqueta", () => {
     assert.equal(zplText("BOLSA ^XZ~JA 30x40"), "BOLSA XZ JA 30x40");
     const label = { station: "embobinado" as const, code: "EMB-1", qrContent: "EMB-1-AAAA", orderNumber: "OP-1", productName: "Rollo ^FS", weightKg: 8.4 };
