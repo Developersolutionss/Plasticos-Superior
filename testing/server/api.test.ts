@@ -8330,9 +8330,13 @@ describe("impresión de etiquetas desde el celular (cola + puente de impresión)
     const polled = (await (await agent(printer.agentToken, "/poll")).json()) as { jobs: { id: number; zpl: string }[] };
     const zpl = polled.jobs[0].zpl;
     assert.ok(zpl.includes(`^FDLA,${code}-${roll.possessionToken}^FS`), "el QR es el de la etiqueta del rollo");
-    assert.ok(zpl.includes("PESO BULTO: 12,5 kg"), "Sellado: peso del bulto");
-    assert.ok(zpl.includes("PAQ X UNID: 50"));
-    assert.ok(zpl.includes("COLOR: NEGRO"));
+    // Cuadrícula del tiquete: cada casilla con su rótulo y su valor.
+    assert.ok(zpl.includes("^FDPESO BULTO:^FS") && zpl.includes("^FD12,5 kg^FS"), "Sellado: peso del bulto");
+    assert.ok(zpl.includes("^FDPAQ X UNID:^FS") && zpl.includes("^FD50^FS"));
+    assert.ok(zpl.includes("^FDCOLOR:^FS") && zpl.includes("^FDNEGRO^FS"));
+    assert.ok(zpl.includes("^FDBULTO Nº:^FS") && zpl.includes("^FD1^FS"), "Nº del bulto dentro de la OP");
+    assert.ok(zpl.includes("BOLSAS SELLADAS") && zpl.includes(`LOTE ${order.orderNumber}`));
+    assert.ok(zpl.includes("^FRNOTA") || zpl.includes("^FR^FDNOTA"), "NOTA en blanco sobre la franja negra");
     assert.equal((await agent(other.agentToken, `/jobs/${jobs[0].id}/result`, { ok: true })).status, 404, "otro puente no lo cierra");
     assert.equal((await agent(printer.agentToken, `/jobs/${jobs[0].id}/result`, { ok: false, error: "Sin papel" })).status, 200);
     const status = (await (await fetch(`${baseUrl}/api/print-jobs?ids=${jobs[0].id}`, { headers: headersFor("operario_sellado") })).json()) as any[];

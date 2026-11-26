@@ -103,8 +103,11 @@ export default function IngresoInventarioInicial({ defaultWarehouse, onClose }: 
     if (!result) return;
     const product = (products ?? []).find((p: any) => String(p.id) === productId);
     printRollLabels(
-      result.rolls.map((r) => ({
+      result.rolls.map((r, i) => ({
         station: "extrusion" as const,
+        rollNumber: i + 1,
+        calibre: product?.calibre ?? null,
+        densidad: product?.densidad ?? null,
         code: r.code,
         orderNumber: result.order.orderNumber,
         productName: result.productName,

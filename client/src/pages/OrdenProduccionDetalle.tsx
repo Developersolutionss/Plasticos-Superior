@@ -837,6 +837,8 @@ export default function OrdenProduccionDetalle() {
     setConfirmingPending(true);
     let confirmedCount = 0;
     const newLabels: typeof justCreatedLabels = [];
+    // Nº de rollo dentro de la OP para la etiqueta: los que ya tenía + los de este lote.
+    const rollsBefore = (order.rolls ?? []).length;
     try {
       for (const pending of pendingRolls) {
         const created = await api.createProductionRoll(orderId, pending.body);
@@ -845,7 +847,7 @@ export default function OrdenProduccionDetalle() {
           newLabels.push({
             rollId: created.id,
             token: created.possessionToken,
-            ...rollLabelFromOrder(order, created, `${ROLL_CODE_PREFIX[station]}-${created.stationSequence}`, created.qrDataUrl),
+            ...rollLabelFromOrder(order, created, `${ROLL_CODE_PREFIX[station]}-${created.stationSequence}`, created.qrDataUrl, rollsBefore + confirmedCount),
           });
         }
       }
@@ -975,13 +977,15 @@ export default function OrdenProduccionDetalle() {
     }
     try {
       const label = await api.reissueProductionRollLabel(orderId, rollId);
-      const roll = (order.rolls ?? []).find((r: any) => r.id === rollId);
+      const sorted = [...(order.rolls ?? [])].sort((a: any, b: any) => a.id - b.id);
+      const roll = sorted.find((r: any) => r.id === rollId);
+      const rollNumber = roll ? sorted.indexOf(roll) + 1 : null;
       // Queda en el recuadro de etiquetas: se imprime en la impresora de
       // planta (desde el celular) o en este equipo.
       const fresh = {
         rollId,
         token: label.possessionToken,
-        ...rollLabelFromOrder(order, roll ?? { weightKg: label.weightKg, label: label.label }, label.code, label.qrDataUrl),
+        ...rollLabelFromOrder(order, roll ?? { weightKg: label.weightKg, label: label.label }, label.code, label.qrDataUrl, rollNumber),
       };
       setJustCreatedLabels((prev) => [...prev.filter((l) => l.rollId !== rollId), fresh]);
       window.scrollTo?.({ top: 0, behavior: "smooth" });

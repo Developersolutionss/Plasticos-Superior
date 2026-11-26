@@ -7,11 +7,14 @@ import { ZPL_LOGOS } from "./zplLogo";
  * impresión, el servidor arma la etiqueta acá y el puente de impresión del
  * PC de planta se la manda tal cual (ver routes/printers.ts).
  *
- * Mismo contenido que la etiqueta del navegador (client/src/lib/rollLabels.ts):
- * logo, "En precios y calidad somos Superior", producto, subtítulo de la
- * estación, REF, fecha/peso/color/cant. paca/OP/cliente, QR y código, y el
- * pie de reclamo. El tamaño lo pone la etiqueta cargada en la impresora
- * (hoy 100 × 75 mm): todo se acomoda en proporción.
+ * Diseño aprobado el 2026-11-26 a partir de sus tiquetes de papel (mismo que
+ * client/src/lib/rollLabels.ts): logo y título ("MATERIAL TUBULAR"...), Nº
+ * con el lote (OP), producto con su referencia, cuadrícula (fecha, color,
+ * rollo Nº, peso bruto/neto, calibre, densidad, operario, cliente), QR,
+ * "contacto con alimentos SI/NO" y la NOTA de devoluciones en franja negra.
+ *
+ * Se diseña en puntos para 100 × 75 mm a 203 dpi (800 × 600) y se escala al
+ * tamaño de la etiqueta cargada en la impresora.
  */
 export type LabelStation = "extrusion" | "impresion" | "sellado" | "precorte" | "embobinado";
 
@@ -23,13 +26,23 @@ export interface LabelData {
   qrContent: string;
   orderNumber: string;
   productName: string;
+  /** Medida ("55x70 cm"). */
   reference?: string | null;
   color?: string | null;
+  /** Peso neto (Sellado/Embobinado: el del bulto). */
   weightKg: number | null;
+  grossKg?: number | null;
   date?: Date | null;
+  rollNumber?: number | null;
+  calibre?: string | null;
+  densidad?: string | null;
+  operator?: string | null;
   cantPaca?: string | null;
   clientName?: string | null;
   ticket?: string | null;
+  notes?: string | null;
+  /** null = casillas vacías para marcar a mano. */
+  foodContact?: boolean | null;
 }
 
 export interface LabelSize {
@@ -38,15 +51,27 @@ export interface LabelSize {
   dpi?: number;
 }
 
-const FORMATS: Record<LabelStation, { subtitle: string; weightLabel: string; cantPaca: string | null }> = {
-  sellado: { subtitle: "BULTO SELLADO", weightLabel: "PESO BULTO", cantPaca: "PAQ X UNID" },
-  extrusion: { subtitle: "ROLLO DE EXTRUSION", weightLabel: "PESO", cantPaca: null },
-  impresion: { subtitle: "ROLLO IMPRESO", weightLabel: "PESO", cantPaca: "CANT PACA" },
-  precorte: { subtitle: "EN ROLLO PRECORTE", weightLabel: "PESO", cantPaca: "CANT PACA" },
-  embobinado: { subtitle: "ROLLO EMBOBINADO", weightLabel: "PESO", cantPaca: "CANT PACA" },
+interface Format {
+  title: string;
+  subtitle: string;
+  numberLabel: string;
+  grossLabel: string;
+  netLabel: string;
+  bulto: boolean;
+}
+
+const ROLL = { numberLabel: "ROLLO Nº", grossLabel: "PESO BRUTO", netLabel: "PESO NETO", bulto: false };
+const FORMATS: Record<LabelStation, Format> = {
+  extrusion: { title: "MATERIAL TUBULAR", subtitle: "ROLLO DE EXTRUSIÓN", ...ROLL },
+  impresion: { title: "MATERIAL IMPRESO", subtitle: "ROLLO IMPRESO", ...ROLL },
+  precorte: { title: "MATERIAL PRECORTADO", subtitle: "EN ROLLO PRECORTE", ...ROLL },
+  embobinado: { title: "MATERIAL EMBOBINADO", subtitle: "ROLLO EMBOBINADO", ...ROLL },
+  sellado: { title: "BOLSAS SELLADAS", subtitle: "BULTO SELLADO", numberLabel: "BULTO Nº", grossLabel: "PAQ X UNID", netLabel: "PESO BULTO", bulto: true },
 };
 
-const FOOTER = ["PARA CUALQUIER RECLAMO SIRVASE CITAR ESTA ETIQUETA", "CRR 44 # 18-106 B/ SAN JUDAS - TELEFONO 318-8711399", "CALI - COLOMBIA"];
+const TAGLINE = "TUBULARES · BOLSAS · PRECORTADOS";
+const NOTE = "NOTA: Únicamente se aceptan devoluciones y/o reclamos de rollos con la presentación de este tiquete.";
+const ADDRESS = "Carrera 44 No. 18-106 · Tel 326 2543 - 336 9192 · Cel 318 5732551 · Cali - Colombia";
 
 /** ^ y ~ son comandos en ZPL: dentro de un texto romperían la etiqueta. */
 export function zplText(s: string): string {
@@ -61,14 +86,14 @@ export function labelDateText(d?: Date | null): string {
   return `${get("day")}-${get("month")}-${get("year")}`;
 }
 
-function kgText(n: number | null): string {
-  if (n == null || !Number.isFinite(n)) return "";
+function kgText(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n) || n <= 0) return "";
   return `${n.toLocaleString("es-CO", { maximumFractionDigits: 2 })} kg`;
 }
 
 /** Ancho aproximado de un texto en la fuente 0 de ZPL (para no pasarse). */
 function textWidth(text: string, h: number): number {
-  return text.length * h * 0.52;
+  return text.length * h * 0.5;
 }
 
 function fitFont(text: string, maxWidth: number, maxH: number, minH: number): number {
@@ -78,11 +103,11 @@ function fitFont(text: string, maxWidth: number, maxH: number, minH: number): nu
 }
 
 function truncate(text: string, maxWidth: number, h: number): string {
-  const max = Math.max(4, Math.floor(maxWidth / (h * 0.5)));
+  const max = Math.max(3, Math.floor(maxWidth / (h * 0.5)));
   return text.length <= max ? text : `${text.slice(0, max - 1)}.`;
 }
 
-/** Módulos del QR (versión 2 o 3, corrección L) según el largo del contenido. */
+/** Módulos del QR (versión 1 a 4, corrección L) según el largo del contenido. */
 function qrModules(len: number): number {
   if (len <= 17) return 21;
   if (len <= 32) return 25;
@@ -90,114 +115,140 @@ function qrModules(len: number): number {
   return 33;
 }
 
+/** Observaciones: cant. paca (rollos), tiquete y notas de la fila. */
+export function observations(label: LabelData): string {
+  const fmt = FORMATS[label.station] ?? FORMATS.extrusion;
+  return [
+    !fmt.bulto && label.cantPaca ? `Cant. paca ${label.cantPaca}` : "",
+    label.ticket ? `Tiquete ${label.ticket}` : "",
+    label.notes?.trim() ?? "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function renderLabelZpl(label: LabelData, size: LabelSize): string {
   const dpmm = (size.dpi ?? 203) / 25.4;
   const W = Math.round(size.widthMm * dpmm);
   const H = Math.round(size.heightMm * dpmm);
+  // Diseño en 800 × 600 (100 × 75 mm a 8 puntos/mm), escalado y centrado.
+  const S = Math.min(W / 800, H / 600);
+  const ox = Math.round((W - 800 * S) / 2);
+  const oy = Math.round((H - 600 * S) / 2);
+  const X = (n: number) => ox + Math.round(n * S);
+  const Y = (n: number) => oy + Math.round(n * S);
+  const D = (n: number) => Math.max(1, Math.round(n * S));
   const fmt = FORMATS[label.station] ?? FORMATS.extrusion;
+
   // ^MNY: etiquetas con separación (gap) — la impresora arranca cada una en
   // su borde aunque haya quedado configurada como papel continuo.
   const out: string[] = ["^XA", "^CI28", "^MNY", `^PW${W}`, `^LL${H}`, "^LH0,0"];
-  const text = (x: number, y: number, h: number, s: string, opts?: { width?: number; align?: "L" | "C" | "R"; lines?: number }) => {
+  const text = (
+    x: number,
+    y: number,
+    h: number,
+    s: string,
+    opts?: { width?: number; align?: "L" | "C" | "R"; lines?: number; reverse?: boolean }
+  ) => {
     const t = zplText(s);
     if (!t) return;
-    const fb = opts?.width ? `^FB${Math.round(opts.width)},${opts.lines ?? 1},0,${opts.align ?? "L"},0` : "";
-    out.push(`^FO${Math.round(x)},${Math.round(y)}^A0N,${Math.round(h)},${Math.round(h * 0.92)}${fb}^FD${t}^FS`);
+    const hh = Math.max(10, D(h));
+    const fb = opts?.width ? `^FB${D(opts.width)},${opts.lines ?? 1},${opts.lines && opts.lines > 1 ? D(2) : 0},${opts.align ?? "L"},0` : "";
+    out.push(`^FO${X(x)},${Y(y)}^A0N,${hh},${Math.round(hh * 0.9)}${fb}${opts?.reverse ? "^FR" : ""}^FD${t}^FS`);
   };
-  const box = (x: number, y: number, w: number, h: number, t: number) =>
-    out.push(`^FO${Math.round(x)},${Math.round(y)}^GB${Math.round(w)},${Math.round(h)},${Math.round(t)}^FS`);
+  const box = (x: number, y: number, w: number, h: number, t: number, r = 0) =>
+    out.push(`^FO${X(x)},${Y(y)}^GB${D(w)},${D(h)},${D(t)},B,${r}^FS`);
 
-  const m = Math.round(2 * dpmm);
-  const x0 = m;
-  const y0 = m;
-  const iw = W - 2 * m;
-  const ih = H - 2 * m;
-  const pad = Math.round(1.5 * dpmm);
-  box(x0, y0, iw, ih, Math.max(3, Math.round(0.5 * dpmm)));
+  // Marco con esquinas redondeadas.
+  box(13, 13, 774, 574, 4, 1);
 
-  // Encabezado: logo a la izquierda, eslogan a la derecha.
-  const hh = Math.round(ih * 0.17);
-  const logo = [...ZPL_LOGOS].reverse().find((l) => l.h <= hh - 8 && l.w <= iw * 0.5) ?? ZPL_LOGOS[0];
-  out.push(`^FO${x0 + pad},${Math.round(y0 + (hh - logo.h) / 2)}^GFA,${logo.bpr * logo.h},${logo.bpr * logo.h},${logo.bpr},${logo.hex}^FS`);
-  const sloganW = Math.round(iw * 0.42);
-  const sH = Math.max(14, Math.min(26, Math.round(ih * 0.034)));
-  const sloganX = x0 + iw - pad - sloganW;
-  const sloganY = Math.round(y0 + hh / 2 - sH - 2);
-  text(sloganX, sloganY, sH, "EN PRECIOS Y CALIDAD", { width: sloganW, align: "C" });
-  text(sloganX, sloganY + sH + 4, sH, "SOMOS SUPERIOR", { width: sloganW, align: "C" });
-  const underW = textWidth("SOMOS SUPERIOR", sH * 0.92);
-  box(sloganX + (sloganW - underW) / 2, sloganY + 2 * sH + 6, underW, 2, 2);
+  // Encabezado: logo · título · Nº con el lote.
+  const logoH = 64 * S;
+  const logo = [...ZPL_LOGOS].reverse().find((l) => l.h <= logoH + 1) ?? ZPL_LOGOS[0];
+  out.push(`^FO${X(25)},${Y(13) + Math.round((D(100) - logo.h) / 2)}^GFA,${logo.bpr * logo.h},${logo.bpr * logo.h},${logo.bpr},${logo.hex}^FS`);
+  const titleX = 25 + Math.round(logo.w / S) + 14;
+  const titleW = 568 - titleX;
+  text(titleX, 30, fitFont(fmt.title, titleW, fmt.title.length > 16 ? 36 : 44, 22), fmt.title);
+  text(titleX, 80, fitFont(TAGLINE, titleW, 19, 12), TAGLINE);
+  box(575, 21, 203, 86, 3, 2);
+  text(575, 27, 16, "Nº", { width: 203, align: "C" });
+  text(575, 45, fitFont(label.code, 185, 38, 20), label.code, { width: 203, align: "C" });
+  const lote = `LOTE ${label.orderNumber}`;
+  text(575, 85, fitFont(lote, 185, 17, 11), lote, { width: 203, align: "C" });
+  box(13, 113, 774, 3, 3);
 
-  // Producto (lo más grande que entre, hasta 2 líneas), estación y REF.
-  const name = zplText(label.productName.toUpperCase());
-  const titleW = iw - 2 * pad;
-  const len = name.length;
-  const factor = len <= 14 ? 1 : len <= 22 ? 0.8 : len <= 32 ? 0.64 : 0.52;
-  const nameH = Math.max(22, Math.round(ih * 0.12 * factor));
-  const nameLines = textWidth(name, nameH * 0.92) > titleW ? 2 : 1;
-  let y = y0 + hh + 4;
-  text(x0 + pad, y, nameH, name, { width: titleW, align: "C", lines: nameLines });
-  y += nameH * nameLines + 6;
-  const subH = Math.max(16, Math.round(ih * 0.048));
-  text(x0 + pad, y, subH, fmt.subtitle, { width: titleW, align: "C" });
-  y += subH + 6;
-  if (label.reference) {
-    const ref = `REF: ${label.reference.toUpperCase()}`;
-    const refH = fitFont(ref, titleW, Math.max(16, Math.round(ih * 0.052)), 14);
-    text(x0 + pad, y, refH, ref, { width: titleW, align: "C" });
-    y += refH + 6;
-  }
+  // Producto con referencia · qué es.
+  const product = [label.productName, label.reference ? `REF ${label.reference}` : ""].filter(Boolean).join(" · ").toUpperCase();
+  const prodH = fitFont(product, 500, 36, 22);
+  text(27, 124 + Math.round((36 - prodH) / 2), prodH, truncate(product, 500, prodH));
+  text(530, 136, 20, fmt.subtitle, { width: 245, align: "R" });
+  box(13, 168, 774, 3, 3);
 
-  // Pie: línea, reclamo y dirección a la izquierda, código grande a la derecha.
-  const fh = Math.round(ih * 0.17);
-  const yF = y0 + ih - fh;
-  box(x0 + pad, yF, iw - 2 * pad, 3, 3);
-  const claimW = Math.round(iw * 0.56);
-  const clH = Math.max(12, Math.min(20, Math.round(ih * 0.026)));
-  FOOTER.forEach((line, i) => text(x0 + pad, yF + 10 + i * (clH + 4), fitFont(line, claimW, clH, 10), line));
-  const codeW = iw - 2 * pad - claimW;
-  const codeH = fitFont(label.code, codeW, Math.max(24, Math.round(ih * 0.08)), 18);
-  text(x0 + iw - pad - codeW, yF + 8, clH, "CODIGO PRODUCTO", { width: codeW, align: "R" });
-  text(x0 + iw - pad - codeW, yF + 8 + clH + 6, codeH, label.code, { width: codeW, align: "R" });
-
-  // Cuerpo: datos a la izquierda, QR a la derecha.
-  const yB = y + 4;
-  const bodyH = Math.max(40, yF - yB - 6);
-  const modules = qrModules(label.qrContent.length);
-  const mag = Math.max(2, Math.min(10, Math.floor(Math.min(bodyH, iw * 0.26) / modules)));
-  const qrPx = modules * mag;
-  const qrX = x0 + iw - pad - qrPx;
-  out.push(`^FO${qrX},${Math.round(yB + (bodyH - qrPx) / 2)}^BQN,2,${mag}^FDLA,${zplText(label.qrContent)}^FS`);
-
-  const fields: { text: string; wide?: boolean }[] = [
-    { text: `FECHA: ${labelDateText(label.date)}` },
-    ...(fmt.cantPaca ? [{ text: `${fmt.cantPaca}: ${label.cantPaca ?? "______"}` }] : []),
-    { text: `${fmt.weightLabel}: ${kgText(label.weightKg) || "______"}` },
-    { text: `COLOR: ${(label.color ?? "").toUpperCase() || "______"}` },
-    { text: `OP: ${label.orderNumber}` },
-    ...(label.ticket ? [{ text: `TIQUETE: ${label.ticket}` }] : []),
-    ...(label.clientName ? [{ text: `CLIENTE: ${label.clientName.toUpperCase()}`, wide: true }] : []),
+  // Cuadrícula de datos (4 filas de 2 + cliente a lo ancho) y QR a la derecha.
+  const up = (s?: string | null) => (s ?? "").toString().trim().toUpperCase();
+  const cells: { label: string; value: string; wide?: boolean }[] = [
+    { label: "FECHA", value: labelDateText(label.date) },
+    { label: "COLOR", value: up(label.color) },
+    { label: fmt.numberLabel, value: label.rollNumber ? String(label.rollNumber) : "" },
+    { label: fmt.grossLabel, value: fmt.bulto ? up(label.cantPaca) : kgText(label.grossKg) },
+    { label: "CALIBRE", value: up(label.calibre) },
+    { label: fmt.netLabel, value: kgText(label.weightKg) },
+    { label: "DENSIDAD", value: up(label.densidad) },
+    { label: "OPERARIO", value: up(label.operator) },
+    { label: "CLIENTE", value: up(label.clientName) || "STOCK (SIN CLIENTE)", wide: true },
   ];
-  const fieldsW = qrX - (x0 + pad) - pad;
-  const cols = fieldsW >= 400 ? 2 : 1;
-  const colW = cols === 2 ? (fieldsW - pad) / 2 : fieldsW;
-  // Filas: los campos de 2 columnas van de a pares; los "anchos" ocupan una fila.
-  const rows: { text: string; wide?: boolean }[][] = [];
-  for (const f of fields) {
-    const last = rows[rows.length - 1];
-    if (!f.wide && cols === 2 && last && last.length === 1 && !last[0].wide) last.push(f);
-    else rows.push([f]);
+  const gx = 13;
+  const gy = 171;
+  const colW = 302;
+  const rowH = 58;
+  box(617, gy, 3, 292, 3);
+  for (let r = 1; r <= 4; r++) box(gx, gy + r * rowH, 604, 2, 2);
+  box(gx + colW, gy, 2, 4 * rowH, 2);
+  cells.forEach((c, i) => {
+    const row = c.wide ? 4 : Math.floor(i / 2);
+    const col = c.wide ? 0 : i % 2;
+    const x = gx + col * colW + 10;
+    const y = gy + row * rowH;
+    const w = c.wide ? 584 : colW - 20;
+    const lab = `${c.label}:`;
+    text(x, y + 22, 18, lab);
+    const vx = x + Math.round(textWidth(lab, 18)) + 10;
+    const vw = w - (vx - x);
+    if (c.value) {
+      const vh = fitFont(c.value, vw, 30, 20);
+      text(vx, y + 14 + (30 - vh), vh, truncate(c.value, vw, vh));
+    } else {
+      // Sin dato: línea para escribirlo a mano.
+      box(vx, y + 40, Math.min(150, vw), 2, 2);
+    }
+  });
+
+  const modules = qrModules(label.qrContent.length);
+  const mag = Math.max(1, Math.floor((150 * S + 2) / modules));
+  const qrPx = modules * mag;
+  out.push(`^FO${X(619) + Math.round((D(168) - qrPx) / 2)},${Y(gy + 20)}^BQN,2,${mag}^FDLA,${zplText(label.qrContent)}^FS`);
+  text(619, gy + 20 + Math.round(qrPx / S) + 14, 15, "Escanear para", { width: 168, align: "C" });
+  text(619, gy + 20 + Math.round(qrPx / S) + 32, 15, "trazabilidad", { width: 168, align: "C" });
+
+  // Contacto con alimentos (casillas) y observaciones.
+  box(13, 463, 774, 3, 3);
+  text(27, 476, 20, "CONTACTO CON ALIMENTOS Y BEBIDAS:");
+  text(392, 476, 20, "SI");
+  box(420, 473, 22, 22, 2);
+  if (label.foodContact === true) text(420, 475, 20, "X", { width: 22, align: "C" });
+  text(456, 476, 20, "NO");
+  box(490, 473, 22, 22, 2);
+  if (label.foodContact === false) text(490, 475, 20, "X", { width: 22, align: "C" });
+  const obs = observations(label);
+  if (obs) {
+    const o = `OBS: ${obs}`;
+    text(525, 478, 17, truncate(o, 250, 17), { width: 250, align: "R" });
   }
-  let fH = Math.max(14, Math.min(30, Math.round(ih * 0.045)));
-  while (fH > 12 && rows.length * fH * 1.35 > bodyH) fH -= 1;
-  const rowH = fH * 1.35;
-  const fy = yB + Math.max(0, (bodyH - rows.length * rowH) / 2);
-  rows.forEach((row, r) =>
-    row.forEach((f, c) => {
-      const w = f.wide ? fieldsW : colW;
-      text(x0 + pad + c * (colW + pad), fy + r * rowH, fH, truncate(f.text, w, fH * 0.92));
-    })
-  );
+
+  // Franja negra con la NOTA y la dirección (texto en blanco: ^FR).
+  out.push(`^FO${X(13)},${Y(500)}^GB${D(774)},${D(87)},${D(87)},B,0^FS`);
+  text(27, 508, 22, NOTE, { width: 748, lines: 2, reverse: true });
+  text(27, 563, 15, ADDRESS, { reverse: true });
 
   out.push("^PQ1", "^XZ");
   return out.join("\n");
@@ -209,12 +260,21 @@ export function labelDataFromRoll(
     orderNumber: string;
     station: string | null;
     specs: unknown;
-    product: { name: string; measure: string | null; measureUnit: string | null; calibre: string | null; color: string | null };
+    product: { name: string; measure: string | null; measureUnit: string | null; calibre: string | null; color: string | null; densidad?: string | null };
     client: { name: string } | null;
   },
-  roll: { station: string; weightKg: unknown; details: unknown; date: Date; label: string | null },
+  roll: {
+    station: string;
+    weightKg: unknown;
+    details: unknown;
+    date: Date;
+    label: string | null;
+    operatorName?: string | null;
+    notes?: string | null;
+  },
   code: string,
-  possessionToken: string
+  possessionToken: string,
+  rollNumber?: number | null
 ): LabelData {
   // La del rollo: es la de su código (EXT/SELL/...), aunque la OP ya se haya derivado.
   const station = (roll.station ?? order.station ?? "extrusion") as LabelStation;
@@ -224,6 +284,7 @@ export function labelDataFromRoll(
   let weight = Number(roll.weightKg);
   if ((station === "sellado" || station === "embobinado") && Number(details.pBulto) > 0) weight = Number(details.pBulto);
   if (station === "precorte" && Number(details.pesoR2) > 0) weight += Number(details.pesoR2);
+  const gross = Number(details.pesoBruto);
   return {
     station,
     code,
@@ -233,26 +294,30 @@ export function labelDataFromRoll(
     reference: productReference(order.product),
     color: str(details.color) ?? str(specs.color) ?? order.product.color,
     weightKg: Number.isFinite(weight) ? Math.round(weight * 100) / 100 : null,
+    grossKg: Number.isFinite(gross) && gross > 0 ? gross : null,
     date: roll.date,
+    rollNumber: rollNumber ?? null,
+    calibre: str(specs.calibre) ?? order.product.calibre,
+    densidad: str(details.densidad) ?? str(specs.densidad) ?? str(specs.materialDensidad) ?? order.product.densidad ?? null,
+    operator: roll.operatorName ?? null,
     cantPaca: str(details.paqXUnid) ?? str(specs.unidadesSellado) ?? str(specs.unidadesEmbobinado),
     clientName: order.client?.name ?? null,
     ticket: station === "extrusion" && roll.label && roll.label !== code ? roll.label : null,
+    notes: roll.notes && roll.notes !== "Inventario inicial" ? roll.notes : null,
+    foodContact: null,
   };
 }
 
 const UNIT_SHORT: Record<string, string> = { Pulgadas: "pulg", "Cms.": "cm" };
 
-/** "55x70 cm · cal 2.5" (mismo formato que productMeasure/productCalibre del cliente). */
-export function productReference(p: { measure: string | null; measureUnit: string | null; calibre: string | null }): string {
+/** "55x70 cm" (mismo formato que productMeasure del cliente; el calibre va en su casilla). */
+export function productReference(p: { measure: string | null; measureUnit: string | null }): string {
   const m = p.measure?.trim() ?? "";
   const unit = p.measureUnit ? UNIT_SHORT[p.measureUnit] ?? p.measureUnit : "";
-  const measure = m ? (unit && !/[a-zA-Z"]\s*$/.test(m) ? `${m} ${unit}` : m) : "";
-  const c = p.calibre?.trim() ?? "";
-  const calibre = c ? (/^cal/i.test(c) ? c : `cal ${c}`) : "";
-  return [measure, calibre].filter(Boolean).join(" - ");
+  return m ? (unit && !/[a-zA-Z"]\s*$/.test(m) ? `${m} ${unit}` : m) : "";
 }
 
-/** Etiqueta de muestra (la de su papel), para la prueba de impresión. */
+/** Etiqueta de muestra (datos de su tiquete de papel), para la prueba de impresión. */
 export function sampleLabelData(station: LabelStation): LabelData {
   return {
     station,
@@ -260,10 +325,14 @@ export function sampleLabelData(station: LabelStation): LabelData {
     qrContent: "PRUEBA-IMPRESION-SAT-TT460",
     orderNumber: "OP-PRUEBA",
     productName: "Bolsa basura",
-    reference: "55x70 cm - cal 2.5",
+    reference: "55x70 cm",
     color: "Negro",
     weightKg: 12.5,
     date: new Date(),
+    rollNumber: 1,
+    calibre: "2.5",
+    densidad: "Alta",
+    operator: "Prueba",
     cantPaca: "50",
     clientName: "Cliente de prueba",
   };

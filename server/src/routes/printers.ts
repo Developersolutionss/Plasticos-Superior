@@ -196,7 +196,7 @@ printJobsRouter.post("/rolls", async (req, res) => {
           orderNumber: true,
           station: true,
           specs: true,
-          product: { select: { name: true, measure: true, measureUnit: true, calibre: true, color: true } },
+          product: { select: { name: true, measure: true, measureUnit: true, calibre: true, color: true, densidad: true } },
           client: { select: { name: true } },
         },
       },
@@ -211,7 +211,9 @@ printJobsRouter.post("/rolls", async (req, res) => {
     if (!verifyPossessionToken(code, token.toUpperCase(), roll.possessionTokenHash)) {
       return res.status(403).json({ error: `La etiqueta de ${code} ya no es válida (se reemitió): reemitila para imprimirla` });
     }
-    const label = labelDataFromRoll(roll.productionOrder, roll, code, token.toUpperCase());
+    // Nº del rollo dentro de su OP (1, 2, 3...), como el "Rollo" del tiquete de papel.
+    const rollNumber = await prisma.productionRoll.count({ where: { productionOrderId: roll.productionOrderId, id: { lte: roll.id } } });
+    const label = labelDataFromRoll(roll.productionOrder, roll, code, token.toUpperCase(), rollNumber);
     jobs.push({
       description: `${code} · ${roll.productionOrder.orderNumber}`,
       zpl: renderLabelZpl(label, { widthMm: printer.labelWidthMm, heightMm: printer.labelHeightMm, dpi: printer.dpi }),

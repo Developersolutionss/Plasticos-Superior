@@ -33,16 +33,42 @@ function sampleLabel(station: LabelStation, qrDataUrl: string): RollLabel {
     qrDataUrl,
     orderNumber: "OP-PRUEBA",
     productName: "Bolsa basura",
-    reference: "55x70 cm · cal 2.5",
+    reference: "55x70 cm",
     color: "Negro",
     weightKg: 12.5,
     date: new Date(),
+    rollNumber: 1,
+    calibre: "2.5",
+    densidad: "Alta",
+    operator: "Prueba",
     cantPaca: 50,
     clientName: "Cliente de prueba",
   };
 }
 
 const num = "border rounded px-2 py-1.5 text-sm w-24 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100";
+
+/** Medida del rollo en mm: se escribe libre y se aplica al salir del campo si es válida. */
+function MmInput({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (mm: number) => void }) {
+  const [text, setText] = useState(String(value));
+  return (
+    <label className="flex items-center gap-1.5">
+      {label}
+      <input
+        type="text"
+        inputMode="numeric"
+        className={num}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          const n = Math.round(Number(text.replace(",", ".")));
+          if (Number.isFinite(n) && n >= min && n <= max) onChange(n);
+          else setText(String(value));
+        }}
+      />
+    </label>
+  );
+}
 
 /** Corrimiento en mm: guarda el texto tal cual se escribe (para poder teclear
  * "-" o "1." sin que se convierta en 0 a mitad de camino) y solo aplica el
@@ -149,7 +175,7 @@ export default function PruebaEtiquetas() {
                       {f.widthMm / 10} × {f.heightMm / 10} cm
                     </td>
                     <td className="py-2 pr-3 text-slate-600 dark:text-slate-300">
-                      {sheet.widthMm / 10} × {sheet.heightMm / 10} cm{sheet.rotated ? " · sale girada" : ""}
+                      {sheet.widthMm / 10} × {sheet.heightMm / 10} cm
                       {sheet.scale < 1 ? ` · al ${Math.round(sheet.scale * 100)}%` : ""}
                       {sheet.widthMm > PRINTER_MAX_WIDTH_MM && <span className="block text-xs text-red-600 dark:text-red-400">No entra en la impresora (máx. {PRINTER_MAX_WIDTH_MM / 10} cm)</span>}
                     </td>
@@ -183,48 +209,15 @@ export default function PruebaEtiquetas() {
 
       <section className="bg-white dark:bg-slate-900 rounded-lg shadow p-4 space-y-3">
         <h2 className="font-medium text-slate-700 dark:text-slate-200">Ajustes de este equipo</h2>
-        <fieldset className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
-          <legend className="sr-only">Tamaño de etiqueta</legend>
-          <label className="flex items-start gap-2">
-            <input type="radio" name="sizeMode" className="mt-0.5" checked={settings.sizeMode === "unico"} onChange={() => update({ sizeMode: "unico" })} />
-            <span>
-              Todas al tamaño del rollo cargado
-              <span className="block text-xs text-slate-500 dark:text-slate-400">El diseño de cada estación se achica para que entre, derecho.</span>
-            </span>
-          </label>
-          {settings.sizeMode === "unico" && (
-            <div className="flex flex-wrap items-center gap-2 pl-6">
-              <label className="flex items-center gap-1.5">
-                Ancho (mm)
-                <input type="number" min={20} max={PRINTER_MAX_WIDTH_MM} className={num} value={settings.labelWidthMm}
-                  onChange={(e) => { const v = Number(e.target.value); if (v >= 20 && v <= PRINTER_MAX_WIDTH_MM) update({ labelWidthMm: v }); }} />
-              </label>
-              <label className="flex items-center gap-1.5">
-                Largo (mm)
-                <input type="number" min={20} max={300} className={num} value={settings.labelHeightMm}
-                  onChange={(e) => { const v = Number(e.target.value); if (v >= 20 && v <= 300) update({ labelHeightMm: v }); }} />
-              </label>
-            </div>
-          )}
-          <label className="flex items-start gap-2">
-            <input type="radio" name="sizeMode" className="mt-0.5" checked={settings.sizeMode === "estacion"} onChange={() => update({ sizeMode: "estacion" })} />
-            <span>
-              Cada estación a su tamaño (Sellado 16×8, rollos 13×10, Embobinado 10×8)
-              <span className="block text-xs text-slate-500 dark:text-slate-400">Para cuando haya un rollo de etiquetas de cada medida.</span>
-            </span>
-          </label>
-        </fieldset>
-        {settings.sizeMode === "estacion" && (
-        <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
-          <input type="checkbox" className="mt-0.5" checked={settings.rotateWide} onChange={(e) => update({ rotateWide: e.target.checked })} />
-          <span>
-            Girar las etiquetas más anchas que {PRINTER_MAX_WIDTH_MM / 10} cm (Sellado y rollos).
-            <span className="block text-xs text-slate-500 dark:text-slate-400">
-              La impresora imprime hasta {PRINTER_MAX_WIDTH_MM / 10} cm a lo ancho: esas etiquetas salen a lo largo del rollo.
-            </span>
-          </span>
-        </label>
-        )}
+        {/* Todas las etiquetas son de 100 × 75 mm (el rollo que compraron). Si
+            cargan otro rollo, se indica acá y el diseño se achica para que entre. */}
+        <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700 dark:text-slate-200">
+          <span>Rollo de etiquetas cargado:</span>
+          <MmInput label="Ancho (mm)" value={settings.labelWidthMm} min={20} max={PRINTER_MAX_WIDTH_MM}
+            onChange={(mm) => update({ sizeMode: "unico", labelWidthMm: mm })} />
+          <MmInput label="Largo (mm)" value={settings.labelHeightMm} min={20} max={300}
+            onChange={(mm) => update({ sizeMode: "unico", labelHeightMm: mm })} />
+        </div>
         <div className="flex flex-wrap gap-4 text-sm text-slate-700 dark:text-slate-200">
           {/* key: "Volver a lo normal" reinicia también el texto de los campos. */}
           <OffsetInput key={`x${resets}`} label="Correr a la derecha (mm)" value={settings.offsetXmm} onChange={(mm) => update({ offsetXmm: mm })} />

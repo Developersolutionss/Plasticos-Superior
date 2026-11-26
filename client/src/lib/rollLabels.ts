@@ -1,17 +1,22 @@
-import { productCalibre, productMeasure } from "./productMeasure";
+import { productMeasure } from "./productMeasure";
 
 /**
- * Etiquetas físicas de lo que sale de cada estación (pedido del cliente
- * 2026-11-23, sobre su etiqueta de papel de siempre: logo + "En precios y
- * calidad somos Superior", producto grande, REF, fecha/peso/color/cant.
- * paca, pie con el reclamo y la dirección, y el código abajo a la derecha).
- * Cada estación tiene su tamaño de etiqueta:
+ * Etiquetas físicas de lo que sale de cada estación. Diseño aprobado por el
+ * cliente el 2026-11-26 a partir de sus tiquetes de papel ("MATERIAL
+ * TUBULAR" y el tiquete verde de rollo): logo y título, Nº grande con el
+ * lote (OP), producto con su referencia, cuadrícula de datos (fecha, color,
+ * rollo Nº, peso bruto/neto, calibre, densidad, operario, cliente), QR,
+ * "contacto con alimentos y bebidas SI/NO" y la NOTA de devoluciones en
+ * franja negra con la dirección y los teléfonos.
  *
- * - Sellado (bultos): 16 × 8 cm
- * - Extrusión, Impresión y Precorte (rollos): 13 × 10 cm
- * - Embobinado: 10 × 8 cm
+ * Tamaño: 100 × 75 mm (el rollo de etiquetas que compraron para la
+ * impresora SAT TT460). La misma etiqueta sale en ZPL por la impresora de
+ * planta desde el celular (server/src/services/labelZpl.ts).
  *
- * Todas llevan el QR con el token de posesión: es lo que el operario de la
+ * Lo que el sistema no sabe queda como línea o casilla para completar a
+ * mano: peso bruto (solo se registra el neto) y contacto con alimentos.
+ *
+ * El QR lleva el código + el token de posesión: es lo que el operario de la
  * estación siguiente escanea para consumir el rollo o bulto.
  */
 export type LabelStation = "extrusion" | "impresion" | "sellado" | "precorte" | "embobinado";
@@ -22,38 +27,46 @@ export interface RollLabel {
   qrDataUrl: string;
   orderNumber: string;
   productName: string;
-  /** "55x70 cm · cal 2.5": medida y calibre (sin color, que va aparte). */
+  /** Medida del producto ("55x70 cm"). */
   reference?: string | null;
   color?: string | null;
+  /** Peso neto (en Sellado/Embobinado, el del bulto). */
   weightKg: unknown;
+  /** Peso bruto, si se conoce; si no, línea para escribir a mano. */
+  grossKg?: unknown;
   /** Fecha de producción (ISO o Date); sin fecha, hoy. */
   date?: string | Date | null;
-  /** Cant. paca / paquetes por unidad; vacío = línea para escribir a mano. */
+  /** Nº del rollo/bulto dentro de su OP (1, 2, 3...). */
+  rollNumber?: number | null;
+  calibre?: string | null;
+  densidad?: string | null;
+  operator?: string | null;
+  /** Cant. paca / paquetes por unidad. */
   cantPaca?: string | number | null;
   clientName?: string | null;
   /** Número del tiquete físico del rollo (inventario inicial), si tiene. */
   ticket?: string | null;
+  notes?: string | null;
+  /** Material para contacto con alimentos: null = casillas vacías para marcar a mano. */
+  foodContact?: boolean | null;
 }
 
 export interface LabelFormat {
   widthMm: number;
   heightMm: number;
-  /** Lo que se lee debajo del nombre del producto. */
+  /** Título grande del encabezado (como "MATERIAL TUBULAR" del papel). */
+  title: string;
+  /** Qué es, al lado del producto. */
   subtitle: string;
-  /** Rótulo del peso en esta estación. */
-  weightLabel: string;
-  /** ¿Muestra la línea de "cant. paca"? (rollos de Extrusión no la usan). */
-  cantPaca: string | null;
+  /** Rótulos de la cuadrícula que cambian por estación. */
+  numberLabel: string;
+  grossLabel: string;
+  netLabel: string;
+  /** Sellado muestra PAQ X UNID en lugar del peso bruto. */
+  bulto: boolean;
 }
 
-/**
- * Impresora de planta: SAT TT460 UE (transferencia térmica, 203 dpi). El
- * cabezal imprime hasta 108 mm de ancho; a lo largo (por donde sale el
- * papel) la etiqueta puede ser más larga. Una etiqueta más ancha que el
- * cabezal (Sellado 16 cm, rollos 13 cm) se manda GIRADA 90°: el rollo de
- * etiquetas va cargado por su lado corto (8 cm / 10 cm) y la etiqueta sale
- * a lo largo. Igual se lee derecha una vez pegada.
- */
+/** Impresora de planta: SAT TT460 UE (203 dpi), cabezal de 108 mm. */
 export const PRINTER_MAX_WIDTH_MM = 108;
 
 /**
@@ -61,13 +74,11 @@ export const PRINTER_MAX_WIDTH_MM = 108;
  * que tiene la impresora conectada). Se calibran en Configuración → Prueba
  * de etiquetas.
  *
- * - `sizeMode: "unico"` (por defecto): todas las etiquetas salen al tamaño
- *   del rollo cargado (hoy 100 × 75 mm, el que compraron), derechas y con
- *   el diseño de cada estación achicado para que entre — igual que por la
- *   impresora de planta desde el celular.
- * - `sizeMode: "estacion"`: cada estación a su tamaño propio (16×8, 13×10,
- *   10×8), girando las más anchas que el cabezal (`rotateWide`), para si
- *   algún día cargan un rollo de cada medida.
+ * - `sizeMode: "unico"` (por defecto): las etiquetas salen al tamaño del
+ *   rollo cargado (hoy 100 × 75 mm); si el rollo fuera otro, el diseño se
+ *   achica y se centra para que entre.
+ * - `sizeMode: "estacion"`: cada etiqueta a su tamaño de diseño, girando las
+ *   más anchas que el cabezal (`rotateWide`).
  * - Corrimiento (mm) si la impresora saca el diseño corrido.
  */
 export interface PrinterSettings {
@@ -117,6 +128,25 @@ export function savePrinterSettings(settings: PrinterSettings) {
   }
 }
 
+const ROLL = { numberLabel: "ROLLO Nº", grossLabel: "PESO BRUTO", netLabel: "PESO NETO", bulto: false };
+
+export const LABEL_FORMATS: Record<LabelStation, LabelFormat> = {
+  extrusion: { widthMm: 100, heightMm: 75, title: "MATERIAL TUBULAR", subtitle: "ROLLO DE EXTRUSIÓN", ...ROLL },
+  impresion: { widthMm: 100, heightMm: 75, title: "MATERIAL IMPRESO", subtitle: "ROLLO IMPRESO", ...ROLL },
+  precorte: { widthMm: 100, heightMm: 75, title: "MATERIAL PRECORTADO", subtitle: "EN ROLLO PRECORTE", ...ROLL },
+  embobinado: { widthMm: 100, heightMm: 75, title: "MATERIAL EMBOBINADO", subtitle: "ROLLO EMBOBINADO", ...ROLL },
+  sellado: {
+    widthMm: 100,
+    heightMm: 75,
+    title: "BOLSAS SELLADAS",
+    subtitle: "BULTO SELLADO",
+    numberLabel: "BULTO Nº",
+    grossLabel: "PAQ X UNID",
+    netLabel: "PESO BULTO",
+    bulto: true,
+  },
+};
+
 /**
  * Hoja que recibe la impresora (ancho = lo que cruza el cabezal) y cómo
  * entra el diseño: girado y/o achicado (`scale`).
@@ -138,29 +168,21 @@ export function labelSheet(
     : { widthMm: f.widthMm, heightMm: f.heightMm, rotated, scale: 1 };
 }
 
-export const LABEL_FORMATS: Record<LabelStation, LabelFormat> = {
-  sellado: { widthMm: 160, heightMm: 80, subtitle: "BULTO SELLADO", weightLabel: "PESO BULTO", cantPaca: "PAQ X UNID" },
-  extrusion: { widthMm: 130, heightMm: 100, subtitle: "ROLLO DE EXTRUSIÓN", weightLabel: "PESO", cantPaca: null },
-  impresion: { widthMm: 130, heightMm: 100, subtitle: "ROLLO IMPRESO", weightLabel: "PESO", cantPaca: "CANT PACA" },
-  precorte: { widthMm: 130, heightMm: 100, subtitle: "EN ROLLO PRECORTE", weightLabel: "PESO", cantPaca: "CANT PACA" },
-  embobinado: { widthMm: 100, heightMm: 80, subtitle: "ROLLO EMBOBINADO", weightLabel: "PESO", cantPaca: "CANT PACA" },
-};
-
-/** Datos de la empresa del pie (los de su etiqueta de papel). */
+/** Pie de la etiqueta (los del tiquete de papel "Material Tubular"). */
 export const COMPANY_FOOTER = {
-  claim: "PARA CUALQUIER RECLAMO SÍRVASE CITAR ESTA ETIQUETA",
-  address: "CRR 44 # 18-106 B/ SAN JUDAS · TELÉFONO 318-8711399",
-  city: "CALI - COLOMBIA",
+  note: "NOTA: Únicamente se aceptan devoluciones y/o reclamos de rollos con la presentación de este tiquete.",
+  address: "Carrera 44 No. 18-106 · Tel 326 2543 - 336 9192 · Cel 318 5732551 · Cali - Colombia",
+  tagline: "TUBULARES · BOLSAS · PRECORTADOS",
 };
 
 export function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-/** "55x70 cm · cal 2.5" a partir del producto del catálogo. */
-export function labelReference(p: { measure?: string | null; measureUnit?: string | null; calibre?: string | null } | null | undefined): string {
+/** "55x70 cm" a partir del producto del catálogo (el calibre va en su casilla). */
+export function labelReference(p: { measure?: string | null; measureUnit?: string | null } | null | undefined): string {
   if (!p) return "";
-  return [productMeasure(p), productCalibre(p)].filter(Boolean).join(" · ");
+  return productMeasure(p);
 }
 
 /** dd-mm-aa, como en la etiqueta de papel (09-11-26). */
@@ -172,43 +194,54 @@ export function labelDate(value?: string | Date | null): string {
 }
 
 function kg(value: unknown): string {
+  if (value == null || value === "") return "";
   const n = Number(value);
-  if (!Number.isFinite(n)) return "";
+  if (!Number.isFinite(n) || n <= 0) return "";
   return `${n.toLocaleString("es-CO", { maximumFractionDigits: 2 })} kg`;
 }
 
-/** El nombre del producto va lo más grande que entre: los largos bajan de tamaño. */
-function titleSize(name: string, station: LabelStation): string {
-  const base = station === "embobinado" ? 17 : station === "sellado" ? 22 : 26;
-  const len = name.length;
-  const factor = len <= 14 ? 1 : len <= 22 ? 0.8 : len <= 32 ? 0.64 : 0.52;
-  return `${Math.round(base * factor)}pt`;
+/** Observaciones: cant. paca (rollos), tiquete y notas de la fila. */
+export function labelObservations(label: RollLabel): string {
+  const fmt = LABEL_FORMATS[label.station] ?? LABEL_FORMATS.extrusion;
+  return [
+    !fmt.bulto && label.cantPaca != null && label.cantPaca !== "" ? `Cant. paca ${label.cantPaca}` : "",
+    label.ticket ? `Tiquete ${label.ticket}` : "",
+    label.notes?.trim() ?? "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
-function field(label: string, value: string, wide = false): string {
-  const v = value.trim() ? escapeHtml(value) : '<span class="blank"></span>';
-  return `<div class="f${wide ? " wide" : ""}"><b>${escapeHtml(label)}:</b> <span>${v}</span></div>`;
+/** Las casillas de la cuadrícula, en orden (la última, cliente, va a lo ancho). */
+export function labelCells(label: RollLabel): { label: string; value: string; wide?: boolean }[] {
+  const fmt = LABEL_FORMATS[label.station] ?? LABEL_FORMATS.extrusion;
+  const up = (s?: string | null) => (s ?? "").toString().trim().toUpperCase();
+  return [
+    { label: "FECHA", value: labelDate(label.date) },
+    { label: "COLOR", value: up(label.color) },
+    { label: fmt.numberLabel, value: label.rollNumber ? String(label.rollNumber) : "" },
+    { label: fmt.grossLabel, value: fmt.bulto ? up(label.cantPaca == null ? "" : String(label.cantPaca)) : kg(label.grossKg) },
+    { label: "CALIBRE", value: up(label.calibre) },
+    { label: fmt.netLabel, value: kg(label.weightKg) },
+    { label: "DENSIDAD", value: up(label.densidad) },
+    { label: "OPERARIO", value: up(label.operator) },
+    { label: "CLIENTE", value: up(label.clientName) || "STOCK (SIN CLIENTE)", wide: true },
+  ];
+}
+
+function cell(c: { label: string; value: string; wide?: boolean }): string {
+  const v = c.value ? `<b>${escapeHtml(c.value)}</b>` : '<span class="blank"></span>';
+  return `<div class="c${c.wide ? " wide" : ""}"><small>${escapeHtml(c.label)}:</small>${v}</div>`;
 }
 
 function labelHtml(label: RollLabel, logoUrl: string, settings: PrinterSettings): string {
   const fmt = LABEL_FORMATS[label.station] ?? LABEL_FORMATS.extrusion;
-  const name = label.productName.toUpperCase();
-  const fields = [
-    field("FECHA", labelDate(label.date)),
-    fmt.cantPaca ? field(fmt.cantPaca, label.cantPaca == null ? "" : String(label.cantPaca)) : "",
-    field(fmt.weightLabel, kg(label.weightKg)),
-    field("COLOR", (label.color ?? "").toUpperCase()),
-    field("OP", label.orderNumber),
-    label.ticket ? field("TIQUETE", label.ticket) : "",
-    label.clientName ? field("CLIENTE", label.clientName.toUpperCase(), true) : "",
-  ].join("");
   const sheet = labelSheet(label.station, settings);
   // El diseño se arma derecho a su tamaño y se acomoda en la hoja: girado
   // 90° (tamaño por estación) o achicado y centrado (un solo tamaño).
-  const f = LABEL_FORMATS[label.station] ?? LABEL_FORMATS.extrusion;
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  const cx = sheet.scale < 1 ? r2((sheet.widthMm - f.widthMm * sheet.scale) / 2) : 0;
-  const cy = sheet.scale < 1 ? r2((sheet.heightMm - f.heightMm * sheet.scale) / 2) : 0;
+  const cx = sheet.scale < 1 ? r2((sheet.widthMm - fmt.widthMm * sheet.scale) / 2) : 0;
+  const cy = sheet.scale < 1 ? r2((sheet.heightMm - fmt.heightMm * sheet.scale) / 2) : 0;
   const dx = r2(settings.offsetXmm + cx);
   const dy = r2(settings.offsetYmm + cy);
   const moves = [
@@ -216,102 +249,78 @@ function labelHtml(label: RollLabel, logoUrl: string, settings: PrinterSettings)
     sheet.rotated ? `translateX(${sheet.widthMm}mm) rotate(90deg)` : "",
     sheet.scale < 1 ? `scale(${r2(sheet.scale * 1000) / 1000})` : "",
   ].filter(Boolean);
-  const rotate = moves.length ? ` style="transform: ${moves.join(" ")}"` : "";
+  const transform = moves.length ? ` style="transform: ${moves.join(" ")}"` : "";
+  const station = escapeHtml(label.station);
+  const product = [label.productName, label.reference ? `REF ${label.reference}` : ""].filter(Boolean).join(" · ").toUpperCase();
+  const obs = labelObservations(label);
+  const food = label.foodContact;
+  const qr = /^data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+$/.test(label.qrDataUrl) ? label.qrDataUrl : "";
   // 0.3 mm menos de alto que la hoja: por redondeo de mm a px Chrome puede
   // sacar una hoja en blanco entre etiquetas si mide exactamente lo mismo.
-  const station = escapeHtml(label.station);
   return `<div class="sheet sheet-${station}" style="width:${sheet.widthMm}mm;height:${sheet.heightMm - 0.3}mm">
-  <div class="label lbl-${station}"${rotate}>
+  <div class="label lbl-${station}"${transform}><div class="box">
     <header>
-      <img class="logo" src="${escapeHtml(logoUrl)}" alt="Plásticos Superior San Judas SAS" />
-      <div class="slogan">EN PRECIOS Y CALIDAD<br /><u>SOMOS SUPERIOR</u></div>
+      <img src="${escapeHtml(logoUrl)}" alt="Plásticos Superior San Judas SAS" />
+      <div class="tit"><b style="font-size:${fmt.title.length > 16 ? 8.4 : 10.5}pt">${escapeHtml(fmt.title)}</b><small>${escapeHtml(COMPANY_FOOTER.tagline)}</small></div>
+      <div class="num"><small>Nº</small><b>${escapeHtml(label.code)}</b><small>LOTE ${escapeHtml(label.orderNumber)}</small></div>
     </header>
-    <section class="title">
-      <h1 style="font-size:${titleSize(name, label.station)}">${escapeHtml(name)}</h1>
-      <p class="sub">${escapeHtml(fmt.subtitle)}</p>
-      ${label.reference ? `<p class="ref">REF: <u>${escapeHtml(label.reference.toUpperCase())}</u></p>` : ""}
-    </section>
-    <section class="fields">${fields}</section>
-    <section class="qr"><img src="${/^data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+$/.test(label.qrDataUrl) ? label.qrDataUrl : ""}" alt="QR ${escapeHtml(label.code)}" /></section>
+    <div class="prod"><b>${escapeHtml(product)}</b><i>${escapeHtml(fmt.subtitle)}</i></div>
+    <div class="body">
+      <div class="grid">${labelCells(label).map(cell).join("")}</div>
+      <div class="qr"><img src="${qr}" alt="QR ${escapeHtml(label.code)}" /><small>Escanear para<br />trazabilidad</small></div>
+    </div>
+    <div class="ali">CONTACTO CON ALIMENTOS Y BEBIDAS:
+      SI <span class="ck">${food === true ? "X" : ""}</span> NO <span class="ck">${food === false ? "X" : ""}</span>
+      ${obs ? `<span class="obs">OBS: ${escapeHtml(obs)}</span>` : ""}</div>
     <footer>
-      <div class="claim">${escapeHtml(COMPANY_FOOTER.claim)}<br />${escapeHtml(COMPANY_FOOTER.address)}<br />${escapeHtml(COMPANY_FOOTER.city)}</div>
-      <div class="pcode"><small>CÓDIGO PRODUCTO</small><strong>${escapeHtml(label.code)}</strong></div>
+      <b>${escapeHtml(COMPANY_FOOTER.note)}</b>
+      <small>${escapeHtml(COMPANY_FOOTER.address)}</small>
     </footer>
-  </div>
+  </div></div>
   </div>`;
 }
 
 const STYLES = `
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { margin: 0; padding: 0; }
   body { font-family: Arial, Helvetica, sans-serif; color: #000; }
-  .label {
-    position: relative; overflow: hidden; background: #fff;
-    border: 0.6mm solid #000; padding: 2.5mm 3mm;
-    display: grid; column-gap: 3mm;
-    transform-origin: top left;
-  }
   .sheet { position: relative; overflow: hidden; break-after: page; page-break-after: always; }
   .sheet:last-child { break-after: auto; page-break-after: auto; }
-  header { grid-area: header; display: flex; align-items: center; justify-content: space-between; gap: 3mm; min-height: 0; }
-  .logo { height: 100%; max-height: 15mm; width: auto; filter: grayscale(1) contrast(1.4); }
-  .slogan { font-family: "Courier New", Courier, monospace; font-size: 8.5pt; text-align: center; line-height: 1.25; }
-  .title { grid-area: title; text-align: center; min-width: 0; }
-  .title h1 { margin: 1mm 0 0; line-height: 1; font-weight: 900; letter-spacing: -0.02em; overflow-wrap: anywhere;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .title .sub { margin: 0.8mm 0 0; font-weight: 800; font-style: italic; font-size: 12pt; }
-  .title .ref { margin: 0.8mm 0 0; font-weight: 700; font-size: 13pt; }
-  .fields { grid-area: fields; display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 3mm; align-content: center; font-size: 10.5pt; min-width: 0; }
-  .fields .f { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .fields .f.wide { grid-column: 1 / -1; }
-  .fields b { font-weight: 800; }
-  .blank { display: inline-block; width: 11mm; height: 1em; vertical-align: bottom; border-bottom: 0.3mm solid #000; }
-  .qr { grid-area: qr; display: flex; align-items: center; justify-content: center; min-height: 0; }
-  .qr img { width: 100%; height: auto; max-height: 100%; image-rendering: pixelated; }
-  footer { grid-area: footer; border-top: 0.5mm solid #000; display: flex; align-items: center; justify-content: space-between; gap: 2mm; padding-top: 1mm; }
-  .claim { font-size: 5.5pt; font-weight: 700; line-height: 1.3; }
-  .pcode { text-align: right; white-space: nowrap; }
-  .pcode small { display: block; font-family: "Courier New", Courier, monospace; font-size: 7pt; }
-  .pcode strong { font-size: 17pt; font-weight: 900; }
-
-  /* Extrusión / Impresión / Precorte: 13 × 10 cm */
-  .lbl-extrusion, .lbl-impresion, .lbl-precorte {
-    width: 130mm; height: 100mm;
-    grid-template-columns: 1fr 30mm; grid-template-rows: 16mm auto 1fr 14mm;
-    grid-template-areas: "header header" "title title" "fields qr" "footer footer";
-  }
-  /* Sellado (bulto): 16 × 8 cm, apaisada: el QR ocupa la columna derecha. */
-  .lbl-sellado {
-    width: 160mm; height: 80mm;
-    grid-template-columns: 1fr 34mm; grid-template-rows: 13mm auto 1fr 12mm;
-    grid-template-areas: "header qr" "title qr" "fields qr" "footer footer";
-  }
-  .lbl-sellado .title .sub { font-size: 11pt; }
-  .lbl-sellado .title .ref { font-size: 12pt; }
-  .lbl-sellado .fields { grid-template-columns: 1fr 1fr; font-size: 10.5pt; }
-  .lbl-sellado .logo { max-height: 12mm; }
-  /* Embobinado: 10 × 8 cm, todo más compacto. */
-  .lbl-embobinado {
-    width: 100mm; height: 80mm; padding: 2mm 2.5mm;
-    grid-template-columns: 1fr 24mm; grid-template-rows: 11mm auto 1fr 11mm;
-    grid-template-areas: "header header" "title title" "fields qr" "footer footer";
-  }
-  .lbl-embobinado .logo { max-height: 10mm; }
-  .lbl-embobinado .slogan { font-size: 6.5pt; }
-  .lbl-embobinado .title .sub { font-size: 9pt; }
-  .lbl-embobinado .title .ref { font-size: 10pt; }
-  .lbl-embobinado .fields { grid-template-columns: 1fr; gap: 0.5mm; font-size: 8.5pt; }
-  .lbl-embobinado .claim { font-size: 4.5pt; }
-  .lbl-embobinado .pcode strong { font-size: 13pt; }
-  .lbl-embobinado .pcode small { font-size: 5.5pt; }
-
-  /* Hoja de impresora por tamaño (ancho = lo que cruza el cabezal). */
-  .sheet-extrusion, .sheet-impresion, .sheet-precorte { page: rollo; }
-  .sheet-sellado { page: bulto; }
-  .sheet-embobinado { page: embobinado; }
+  .label { width: 100mm; height: 75mm; padding: 1.6mm; background: #fff; transform-origin: top left;
+           -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .box { width: 100%; height: 100%; border: 0.5mm solid #000; border-radius: 2mm; overflow: hidden;
+         display: grid; grid-template-rows: 12.5mm 6.5mm 1fr 4.6mm 10.6mm; }
+  header { display: grid; grid-template-columns: 22mm 1fr 25mm; align-items: center; gap: 1.5mm; padding: 1mm 1.5mm 0.6mm; border-bottom: 0.35mm solid #000; }
+  header img { width: 22mm; filter: grayscale(1) contrast(1.4); }
+  .tit { min-width: 0; }
+  .tit b { display: block; font-weight: 900; letter-spacing: -0.2pt; line-height: 1; white-space: nowrap; }
+  .tit small { display: block; font-size: 5.4pt; font-weight: 700; margin-top: 0.8mm; white-space: nowrap; }
+  .num { border: 0.4mm solid #000; border-radius: 1.5mm; text-align: center; padding: 0.4mm 0; overflow: hidden; }
+  .num small { display: block; font-size: 5.3pt; font-weight: 700; white-space: nowrap; }
+  .num b { display: block; font-size: 10.5pt; font-weight: 900; line-height: 1.05; white-space: nowrap; }
+  .prod { display: flex; align-items: baseline; justify-content: space-between; gap: 2mm; padding: 0 1.8mm; border-bottom: 0.35mm solid #000; min-width: 0; }
+  .prod b { font-size: 10.5pt; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .prod i { font-size: 6.5pt; font-weight: 800; white-space: nowrap; }
+  .body { display: grid; grid-template-columns: 1fr 21mm; min-height: 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; border-right: 0.35mm solid #000; min-width: 0; }
+  .c { border-bottom: 0.25mm solid #000; padding: 0.3mm 1.2mm; display: flex; align-items: baseline; gap: 1mm; min-width: 0; overflow: hidden; }
+  .c:nth-child(odd):not(.wide) { border-right: 0.25mm solid #000; }
+  .c.wide { grid-column: 1 / -1; border-bottom: 0; }
+  .c small { font-size: 5.6pt; font-weight: 700; white-space: nowrap; }
+  .c b { font-size: 8.2pt; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .blank { flex: 1; max-width: 16mm; border-bottom: 0.3mm solid #000; height: 3mm; }
+  .qr { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.6mm; }
+  .qr img { width: 18.5mm; height: 18.5mm; image-rendering: pixelated; }
+  .qr small { font-size: 5pt; font-weight: 700; text-align: center; line-height: 1.1; }
+  .ali { display: flex; align-items: center; gap: 1.5mm; padding: 0 1.8mm; font-size: 6.2pt; font-weight: 700; border-bottom: 0.35mm solid #000; white-space: nowrap; overflow: hidden; }
+  .ck { display: inline-block; width: 2.6mm; height: 2.6mm; border: 0.3mm solid #000; text-align: center; line-height: 2.4mm; font-size: 6.5pt; margin-left: 0.6mm; }
+  .ali .obs { margin-left: auto; font-weight: 400; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  footer { background: #000; color: #fff; padding: 0.7mm 1.8mm; display: flex; flex-direction: column; justify-content: center; }
+  footer b { font-size: 6.6pt; font-weight: 900; line-height: 1.12; }
+  footer small { font-size: 4.9pt; font-weight: 700; margin-top: 0.5mm; }
+  .sheet { page: etiqueta; }
   @page { margin: 0; }
   @media screen {
-    /* En pantalla se ve derecha; girada es solo para la impresora. */
     .sheet { width: auto !important; height: auto !important; }
     .label { transform: none !important; }
     body { background: #e5e7eb; padding: 8mm; display: flex; flex-wrap: wrap; gap: 6mm; align-items: flex-start; }
@@ -321,13 +330,6 @@ const STYLES = `
 /** HTML de la página de impresión (separado para poder probarlo). */
 export function rollLabelsHtml(labels: RollLabel[], logoUrl = "/logo-full.png", settings: PrinterSettings = getPrinterSettings()): string {
   const first = labelSheet(labels[0]?.station ?? "extrusion", settings);
-  const size = (s: LabelStation) => {
-    const sh = labelSheet(s, settings);
-    return `${sh.widthMm}mm ${sh.heightMm}mm`;
-  };
-  const pages = `@page rollo { size: ${size("precorte")}; margin: 0; }
-      @page bulto { size: ${size("sellado")}; margin: 0; }
-      @page embobinado { size: ${size("embobinado")}; margin: 0; }`;
   return `<!DOCTYPE html>
 <html lang="es">
   <head>
@@ -335,7 +337,7 @@ export function rollLabelsHtml(labels: RollLabel[], logoUrl = "/logo-full.png", 
     <title>${labels.length === 1 ? `Etiqueta ${escapeHtml(labels[0].code)}` : `Etiquetas (${labels.length})`}</title>
     <style>
       ${STYLES}
-      ${pages}
+      @page etiqueta { size: ${first.widthMm}mm ${first.heightMm}mm; margin: 0; }
       @page { size: ${first.widthMm}mm ${first.heightMm}mm; margin: 0; }
     </style>
   </head>
@@ -372,22 +374,38 @@ export function printRollLabel(label: RollLabel) {
 
 /**
  * Arma la etiqueta de un rollo/bulto de una OP: los datos de la fila
- * (peso, fecha, color, paquetes) con lo que falte tomado de la OP y su
- * producto.
+ * (peso, fecha, color, paquetes, operario) con lo que falte tomado de la OP
+ * y su producto. `rollNumber` = su Nº dentro de la OP (1, 2, 3...).
  */
 export function rollLabelFromOrder(
   order: {
     orderNumber: string;
     station: string | null;
     specs?: unknown;
-    product: { name: string; measure?: string | null; measureUnit?: string | null; calibre?: string | null; color?: string | null };
+    product: {
+      name: string;
+      measure?: string | null;
+      measureUnit?: string | null;
+      calibre?: string | null;
+      color?: string | null;
+      densidad?: string | null;
+    };
     client?: { name: string } | null;
   },
-  roll: { weightKg: unknown; details?: unknown; date?: string | Date | null; label?: string | null },
+  roll: {
+    station?: string | null;
+    weightKg: unknown;
+    details?: unknown;
+    date?: string | Date | null;
+    label?: string | null;
+    operatorName?: string | null;
+    notes?: string | null;
+  },
   code: string,
-  qrDataUrl: string
+  qrDataUrl: string,
+  rollNumber?: number | null
 ): RollLabel {
-  const station = (order.station ?? "extrusion") as LabelStation;
+  const station = (roll.station ?? order.station ?? "extrusion") as LabelStation;
   const details = roll.details && typeof roll.details === "object" ? (roll.details as Record<string, unknown>) : {};
   const specs = order.specs && typeof order.specs === "object" ? (order.specs as Record<string, unknown>) : {};
   const str = (v: unknown) => (v == null || v === "" ? null : String(v));
@@ -396,8 +414,6 @@ export function rollLabelFromOrder(
   let weight: unknown = roll.weightKg;
   if ((station === "sellado" || station === "embobinado") && Number(details.pBulto) > 0) weight = details.pBulto;
   if (station === "precorte" && Number(details.pesoR2) > 0) weight = Number(roll.weightKg) + Number(details.pesoR2);
-  const cantPaca =
-    str(details.paqXUnid) ?? str(specs.unidadesSellado) ?? str(specs.unidadesEmbobinado) ?? null;
   return {
     station,
     code,
@@ -407,9 +423,16 @@ export function rollLabelFromOrder(
     reference: labelReference(order.product),
     color: str(details.color) ?? str(specs.color) ?? order.product.color ?? null,
     weightKg: weight,
+    grossKg: str(details.pesoBruto),
     date: roll.date ?? null,
-    cantPaca,
+    rollNumber: rollNumber ?? null,
+    calibre: str(specs.calibre) ?? order.product.calibre ?? null,
+    densidad: str(details.densidad) ?? str(specs.densidad) ?? str(specs.materialDensidad) ?? order.product.densidad ?? null,
+    operator: roll.operatorName ?? null,
+    cantPaca: str(details.paqXUnid) ?? str(specs.unidadesSellado) ?? str(specs.unidadesEmbobinado) ?? null,
     clientName: order.client?.name ?? null,
     ticket: station === "extrusion" && roll.label && roll.label !== code ? roll.label : null,
+    notes: roll.notes && roll.notes !== "Inventario inicial" ? roll.notes : null,
+    foodContact: null,
   };
 }

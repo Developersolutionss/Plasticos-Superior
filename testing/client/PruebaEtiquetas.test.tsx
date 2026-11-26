@@ -21,16 +21,17 @@ function renderPage() {
 describe("Prueba de etiquetas", () => {
   beforeEach(() => localStorage.clear());
 
-  it("por defecto todas salen al tamaño del rollo cargado (100 × 75); por estación, las anchas salen giradas", async () => {
+  it("todas son de 10 × 7,5 cm (el rollo cargado); si se carga otro rollo, se achican para que entren", async () => {
     renderPage();
     const sellado = (await screen.findByRole("cell", { name: "Bulto de Sellado" })).closest("tr")!;
-    expect(within(sellado).getByText("16 × 8 cm")).toBeInTheDocument();
-    expect(within(sellado).getByText(/10 × 7.5 cm · al 63%/)).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("radio", { name: /Cada estación a su tamaño/ }));
-    expect(within(sellado).getByText(/8 × 16 cm · sale girada/)).toBeInTheDocument();
-    const emb = screen.getByRole("cell", { name: "Rollo de Embobinado" }).closest("tr")!;
-    // Embobinado entra derecho: la hoja es igual a su tamaño (sin girar ni achicar).
-    expect(within(emb).getAllByText(/^10 × 8 cm$/, { selector: "td" })).toHaveLength(2);
+    expect(within(sellado).getAllByText(/^10 × 7.5 cm$/, { selector: "td" })).toHaveLength(2);
+    const user = userEvent.setup();
+    const ancho = screen.getByLabelText("Ancho (mm)");
+    await user.clear(ancho);
+    await user.type(ancho, "80");
+    await user.tab();
+    expect(getPrinterSettings().labelWidthMm).toBe(80);
+    expect(within(sellado).getByText(/8 × 7.5 cm · al 80%/)).toBeInTheDocument();
   });
 
   it("imprime una muestra sin crear rollos, y los ajustes de este equipo se guardan y se aplican", async () => {
@@ -51,15 +52,11 @@ describe("Prueba de etiquetas", () => {
     const x = screen.getByLabelText("Correr a la derecha (mm)");
     await user.clear(x);
     await user.type(x, "2");
-    await user.click(screen.getByRole("radio", { name: /Cada estación a su tamaño/ }));
-    await user.click(screen.getByRole("checkbox"));
-    expect(getPrinterSettings()).toEqual({ sizeMode: "estacion", labelWidthMm: 100, labelHeightMm: 75, rotateWide: false, offsetXmm: 2, offsetYmm: 0 });
-    expect(within(row).getByText(/16 × 8 cm/, { selector: "td:nth-child(3)" })).toBeInTheDocument();
-    expect(within(row).getByText(/No entra en la impresora/)).toBeInTheDocument();
+    expect(getPrinterSettings()).toEqual({ sizeMode: "unico", labelWidthMm: 100, labelHeightMm: 75, rotateWide: true, offsetXmm: 2, offsetYmm: 0 });
 
     await user.click(within(row).getByRole("button", { name: /Imprimir prueba/ }));
     const html = win.document.write.mock.calls[0][0] as string;
-    expect(html).toContain("BULTO SELLADO");
+    expect(html).toContain("BOLSAS SELLADAS");
     expect(html).toContain("translate(2mm, 0mm)");
     expect(html).not.toContain("rotate(90deg)");
     open.mockRestore();

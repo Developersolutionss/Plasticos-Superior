@@ -1,74 +1,124 @@
 import { describe, it, expect } from "vitest";
-import { LABEL_FORMATS, labelDate, labelSheet, rollLabelFromOrder, rollLabelsHtml, type RollLabel } from "../../client/src/lib/rollLabels";
+import {
+  LABEL_FORMATS,
+  labelCells,
+  labelDate,
+  labelObservations,
+  labelSheet,
+  rollLabelFromOrder,
+  rollLabelsHtml,
+  type RollLabel,
+} from "../../client/src/lib/rollLabels";
 
 const base: RollLabel = {
   station: "precorte",
   code: "PRE-6354",
   qrDataUrl: "data:image/png;base64,AAA",
-  orderNumber: "OP-00012",
+  orderNumber: "OP-00029",
   productName: "Bolsa basura",
-  reference: "55x70 cm · cal 2.5",
+  reference: "55x70 cm",
   color: "Negro",
   weightKg: 12.5,
-  date: "2026-11-09T15:00:00",
+  date: "2026-11-24T15:00:00",
+  rollNumber: 12,
+  calibre: "2.5",
+  densidad: "Alta",
+  operator: "Carlos",
   cantPaca: 50,
+  clientName: "Agropecuaria La Sevillana",
 };
 
-describe("etiquetas por estación", () => {
-  it("cada estación tiene su tamaño: Sellado 16×8, rollos 13×10, Embobinado 10×8", () => {
-    expect(LABEL_FORMATS.sellado).toMatchObject({ widthMm: 160, heightMm: 80, subtitle: "BULTO SELLADO" });
-    for (const s of ["extrusion", "impresion", "precorte"] as const) expect(LABEL_FORMATS[s]).toMatchObject({ widthMm: 130, heightMm: 100 });
-    expect(LABEL_FORMATS.embobinado).toMatchObject({ widthMm: 100, heightMm: 80 });
-    // Tamaño por estación: la SAT TT460 imprime hasta 108 mm a lo ancho, las más anchas salen giradas.
-    const porEstacion = { sizeMode: "estacion" as const, labelWidthMm: 100, labelHeightMm: 75, rotateWide: true, offsetXmm: 0, offsetYmm: 0 };
-    expect(labelSheet("sellado", porEstacion)).toEqual({ widthMm: 80, heightMm: 160, rotated: true, scale: 1 });
-    expect(labelSheet("precorte", porEstacion)).toEqual({ widthMm: 100, heightMm: 130, rotated: true, scale: 1 });
-    expect(labelSheet("embobinado", porEstacion)).toEqual({ widthMm: 100, heightMm: 80, rotated: false, scale: 1 });
-    expect(rollLabelsHtml([{ ...base, station: "sellado" }], "/l.png", porEstacion)).toContain("@page { size: 80mm 160mm; margin: 0; }");
-    expect(rollLabelsHtml([{ ...base, station: "sellado" }], "/l.png", porEstacion)).toContain("transform: translateX(80mm) rotate(90deg)");
-    expect(rollLabelsHtml([base], "/l.png", porEstacion)).toContain("@page { size: 100mm 130mm; margin: 0; }");
-  });
-
-  it("por defecto todas salen al tamaño del rollo cargado (100 × 75 mm), derechas, achicadas y centradas", () => {
-    expect(labelSheet("sellado")).toEqual({ widthMm: 100, heightMm: 75, rotated: false, scale: 0.625 });
-    expect(labelSheet("precorte")).toEqual({ widthMm: 100, heightMm: 75, rotated: false, scale: 0.75 });
-    const sellado = rollLabelsHtml([{ ...base, station: "sellado" }]);
-    expect(sellado).toContain("@page { size: 100mm 75mm; margin: 0; }");
-    expect(sellado).toContain("transform: translate(0mm, 12.5mm) scale(0.625)");
-    expect(sellado).not.toContain("rotate(90deg)");
-    expect(rollLabelsHtml([base])).toContain("transform: translate(1.25mm, 0mm) scale(0.75)");
-  });
-
-  it("lleva los datos de la etiqueta de papel: producto, subtítulo, REF, fecha dd-mm-aa, cant. paca, peso, color y código", () => {
+describe("etiqueta de rollo/bulto (diseño de sus tiquetes de papel, 100 × 75 mm)", () => {
+  it("todas son de 100 × 75 mm, el rollo que compraron: sin girar ni achicar", () => {
+    for (const s of ["extrusion", "impresion", "precorte", "embobinado", "sellado"] as const) {
+      expect(LABEL_FORMATS[s]).toMatchObject({ widthMm: 100, heightMm: 75 });
+      expect(labelSheet(s)).toEqual({ widthMm: 100, heightMm: 75, rotated: false, scale: 1 });
+    }
     const html = rollLabelsHtml([base]);
-    expect(html).toContain("BOLSA BASURA");
-    expect(html).toContain("EN ROLLO PRECORTE");
-    expect(html).toContain("REF: <u>55X70 CM · CAL 2.5</u>");
-    expect(html).toContain("<b>FECHA:</b> <span>09-11-26</span>");
-    expect(html).toContain("<b>CANT PACA:</b> <span>50</span>");
-    expect(html).toContain("<b>PESO:</b> <span>12,5 kg</span>");
-    expect(html).toContain("<b>COLOR:</b> <span>NEGRO</span>");
-    expect(html).toContain("<strong>PRE-6354</strong>");
-    expect(html).toContain("SOMOS SUPERIOR");
+    expect(html).toContain("@page { size: 100mm 75mm; margin: 0; }");
+    expect(html).not.toContain("rotate(90deg)");
+    expect(html).not.toMatch(/transform: [^"]*scale\(/);
   });
 
-  it("un dato que falta queda como línea para escribir a mano; el texto se escapa", () => {
-    const html = rollLabelsHtml([{ ...base, cantPaca: null, productName: "<b>x</b>" }]);
-    expect(html).toContain('<b>CANT PACA:</b> <span><span class="blank"></span></span>');
+  it("si el rollo cargado es otro, el diseño se achica y se centra", () => {
+    const s = { sizeMode: "unico" as const, labelWidthMm: 80, labelHeightMm: 75, rotateWide: true, offsetXmm: 0, offsetYmm: 0 };
+    expect(labelSheet("sellado", s)).toEqual({ widthMm: 80, heightMm: 75, rotated: false, scale: 0.8 });
+    expect(rollLabelsHtml([base], "/l.png", s)).toContain("transform: translate(0mm, 7.5mm) scale(0.8)");
+  });
+
+  it("lleva lo del tiquete de papel: título, Nº con el lote, producto y REF, la cuadrícula, contacto con alimentos y la NOTA", () => {
+    const html = rollLabelsHtml([base]);
+    expect(html).toContain("MATERIAL PRECORTADO");
+    expect(html).toContain("TUBULARES · BOLSAS · PRECORTADOS");
+    expect(html).toContain("<b>PRE-6354</b><small>LOTE OP-00029</small>");
+    expect(html).toContain("BOLSA BASURA · REF 55X70 CM");
+    expect(html).toContain("EN ROLLO PRECORTE");
+    expect(html).toContain("<small>FECHA:</small><b>24-11-26</b>");
+    expect(html).toContain("<small>ROLLO Nº:</small><b>12</b>");
+    expect(html).toContain("<small>CALIBRE:</small><b>2.5</b>");
+    expect(html).toContain("<small>PESO NETO:</small><b>12,5 kg</b>");
+    expect(html).toContain("<small>DENSIDAD:</small><b>ALTA</b>");
+    expect(html).toContain("<small>OPERARIO:</small><b>CARLOS</b>");
+    expect(html).toContain('<div class="c wide"><small>CLIENTE:</small><b>AGROPECUARIA LA SEVILLANA</b>');
+    expect(html).toContain("CONTACTO CON ALIMENTOS Y BEBIDAS");
+    expect(html).toContain("OBS: Cant. paca 50");
+    expect(html).toContain("NOTA: Únicamente se aceptan devoluciones");
+    expect(html).toContain("Carrera 44 No. 18-106");
+  });
+
+  it("lo que el sistema no sabe queda para completar a mano: peso bruto (línea) y contacto con alimentos (casillas vacías)", () => {
+    const html = rollLabelsHtml([base]);
+    expect(html).toContain('<small>PESO BRUTO:</small><span class="blank"></span>');
+    expect(html).toMatch(/SI <span class="ck"><\/span> NO <span class="ck"><\/span>/);
+    expect(rollLabelsHtml([{ ...base, foodContact: true }])).toMatch(/SI <span class="ck">X<\/span> NO <span class="ck"><\/span>/);
+    expect(rollLabelsHtml([{ ...base, clientName: null }])).toContain("<b>STOCK (SIN CLIENTE)</b>");
+  });
+
+  it("el texto se escapa", () => {
+    const html = rollLabelsHtml([{ ...base, productName: "<b>x</b>", operator: "<img>" }]);
     expect(html).toContain("&lt;B&gt;X&lt;/B&gt;");
     expect(html).not.toContain("<B>X</B>");
+    expect(html).not.toContain("<IMG>");
   });
 
-  it("Sellado: el peso es el del bulto y la cantidad es PAQ X UNID", () => {
+  it("Sellado: BULTO Nº, PAQ X UNID y PESO BULTO (el del bulto), y la cant. paca no se repite en OBS", () => {
     const order = {
       orderNumber: "OP-00012",
       station: "sellado",
-      specs: { color: "Negro" },
-      product: { name: "Bolsa basura", measure: "55x70", measureUnit: "Cms.", calibre: "2.5", color: null },
+      specs: { color: "Negro", calibre: "2.5", materialDensidad: "ALTA" },
+      product: { name: "Bolsa basura", measure: "55x70", measureUnit: "Cms.", calibre: "1", color: null },
       client: { name: "KLISTO" },
     };
-    const label = rollLabelFromOrder(order, { weightKg: 30, details: { pBulto: 12.5, paqXUnid: "50" }, date: "2026-11-09T15:00:00" }, "SELL-4", "data:x");
-    expect(label).toMatchObject({ station: "sellado", weightKg: 12.5, cantPaca: "50", color: "Negro", reference: "55x70 cm · cal 2.5", clientName: "KLISTO" });
+    const label = rollLabelFromOrder(
+      order,
+      { station: "sellado", weightKg: 30, details: { pBulto: 12.5, paqXUnid: "50" }, date: "2026-11-09T15:00:00", operatorName: "Ana" },
+      "SELL-4",
+      "data:x",
+      3
+    );
+    expect(label).toMatchObject({
+      station: "sellado",
+      weightKg: 12.5,
+      cantPaca: "50",
+      color: "Negro",
+      reference: "55x70 cm",
+      calibre: "2.5",
+      densidad: "ALTA",
+      operator: "Ana",
+      rollNumber: 3,
+      clientName: "KLISTO",
+      foodContact: null,
+    });
+    const cells = labelCells(label);
+    expect(cells.map((c) => c.label)).toEqual(["FECHA", "COLOR", "BULTO Nº", "PAQ X UNID", "CALIBRE", "PESO BULTO", "DENSIDAD", "OPERARIO", "CLIENTE"]);
+    expect(cells.find((c) => c.label === "PESO BULTO")?.value).toBe("12,5 kg");
+    expect(labelObservations(label)).toBe("");
     expect(labelDate("2026-11-09T15:00:00")).toBe("09-11-26");
+  });
+
+  it("inventario inicial: el tiquete va en observaciones; la nota automática no", () => {
+    const order = { orderNumber: "OP-1", station: "extrusion", product: { name: "Tubular" }, client: null };
+    const l = rollLabelFromOrder(order, { station: "extrusion", weightKg: 49.8, label: "1023", notes: "Inventario inicial" }, "EXT-9", "data:x", 1);
+    expect(labelObservations(l)).toBe("Tiquete 1023");
   });
 });
